@@ -350,6 +350,7 @@ object WallpaperController {
     ): Boolean {
         if (!HookUtils.canApplyLockWallpaper(context)) {
             logI("silent update skipped: screen off or not on keyguard")
+            markWallpaperStale()
             return false
         }
         try {
@@ -359,13 +360,19 @@ object WallpaperController {
                 albumDrawable,
                 metadata ?: readBestMetadata(context),
                 ignoreCache
-            ) ?: return false
+            )
+            if (wallpaperResult == null) {
+                logE("silent update: build failed, restore lyric fog if possible")
+                ensureLyricFogReady()
+                return false
+            }
             applyLockBitmapAsync(context, wallpaperResult)
             MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
             logI("silent wallpaper update ok")
             return true
         } catch (e: Throwable) {
             logE("updateMusicWallpaperSilently error", e)
+            ensureLyricFogReady()
             return false
         }
     }
@@ -396,8 +403,7 @@ object WallpaperController {
                 return null
             }
         val trackKey = AlbumArtResolver.getCachedTrackKey()
-        lastWallpaperAlbumBitmap = albumBitmap
-        lastWallpaperTrackKey = trackKey
+        // 仅在成功应用后再写入 lastWallpaper*，避免 setBitmap 跳过却标记为已是新曲
         logI("album ${albumBitmap.width}x${albumBitmap.height}, screen=${dm.widthPixels}x${dm.heightPixels}, track=$trackKey")
 
         val wallpaper = BlurUtils.blurWithBigAlbum(
@@ -458,9 +464,11 @@ object WallpaperController {
         val trackKey = result.trackKey
         val hadMask = maskBuilder != null
         Thread {
+            var applied = false
             try {
                 if (!HookUtils.canApplyLockWallpaper(appCtx)) {
                     logI("applyLockBitmap skipped: screen off or not on keyguard")
+                    markWallpaperStale()
                     return@Thread
                 }
                 val maskBmp = maskBuilder?.invoke()
@@ -469,20 +477,28 @@ object WallpaperController {
                 }
                 WallpaperManager.getInstance(appCtx)
                     .setBitmap(copy, null, true, WallpaperManager.FLAG_LOCK)
+                applied = true
+                lastWallpaperAlbumBitmap = result.album
+                lastWallpaperTrackKey = trackKey
             } catch (e: Throwable) {
                 logE("applyLockBitmap error", e)
+                markWallpaperStale()
             } finally {
                 hideTransitionMask()
                 if (!copy.isRecycled) copy.recycle()
                 val settleDelay = if (hadMask) MASK_SETTLE_MS + MASK_FADE_MS else 80L
                 mainHandler.postDelayed({
-                    if (HookUtils.canApplyLockWallpaper(appCtx)) {
+                    if (applied && (HookUtils.canApplyLockWallpaper(appCtx) ||
+                            (isMusicWallpaperSet && HookUtils.isOnKeyguard(appCtx)))
+                    ) {
                         MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(
                             albumForLyric,
                             trackKey
                         )
-                    } else if (!albumForLyric.isRecycled) {
-                        albumForLyric.recycle()
+                    } else {
+                        if (!albumForLyric.isRecycled) albumForLyric.recycle()
+                        // 壁纸未写入成功时补一次雾状背景，避免 pending 后一直空白
+                        if (isMusicWallpaperSet) ensureLyricFogReady()
                     }
                 }, settleDelay)
             }
@@ -547,23 +563,51 @@ object WallpaperController {
 
     /**
      * 重新上锁进入音乐锁屏时调用：
-     * 若期间（桌面状态）切过歌，用最新缓存的专辑封面重建锁屏壁纸；
-     * 封面未变化（引用相同）则跳过，避免无谓重建与闪烁。
+     * 若期间切过歌，用最新缓存的专辑封面重建锁屏壁纸；
+     * 曲目未变则补渲染歌词雾状背景（防止上次 pending 后未 ready）。
      */
     fun refreshMusicWallpaper(context: Context? = null): Boolean {
         val ctx = context ?: sessionWatchContext ?: return false
         if (!isMusicWallpaperSet) return false
         if (!HookUtils.canApplyLockWallpaper(ctx)) {
             logI("refreshMusicWallpaper skipped: screen off or not on keyguard")
+            ensureLyricFogReady()
             return false
+        }
+        // 用当前会话 metadata 刷新解析缓存，避免解锁期间切歌后仍用旧 trackKey
+        try {
+            val meta = readBestMetadata(ctx)
+            AlbumArtResolver.resolve(ctx, null, meta, ignoreCache = false, AlbumArtResolver.getBindMediaData())
+        } catch (_: Throwable) {
         }
         val trackKey = AlbumArtResolver.getCachedTrackKey()
         if (trackKey != null && trackKey == lastWallpaperTrackKey) {
+            ensureLyricFogReady()
             return false
         }
         logI("refreshing music wallpaper with latest album art, track=$trackKey")
-        (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
         return updateMusicWallpaperSilently(ctx, null, null, ignoreCache = true)
+    }
+
+    /** 标记壁纸与当前曲目可能不一致，下次进锁屏强制刷新。 */
+    fun markWallpaperStale() {
+        lastWallpaperTrackKey = null
+        logI("wallpaper marked stale")
+    }
+
+    /** 若歌词雾状背景缺失，用最近成功应用的专辑补渲染。 */
+    fun ensureLyricFogReady() {
+        val lyric = MusicLockscreenManager.lyricView as? LockscreenLyricView ?: return
+        if (lyric.isFogBackgroundReady()) return
+        val album = lastWallpaperAlbumBitmap?.takeIf { !it.isRecycled }
+            ?: AlbumArtResolver.getCached()
+            ?: return
+        val copy = try {
+            album.copy(album.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (_: Throwable) {
+            return
+        }
+        lyric.onWallpaperAlbumReady(copy, lastWallpaperTrackKey ?: AlbumArtResolver.getCachedTrackKey())
     }
 
     private fun startSessionWatch(context: Context) {

@@ -125,13 +125,13 @@ class MediaAlbumClickHook {
 
                         if (WallpaperController.isShowing() && (isArtUpdate || isNewSong)) {
                             logI("Artwork updated, refreshing wallpaper")
-                            (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
-                            // 延迟 300ms 等专辑图动画完成
+                            // 延迟 300ms 等专辑图动画完成；勿提前 pending，避免跳过更新后歌词背景卡住
                             albumView?.postDelayed({
                                 try {
                                     val ctx = albumView.context
                                     if (!HookUtils.canApplyLockWallpaper(ctx)) {
-                                        logI("delayed wallpaper update skipped: screen off or not on keyguard")
+                                        logI("delayed wallpaper update deferred: screen off or not on keyguard")
+                                        WallpaperController.markWallpaperStale()
                                         return@postDelayed
                                     }
                                     val pkg = HookUtils.packageFromMediaData(mediaData)

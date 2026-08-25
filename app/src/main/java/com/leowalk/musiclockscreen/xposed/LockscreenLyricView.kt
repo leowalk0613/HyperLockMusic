@@ -446,7 +446,8 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 壁纸专辑已应用到锁屏：后台渲染雾状背景后再显示。 */
     fun onWallpaperAlbumReady(sourceAlbum: Bitmap? = null, trackKey: String? = null) {
         if (!isMusicLockscreenActive()) return
-        if (!HookUtils.canApplyLockWallpaper(context)) return
+        // 雾状背景是 overlay，锁屏即可渲染；不要求屏幕 interactive，避免 AOD/过渡期丢背景
+        if (!HookUtils.isOnKeyguard(context)) return
         val gen = fogBuildGeneration
         val expectedKey = trackKey ?: AlbumArtResolver.getCachedTrackKey()
         val album = sourceAlbum ?: AlbumArtResolver.getCached() ?: return
@@ -468,7 +469,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 )
                 post {
                     if (gen != fogBuildGeneration || !isMusicLockscreenActive() ||
-                        !HookUtils.canApplyLockWallpaper(context)
+                        !HookUtils.isOnKeyguard(context)
                     ) {
                         bg.recycle()
                         if (ownsAlbumCopy && !album.isRecycled) album.recycle()
@@ -492,6 +493,12 @@ class LockscreenLyricView(context: Context) : View(context) {
                 if (ownsAlbumCopy && !album.isRecycled) album.recycle()
             }
         }.start()
+    }
+
+    /** 雾状背景是否已在显示（用于锁屏时补渲染）。 */
+    fun isFogBackgroundReady(): Boolean {
+        val src = fogBgSource
+        return showFogBackground && src != null && !src.isRecycled
     }
 
     fun invalidateBlurBackground() {
