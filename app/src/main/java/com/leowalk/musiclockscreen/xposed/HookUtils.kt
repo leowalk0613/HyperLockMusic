@@ -81,6 +81,31 @@ object HookUtils {
         }
     }
 
+    /** 屏幕是否处于点亮/可交互状态（息屏、AOD 过渡时为 false）。 */
+    fun isScreenInteractive(context: Context): Boolean {
+        return try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            pm?.isInteractive == true
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
+    /**
+     * 允许写锁屏壁纸 / 刷新歌词雾状背景。
+     * 必须在锁屏；屏幕点亮时一律允许；
+     * 音乐锁屏已开启时，AOD/息屏也允许切歌刷新（否则亮屏前壁纸与专辑会卡住）。
+     */
+    fun canApplyLockWallpaper(context: Context): Boolean {
+        if (!isOnKeyguard(context)) return false
+        if (isScreenInteractive(context)) return true
+        return try {
+            WallpaperController.isShowing() || MusicLockscreenManager.isShowing
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /** 从 SystemUI MediaData 反射读取 packageName */
     fun packageFromMediaData(mediaData: Any?): String? {
         if (mediaData == null) return null

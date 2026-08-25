@@ -182,12 +182,23 @@ object M3 {
     }
 
     fun segmentButton(ctx: Context, label: String, checked: Boolean): com.google.android.material.button.MaterialButton {
-        val btn = com.google.android.material.button.MaterialButton(ctx)
+        val btn = com.google.android.material.button.MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle)
         btn.text = label
-        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
         btn.isCheckable = true
+        btn.isAllCaps = false
         btn.id = View.generateViewId()
         btn.isChecked = checked
+        btn.maxLines = 1
+        btn.ellipsize = null
+        btn.minWidth = 0
+        btn.minimumWidth = 0
+        btn.minHeight = dp(ctx, 36f)
+        btn.minimumHeight = dp(ctx, 36f)
+        btn.insetTop = 0
+        btn.insetBottom = 0
+        val hPad = dp(ctx, 4f)
+        btn.setPadding(hPad, dp(ctx, 6f), hPad, dp(ctx, 6f))
         val checkedBg = attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt())
         val checkedFg = attrColor(ctx, com.google.android.material.R.attr.colorOnPrimary, 0xFF000000.toInt())
         val uncheckedBg = attrColor(ctx, com.google.android.material.R.attr.colorSurfaceContainer, 0xFF2B2930.toInt())
@@ -200,11 +211,13 @@ object M3 {
             arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
             intArrayOf(checkedFg, uncheckedFg)
         ))
+        btn.strokeWidth = 0
         return btn
     }
 
     /**
      * 分段单选按钮组：每行 columns 个，跨行单选。
+     * 同一行内等分宽度，缩小内边距以保证短文案完整显示。
      */
     fun segmentGroup(ctx: Context, labels: List<String>, selectedIndex: Int, columns: Int,
                      onSelect: (Int) -> Unit): LinearLayout {
@@ -219,7 +232,8 @@ object M3 {
             val end = minOf((r + 1) * columns, labels.size)
             for (i in r * columns until end) {
                 val btn = segmentButton(ctx, labels[i], i == selectedIndex)
-                group.addView(btn)
+                val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                group.addView(btn, lp)
                 buttons.add(btn)
             }
             group.addOnButtonCheckedListener { _, checkedId, isChecked ->

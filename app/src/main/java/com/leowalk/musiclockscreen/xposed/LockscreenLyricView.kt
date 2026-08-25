@@ -36,10 +36,8 @@ class LockscreenLyricView(context: Context) : View(context) {
     // ============================================================
     /** 雾底部超出专辑底边的重叠量（dp），盖住壁纸缩放/层级偏移造成的边距 */
     private val fogBottomOverlapDp = 12f
-    /** 雾状暗色叠加透明度（0-255，越大越暗） */
-    private val fogAlpha = 110
-    /** 雾状白色叠加透明度（0-255，越大越雾白） */
-    private val fogWhiteAlpha = 40
+    /** 雾状白色渐变透明度（0-255，底部最浓、向上消散） */
+    private val fogWhiteAlpha = 72
     /** 歌词内容上下内边距（dp） */
     private val vPaddingDp = 14f
 
@@ -322,7 +320,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 雾状背景：裁剪音乐锁屏同款模糊背景，再叠加暗色 + 白色渐变遮罩。
+     * 雾状背景：裁剪音乐锁屏同款模糊背景，再叠白色渐变（磨砂感）。
      */
     private fun drawFogBackground(canvas: Canvas, w: Float, h: Float) {
         if (!showFogBackground) return
@@ -378,23 +376,9 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
         }
 
-        // 渐变遮罩：底部较浓、向上平滑消散，圆角内绘制
+        // 白色渐变：底部较浓、向上平滑消散
         canvas.save()
         canvas.clipPath(path)
-        val darkGradient = LinearGradient(
-            0f, h, 0f, 0f,
-            intArrayOf(
-                Color.argb(fogAlpha, 0, 0, 0),
-                Color.argb(fogAlpha * 3 / 4, 0, 0, 0),
-                Color.argb(fogAlpha / 2, 0, 0, 0),
-                Color.argb(0, 0, 0, 0)
-            ),
-            floatArrayOf(0f, 0.3f, 0.65f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        val darkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = darkGradient }
-        canvas.drawRect(rect, darkPaint)
-
         val whiteGradient = LinearGradient(
             0f, h, 0f, 0f,
             intArrayOf(
@@ -438,6 +422,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         fogCacheSrcTop = -1
         fogCacheSrcRight = -1
         fogCacheSrcBottom = -1
+        val ownedAlbum = fogBgSourceAlbum
+        if (ownedAlbum != null && ownedAlbum !== AlbumArtResolver.getCached()) {
+            ownedAlbum.recycle()
+        }
         fogBgSource?.recycle()
         fogBgSource = null
         fogBgSourceAlbum = null
@@ -456,14 +444,17 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /** 壁纸专辑已应用到锁屏：后台渲染雾状背景后再显示。 */
-    fun onWallpaperAlbumReady() {
+    fun onWallpaperAlbumReady(sourceAlbum: Bitmap? = null, trackKey: String? = null) {
         if (!isMusicLockscreenActive()) return
+        if (!HookUtils.canApplyLockWallpaper(context)) return
         val gen = fogBuildGeneration
+        val expectedKey = trackKey ?: AlbumArtResolver.getCachedTrackKey()
+        val album = sourceAlbum ?: AlbumArtResolver.getCached() ?: return
+        val ownsAlbumCopy = sourceAlbum != null
         val screenW = resources.displayMetrics.widthPixels
         val screenH = resources.displayMetrics.heightPixels
         val blurRadius = ConfigReader.blurRadius(context)
-        val darkOverlay = ConfigReader.darkOverlay(context)
-        val album = AlbumArtResolver.getCached() ?: return
+        val darkOverlay = (ConfigReader.darkOverlay(context) / 4).coerceIn(0, 48)
 
         Thread {
             try {
@@ -476,10 +467,19 @@ class LockscreenLyricView(context: Context) : View(context) {
                     targetHeight = screenH
                 )
                 post {
-                    if (gen != fogBuildGeneration || !isMusicLockscreenActive()) {
+                    if (gen != fogBuildGeneration || !isMusicLockscreenActive() ||
+                        !HookUtils.canApplyLockWallpaper(context)
+                    ) {
                         bg.recycle()
+                        if (ownsAlbumCopy && !album.isRecycled) album.recycle()
                         return@post
                     }
+                    if (expectedKey != null && expectedKey != AlbumArtResolver.getCachedTrackKey()) {
+                        bg.recycle()
+                        if (ownsAlbumCopy && !album.isRecycled) album.recycle()
+                        return@post
+                    }
+                    fogBgSource?.recycle()
                     fogBgSource = bg
                     fogBgSourceAlbum = album
                     fogBgSourceBlurRadius = blurRadius
@@ -489,6 +489,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                     invalidate()
                 }
             } catch (_: Throwable) {
+                if (ownsAlbumCopy && !album.isRecycled) album.recycle()
             }
         }.start()
     }

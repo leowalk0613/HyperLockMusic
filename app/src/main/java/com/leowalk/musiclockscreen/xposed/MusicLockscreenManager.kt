@@ -94,8 +94,8 @@ object MusicLockscreenManager {
     }
 
     /** 锁屏壁纸 setBitmap 已提交且画面稳定后调用，触发歌词雾状背景渲染。 */
-    fun notifyWallpaperAppliedToLockScreen() {
-        (lyricView as? LockscreenLyricView)?.onWallpaperAlbumReady()
+    fun notifyWallpaperAppliedToLockScreen(albumBitmap: Bitmap? = null, trackKey: String? = null) {
+        (lyricView as? LockscreenLyricView)?.onWallpaperAlbumReady(albumBitmap, trackKey)
     }
 
     /**

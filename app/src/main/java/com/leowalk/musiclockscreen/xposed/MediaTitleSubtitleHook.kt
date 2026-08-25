@@ -3,6 +3,8 @@ package com.leowalk.musiclockscreen.xposed
 import android.graphics.Color
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextPaint
+import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
@@ -26,9 +28,15 @@ object MediaTitleSubtitleHook {
 
     private const val SUBTITLE_SIZE_RATIO = 0.72f
     private const val SUBTITLE_ALPHA = 140
-    private const val LINE_SUBTITLE_SIZE_RATIO = 0.6f
     private const val LINE_SUBTITLE_ALPHA = 120
+    /** 副标题保持较小；主标题可突破原单行高度限制。 */
+    private const val LINE_MAIN_SIZE_RATIO = 1.0f
+    private const val LINE_SUB_SIZE_RATIO = 0.32f
+    private const val LINE_TITLE_OVER_ARTIST = 1.15f
+    private const val LINE_MIN_SCALE = 0.78f
     private const val RAW_ARTIST_TAG = 0x7f140001
+    private const val BASE_TITLE_SIZE_TAG = 0x7f140002
+    private const val LINE_APPLIED_TAG = 0x7f140003
 
     private var module: XposedModule? = null
     private var mediaDataField: Field? = null
@@ -61,7 +69,6 @@ object MediaTitleSubtitleHook {
             module.hook(setInfoText).intercept { chain ->
                 val result = chain.proceed()
                 try {
-                    // setInfoText 每次重设文本为纯净内容，失效歌手原始缓存
                     val h = holderField?.get(chain.thisObject)
                     (artistTextField.get(h) as? TextView)?.let { invalidateArtistCache(it) }
                     applyInlineSubtitle(chain.thisObject, titleTextField, artistTextField)
@@ -99,14 +106,14 @@ object MediaTitleSubtitleHook {
 
         val mode = ConfigReader.titleBracketMode(titleText.context)
         val (main, sub) = TitleBracketHelper.splitBrackets(rawTitle)
+        val artistText = artistTextField.get(holder) as? TextView
 
         if (mode == "line") {
-            // 分行模式：标题显示主标题，副标题合到歌手后面（更小、可截断、歌手优先）
-            val artistText = artistTextField.get(holder) as? TextView
             applyLineSubtitle(titleText, artistText, main, sub)
             return
         }
 
+        restoreArtistText(artistText)
         unwrapTitleRow(titleText)
 
         titleText.text = when (mode) {
@@ -125,8 +132,8 @@ object MediaTitleSubtitleHook {
     }
 
     /**
-     * 分行模式：标题只显示主标题；副标题合进歌手文本之后，字号比歌手小、颜色更淡。
-     * 歌手始终在前，超宽时从末尾截断（优先保留歌手）。不改变任何布局层级。
+     * 分行：主标题在上、括号副标题在下（垂直 LinearLayout）。
+     * 主标题用接近原标题字号（可高于歌手、可突破原单行高度）；副标题保持较小；行距尽量紧。
      */
     private fun applyLineSubtitle(
         titleText: TextView,
@@ -134,44 +141,173 @@ object MediaTitleSubtitleHook {
         main: String,
         sub: String
     ) {
-        titleText.text = main.ifEmpty { titleText.text }
-
-        if (artistText == null) return
-        val artistRaw = readRawArtist(artistText) ?: return
-        if (artistRaw.isBlank()) return
+        restoreArtistText(artistText)
 
         if (sub.isEmpty()) {
-            artistText.text = artistRaw
+            unwrapTitleRow(titleText)
+            titleText.text = main.ifEmpty { titleText.text }
             return
         }
 
-        val artistColor = artistText.currentTextColor
-        val ss = SpannableString("$artistRaw   $sub")
-        val subStart = ss.length - sub.length
-        ss.setSpan(
-            RelativeSizeSpan(LINE_SUBTITLE_SIZE_RATIO),
-            subStart,
-            ss.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        val displayMain = main.ifEmpty { titleText.text?.toString().orEmpty() }
+        if (displayMain.isEmpty()) return
+
+        val (row, subTv) = ensureTitleRow(titleText)
+        val baseSize = rememberBaseSize(titleText)
+        val titleColor = titleText.currentTextColor
+        val availWidth = when {
+            row.width > 0 -> row.width - row.paddingLeft - row.paddingRight
+            titleText.width > 0 -> titleText.width
+            else -> 0
+        }
+        val scale = computeLineScale(displayMain, sub, baseSize, availWidth)
+        val artistSize = artistText?.textSize?.takeIf { it > 0f } ?: (baseSize * 0.72f)
+        // 标题：原字号（宽度不足才缩小），且至少比歌手大一截；副标题固定比例，不随标题再放大
+        val mainPx = maxOf(baseSize * LINE_MAIN_SIZE_RATIO * scale, artistSize * LINE_TITLE_OVER_ARTIST)
+        val subPx = baseSize * LINE_SUB_SIZE_RATIO
+        val appliedKey = "$displayMain|$sub|$mainPx|$subPx|$titleColor"
+
+        // 仅当实际显示内容已正确时跳过，避免 setInfoText 冲掉文本后被误判为已应用
+        if (titleText.getTag(LINE_APPLIED_TAG) == appliedKey &&
+            titleText.text?.toString() == displayMain &&
+            subTv.text?.toString() == sub
+        ) {
+            return
+        }
+
+        titleText.maxLines = 1
+        titleText.ellipsize = TextUtils.TruncateAt.END
+        titleText.includeFontPadding = false
+        titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainPx)
+        titleText.text = displayMain
+
+        subTv.visibility = View.VISIBLE
+        subTv.maxLines = 1
+        subTv.ellipsize = TextUtils.TruncateAt.END
+        subTv.includeFontPadding = false
+        subTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, subPx)
+        subTv.setTextColor(
+            Color.argb(
+                LINE_SUBTITLE_ALPHA,
+                Color.red(titleColor),
+                Color.green(titleColor),
+                Color.blue(titleColor)
+            )
         )
-        ss.setSpan(
-            ForegroundColorSpan(
-                Color.argb(
-                    LINE_SUBTITLE_ALPHA,
-                    Color.red(artistColor),
-                    Color.green(artistColor),
-                    Color.blue(artistColor)
-                )
-            ),
-            subStart,
-            ss.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-        )
-        artistText.text = ss
+        subTv.text = sub
+        titleText.setTag(LINE_APPLIED_TAG, appliedKey)
+
+        if (availWidth <= 0) {
+            row.post {
+                if ((titleText.parent as? View)?.tag != TITLE_ROW_TAG) return@post
+                applyLineSubtitle(titleText, artistText, main, sub)
+            }
+        }
     }
 
-    /** 读取歌手的原始文本。首次（setInfoText 后）歌手是纯净的，用 tag 缓存原始值，
-     * 避免重复回调把已追加的副标题再次拼接。 */
+    private fun computeLineScale(
+        main: String,
+        sub: String,
+        baseSize: Float,
+        maxWidth: Int
+    ): Float {
+        if (maxWidth <= 0) return 1f
+        val paint = TextPaint()
+        var scale = 1f
+        while (scale > LINE_MIN_SCALE) {
+            paint.textSize = baseSize * LINE_MAIN_SIZE_RATIO * scale
+            val mainOk = paint.measureText(main) <= maxWidth
+            paint.textSize = baseSize * LINE_SUB_SIZE_RATIO * scale
+            val subOk = paint.measureText(sub) <= maxWidth
+            if (mainOk && subOk) return scale
+            scale -= 0.02f
+        }
+        return LINE_MIN_SCALE
+    }
+
+    private fun rememberBaseSize(titleText: TextView): Float {
+        val cached = titleText.getTag(BASE_TITLE_SIZE_TAG) as? Float
+        if (cached != null && cached > 0f) return cached
+        // 若已缩小过，不要把缩小后的字号当成基准
+        val size = titleText.textSize
+        titleText.setTag(BASE_TITLE_SIZE_TAG, size)
+        return size
+    }
+
+    private fun ensureTitleRow(titleText: TextView): Pair<LinearLayout, TextView> {
+        val parent = titleText.parent
+        if (parent is LinearLayout && parent.tag == TITLE_ROW_TAG) {
+            val subTv = parent.findViewWithTag(LINE_SUBTITLE_VIEW_TAG) as? TextView
+                ?: createLineSubtitleView(titleText).also { parent.addView(it) }
+            return parent to subTv
+        }
+
+        val outerParent = titleText.parent as? ViewGroup ?: run {
+            logE("ensureTitleRow: titleText has no parent")
+            val fallback = LinearLayout(titleText.context).apply { tag = TITLE_ROW_TAG }
+            return fallback to createLineSubtitleView(titleText)
+        }
+
+        val titleLp = titleText.layoutParams
+        val titleIndex = outerParent.indexOfChild(titleText)
+        val titleId = titleText.id
+
+        if (titleText.getTag(BASE_TITLE_SIZE_TAG) == null) {
+            titleText.setTag(BASE_TITLE_SIZE_TAG, titleText.textSize)
+        }
+
+        val row = LinearLayout(titleText.context).apply {
+            tag = TITLE_ROW_TAG
+            orientation = LinearLayout.VERTICAL
+            layoutParams = titleLp
+            if (titleId != View.NO_ID) {
+                id = titleId
+            }
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        }
+
+        outerParent.removeView(titleText)
+        titleText.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        titleText.maxLines = 1
+        titleText.ellipsize = TextUtils.TruncateAt.END
+        titleText.includeFontPadding = false
+        // 交给 row 持有约束 id，title 用 NO_ID 避免重复
+        titleText.id = View.NO_ID
+
+        val subTv = createLineSubtitleView(titleText)
+        row.addView(titleText)
+        row.addView(subTv)
+        outerParent.addView(row, titleIndex)
+        return row to subTv
+    }
+
+    private fun createLineSubtitleView(titleText: TextView): TextView {
+        return TextView(titleText.context).apply {
+            tag = LINE_SUBTITLE_VIEW_TAG
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                // 负边距收紧主副间距
+                topMargin = -dp(context, 4)
+            }
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            typeface = titleText.typeface
+            gravity = titleText.gravity
+            visibility = View.GONE
+        }
+    }
+
+    private fun restoreArtistText(artistText: TextView?) {
+        if (artistText == null) return
+        readRawArtist(artistText)?.let { artistText.text = it }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun readRawArtist(artistText: TextView): String? {
         val cached = artistText.getTag(RAW_ARTIST_TAG) as? String
@@ -184,7 +320,6 @@ object MediaTitleSubtitleHook {
         return raw
     }
 
-    /** 清空歌手原始缓存（内容变化时调用）。 */
     fun invalidateArtistCache(artistText: TextView) {
         artistText.setTag(RAW_ARTIST_TAG, null)
     }
@@ -194,9 +329,6 @@ object MediaTitleSubtitleHook {
         return (v * density).toInt()
     }
 
-    /**
-     * 主标题在前、副标题在后；单行省略时从末尾截断，优先保留主标题。
-     */
     private fun buildSpannableTitle(main: String, sub: String, titleColor: Int): CharSequence {
         val suffix = "($sub)"
         val full = if (main.isEmpty()) suffix else "$main $suffix"
@@ -225,7 +357,6 @@ object MediaTitleSubtitleHook {
         return ss
     }
 
-    /** 还原旧版双 TextView 包裹，避免布局/约束异常 */
     private fun unwrapTitleRow(titleText: TextView) {
         val row = titleText.parent as? LinearLayout ?: return
         if (row.tag != TITLE_ROW_TAG) return
@@ -235,12 +366,21 @@ object MediaTitleSubtitleHook {
         val rowIndex = outerParent.indexOfChild(row)
 
         row.findViewWithTag<View>(SUBTITLE_VIEW_TAG)?.let { row.removeView(it) }
+        row.findViewWithTag<View>(LINE_SUBTITLE_VIEW_TAG)?.let { row.removeView(it) }
         row.removeView(titleText)
 
         val titleConstraintId = row.id
         if (titleConstraintId != View.NO_ID) {
             titleText.id = titleConstraintId
         }
+
+        (titleText.getTag(BASE_TITLE_SIZE_TAG) as? Float)?.let { base ->
+            titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, base)
+        }
+        titleText.setTag(BASE_TITLE_SIZE_TAG, null)
+        titleText.setTag(LINE_APPLIED_TAG, null)
+        titleText.includeFontPadding = true
+        titleText.maxLines = 1
 
         outerParent.removeView(row)
         outerParent.addView(titleText, rowIndex, rowLp)

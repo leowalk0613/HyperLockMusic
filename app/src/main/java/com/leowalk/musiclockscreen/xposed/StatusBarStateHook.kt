@@ -51,8 +51,11 @@ object StatusBarStateHook {
                                 if (WallpaperController.isShowing()) {
                                     LockscreenNotificationController.forceHideNormalNotifications()
                                     (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
-                                    // 桌面期间切过歌时，用最新专辑封面重建锁屏壁纸（未切歌则跳过）
-                                    WallpaperController.refreshMusicWallpaper(MusicLockscreenManager.lyricView?.context)
+                                    // 仅亮屏回到锁屏时刷新壁纸；息屏/AOD 切换不触发 setBitmap
+                                    val ctx = MusicLockscreenManager.lyricView?.context
+                                    if (ctx != null && HookUtils.isScreenInteractive(ctx)) {
+                                        WallpaperController.refreshMusicWallpaper(ctx)
+                                    }
                                     logI("keyguard shown -> resume music lockscreen UI")
                                 }
                             }

@@ -108,7 +108,7 @@ class MediaAlbumClickHook {
                                     override fun onViewAttachedToWindow(v: View) {}
                                     override fun onViewDetachedFromWindow(v: View) {
                                         if (WallpaperController.isShowing() &&
-                                            HookUtils.isOnKeyguard(v.context)
+                                            HookUtils.canApplyLockWallpaper(v.context)
                                         ) {
                                             logI("albumView detached on keyguard, restoring wallpaper")
                                             WallpaperController.restoreOriginalWallpaper(v.context)
@@ -130,8 +130,8 @@ class MediaAlbumClickHook {
                             albumView?.postDelayed({
                                 try {
                                     val ctx = albumView.context
-                                    if (!HookUtils.isOnKeyguard(ctx)) {
-                                        logI("delayed wallpaper update skipped: not on keyguard")
+                                    if (!HookUtils.canApplyLockWallpaper(ctx)) {
+                                        logI("delayed wallpaper update skipped: screen off or not on keyguard")
                                         return@postDelayed
                                     }
                                     val pkg = HookUtils.packageFromMediaData(mediaData)
@@ -143,9 +143,14 @@ class MediaAlbumClickHook {
                                     }
                                     val albumImageView = albumImageViewField.get(holder) as? ImageView
                                     val drawable = albumImageView?.drawable
-                                    if (drawable != null) {
-                                        WallpaperController.setMusicWallpaper(ctx, drawable, true)
-                                    }
+                                    val bindMeta = mediaMetadataField?.get(thisObj)
+                                        as? android.media.MediaMetadata
+                                    WallpaperController.setMusicWallpaper(
+                                        ctx,
+                                        drawable,
+                                        true,
+                                        bindMeta
+                                    )
                                 } catch (e: Throwable) {
                                     logE("delayed wallpaper update error", e)
                                 }
