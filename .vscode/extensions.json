@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "vscjava.vscode-gradle",
+    "usernamehw.errorlens",
+    "vscjava.vscode-java-pack",
+    "adelphes.android-dev-ext",
+    "krishna-kudari.android-studio-lite",
+    "dotjoshjohnson.xml",
+    "eamodio.gitlens",
+    "streetsidesoftware.code-spell-checker",
+    "MS-CEINTL.vscode-language-pack-zh-hans",
+    "gruntfuggly.triggertaskonsave"
+  ]
+}

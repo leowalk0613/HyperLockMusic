@@ -1,0 +1,56 @@
+*.iml
+.gradle/
+/local.properties
+.env
+/.idea/
+.DS_Store
+/build/
+/captures
+.externalNativeBuild
+.cxx/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.jar
+*.aar
+*.jks
+*.keystore
+keystore.properties
+*.pro
+*.log
+
+**/build/
+**/.gradle/
+.idea/
+*.iml
+*.hprof
+*.idea/
+module_data.json
+app/release/
+app/debug/
+
+# Build logs
+build_log.txt
+build_output*.txt
+build_test_log.txt
+gradle_*.txt
+gradle-*.txt
+ps_err.txt
+ps_out.txt
+stderr.txt
+stdout.txt
+
+# Test data
+testdata/
+
+# HyperOS4 反编译分析产物（临时工作文件，不入库）
+analysis/
+._lspdb/
+tmp_layout/
+
+# Tooling / IDE caches
+.codegraph/
+.kotlin/

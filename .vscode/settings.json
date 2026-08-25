@@ -1,0 +1,18 @@
+{
+  "triggerTaskOnSave.on": true,
+  "triggerTaskOnSave.showNotifications": false,
+  "triggerTaskOnSave.tasks": {
+    "assembleDebug": [
+      "**/*.kt",
+      "**/*.java",
+      "**/*.xml",
+      "**/*.gradle",
+      "**/AndroidManifest.xml"
+    ]
+  },
+  "task.allowAutomaticTasks": "on",
+  "android-studio-lite.sdkPath": "D:\\Data\\AS",
+  "android-studio-lite.adbPath": "D:\\Data\\AS\\platform-tools\\adb.exe",
+  "android-studio-lite.emulatorPath": "D:\\Data\\AS\\emulator\\emulator.exe",
+  "android-studio-lite.avdHome": "C:\\Users\\lonel\\.android\\avd"
+}

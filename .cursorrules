@@ -1,0 +1,27 @@
+# LockMusic — CLI Android build rules
+
+## Build (mandatory)
+
+- ALL Android builds, cleans, installs, and Gradle tasks MUST use the project wrapper: `./gradlew` (Windows: `.\gradlew.bat` or `./gradlew`).
+- NEVER suggest, open, or rely on Android Studio for compile, sync, run, or debug workflows.
+- NEVER recommend installing or launching Android Studio as a solution to build problems.
+- Prefer diagnosing failures from Gradle CLI output (`./gradlew assembleDebug --stacktrace` when needed).
+
+## Allowed commands (examples)
+
+- `./gradlew clean`
+- `./gradlew assembleDebug`
+- `./gradlew assembleRelease`
+- `./gradlew :app:installDebug`
+- `./gradlew tasks`
+
+## Forbidden
+
+- Opening the project in Android Studio for builds
+- Using IDE-only “Sync Project with Gradle Files” as the primary fix path
+- Inventing non-wrapper Gradle invocations when `./gradlew` exists
+
+## Environment
+
+- Read `ANDROID_HOME` / `ANDROID_SDK_ROOT` from `.env` or the shell environment.
+- Keep builds reproducible via the wrapper; do not assume a global `gradle` install.
