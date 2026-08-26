@@ -270,9 +270,9 @@ object WallpaperController {
             MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
 
             try {
-                NumStateViewController.hide()
+                NumStateViewController.syncVisibility()
             } catch (e: Throwable) {
-                logE("hide num_state_view error", e)
+                logE("sync num_state_view error", e)
             }
 
             LockscreenNotificationController.forceHideNormalNotifications()
@@ -737,9 +737,9 @@ object WallpaperController {
             }
 
             try {
-                NumStateViewController.show()
+                NumStateViewController.syncVisibility()
             } catch (e: Throwable) {
-                logE("show num_state_view error", e)
+                logE("sync num_state_view error", e)
             }
 
             originalLockWallpaper = null

@@ -16,12 +16,75 @@ object LockscreenNotificationController {
 
     private var notificationStackView: ViewGroup? = null
     private var isHidden: Boolean = false
+    /** OS4 锁屏上展开通知中心时 SystemUI 会切到 STATUS_SHADE（人仍可处于锁屏）。 */
+    private var notificationShadeOpen: Boolean = false
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
+
+    fun setNotificationShadeOpen(open: Boolean) {
+        if (notificationShadeOpen == open) return
+        notificationShadeOpen = open
+        NumStateViewController.syncVisibility()
+        if (WallpaperController.isShowing() && isOnKeyguard()) {
+            syncKeyguardOverlayVisibility()
+        }
+    }
 
     /** 音乐锁屏激活且仍在锁屏界面时才过滤普通通知（OS4：锁屏=通知中心，不区分 shade） */
     fun shouldFilterNotifications(): Boolean {
         return WallpaperController.isShowing() && isOnKeyguard()
+    }
+
+    /** 通知栈里是否有可见的普通通知行（通知列表正在展示）。 */
+    fun isNotificationListVisible(): Boolean {
+        if (!isOnKeyguard()) return false
+        val stack = notificationStackView ?: return false
+        for (i in 0 until stack.childCount) {
+            val child = stack.getChildAt(i)
+            if (NotificationStackChildClassifier.isMiuiMediaHeaderView(child)) continue
+            if (!NotificationStackChildClassifier.isExpandableNotificationRow(child)) continue
+            if (SystemNotificationAnimator.isHidden(child)) continue
+            if (child.visibility == View.VISIBLE &&
+                child.alpha > 0.05f &&
+                child.scaleY > 0.05f
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 「勿扰 | N 个通知」仅出现在普通锁屏（非音乐锁屏、非通知中心 shade）。
+     * 注意：OS4 普通锁屏上通知行默认可见，不能据此判定为通知中心。
+     */
+    fun shouldShowNumState(): Boolean {
+        if (!isOnKeyguard()) return false
+        if (WallpaperController.isShowing()) return false
+        if (notificationShadeOpen) return false
+        return true
+    }
+
+    /**
+     * 通知列表里是否仍有普通通知行可见（= 通知中心界面）。
+     * 音乐锁屏 overlay（大专辑/歌词）只应出现在隐藏通知后的干净锁屏，不应叠在通知中心上。
+     */
+    fun isNotificationCenterVisible(): Boolean {
+        return shouldFilterNotifications() && isNotificationListVisible()
+    }
+
+    /** 干净锁屏（已隐藏普通通知）才显示大专辑/歌词 overlay。 */
+    fun shouldShowKeyguardOverlays(): Boolean {
+        return shouldFilterNotifications() && !isNotificationCenterVisible()
+    }
+
+    fun syncKeyguardOverlayVisibility() {
+        if (shouldShowKeyguardOverlays()) {
+            MusicLockscreenManager.resumeAlbumOverlay()
+        } else if (WallpaperController.isShowing() && isOnKeyguard()) {
+            MusicLockscreenManager.pauseAlbumOverlay()
+        }
+        (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.refreshVisibility()
     }
 
     fun setNotificationStackView(view: ViewGroup?) {
@@ -50,23 +113,26 @@ object LockscreenNotificationController {
     }
 
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        if (!isHidden || !WallpaperController.isShowing() || !isOnKeyguard()) {
-            return@OnLayoutChangeListener
-        }
         val stack = notificationStackView ?: return@OnLayoutChangeListener
         stack.post {
-            if (!WallpaperController.isShowing()) return@post
-            var needRehide = false
-            for (i in 0 until stack.childCount) {
-                val child = stack.getChildAt(i)
-                if (NotificationStackChildClassifier.shouldHideNotificationRow(child) &&
-                    child.visibility == View.VISIBLE
-                ) {
-                    needRehide = true
-                    break
+            if (shouldFilterNotifications()) {
+                var needRehide = false
+                for (i in 0 until stack.childCount) {
+                    val child = stack.getChildAt(i)
+                    if (NotificationStackChildClassifier.shouldHideNotificationRow(child) &&
+                        child.visibility == View.VISIBLE
+                    ) {
+                        needRehide = true
+                        break
+                    }
+                }
+                if (needRehide) {
+                    doHide()
+                } else {
+                    syncKeyguardOverlayVisibility()
                 }
             }
-            if (needRehide) doHide()
+            NumStateViewController.syncVisibility()
         }
     }
 
@@ -122,6 +188,8 @@ object LockscreenNotificationController {
             isHidden = true
             logI("hidden $hiddenCount rows, kept $keptCount (media header + media rows)")
             MediaFollowController.bindMediaView(findMiuiMediaHeaderView())
+            syncKeyguardOverlayVisibility()
+            NumStateViewController.syncVisibility()
         } catch (e: Throwable) {
             logE("doHide error", e)
         }
@@ -152,6 +220,8 @@ object LockscreenNotificationController {
             }
             isHidden = false
             logI("restored $restored rows + media header")
+            syncKeyguardOverlayVisibility()
+            NumStateViewController.syncVisibility()
         } catch (e: Throwable) {
             logE("showAllNotifications error", e)
             isHidden = false

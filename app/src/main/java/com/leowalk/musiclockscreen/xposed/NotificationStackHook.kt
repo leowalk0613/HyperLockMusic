@@ -67,6 +67,9 @@ class NotificationStackHook {
             return
         }
 
+        NumStateViewController.syncVisibility()
+        LockscreenNotificationController.syncKeyguardOverlayVisibility()
+
         for (i in 0 until parent.childCount) {
             val child = parent.getChildAt(i)
             when {

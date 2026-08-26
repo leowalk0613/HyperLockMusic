@@ -6,9 +6,9 @@ import java.lang.reflect.Method
 /**
  * 状态栏状态 Hook（HyperOS 4）
  *
- * OS4 无锁屏下拉通知中心，锁屏即通知中心：
- * - STATUS_KEYGUARD：锁屏界面（含通知列表）→ 音乐锁屏时隐藏普通通知
- * - STATUS_SHADE：已离开锁屏（解锁）→ 恢复通知、暂停音乐锁屏 UI
+ * OS4 锁屏即通知中心；锁屏上展开通知列表时 SystemUI 也会进入 STATUS_SHADE：
+ * - STATUS_KEYGUARD：普通锁屏 → 勿扰可显示（非音乐锁屏时）
+ * - STATUS_SHADE：通知中心 / 已解锁 → 隐藏勿扰与音乐锁屏 overlay
  */
 object StatusBarStateHook {
 
@@ -40,7 +40,8 @@ object StatusBarStateHook {
                     if (newState != null) {
                         when (newState) {
                             STATUS_SHADE -> {
-                                // 已离开锁屏（解锁）；OS4 不会在锁屏上单独展开 shade
+                                // 已离开锁屏，或 OS4 锁屏上展开通知中心
+                                LockscreenNotificationController.setNotificationShadeOpen(true)
                                 MusicLockscreenManager.hideTransitionMaskImmediately()
                                 MusicLockscreenManager.pauseAlbumOverlay()
                                 MediaFollowController.onMusicLockscreenHidden()
@@ -50,19 +51,19 @@ object StatusBarStateHook {
                                 val ctx = MusicLockscreenManager.lyricView?.context
                                 if (ctx != null && !HookUtils.isOnKeyguard(ctx)) {
                                     LockscreenNotificationController.showAllNotifications()
-                                    NumStateViewController.show()
                                     logI("left keyguard -> restore notifications, pause music lockscreen UI")
                                 } else {
-                                    logI("STATUS_SHADE but keyguard still locked -> skip notification restore")
+                                    logI("notification shade open on keyguard")
                                 }
+                                NumStateViewController.syncVisibility()
                             }
                             STATUS_KEYGUARD -> {
+                                LockscreenNotificationController.setNotificationShadeOpen(false)
                                 MusicLockscreenManager.lyricView?.setShadeOpen(false)
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = true)
                                 if (WallpaperController.isShowing()) {
                                     LockscreenNotificationController.forceHideNormalNotifications()
-                                    NumStateViewController.hide()
-                                    MusicLockscreenManager.resumeAlbumOverlay()
+                                    LockscreenNotificationController.syncKeyguardOverlayVisibility()
                                     (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
                                     MediaFollowController.onKeyguardShown()
                                     // 亮屏/回到锁屏时同步壁纸与歌词背景（曲目未变也会补雾状背景）
@@ -74,6 +75,7 @@ object StatusBarStateHook {
                                     }
                                     logI("keyguard shown -> resume music lockscreen UI")
                                 }
+                                NumStateViewController.syncVisibility()
                             }
                         }
                         logI("setState -> $newState")

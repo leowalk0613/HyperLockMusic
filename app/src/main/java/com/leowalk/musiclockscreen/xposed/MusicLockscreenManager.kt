@@ -76,8 +76,8 @@ object MusicLockscreenManager {
 
     fun showAlbumOverlay() {
         val album = bigAlbumView ?: return
-        if (!isShowing) {
-            album.hideForMusicLockscreenOff()
+        if (!isShowing || !LockscreenNotificationController.shouldShowKeyguardOverlays()) {
+            album.visibility = View.GONE
             return
         }
         album.showForMusicLockscreen()

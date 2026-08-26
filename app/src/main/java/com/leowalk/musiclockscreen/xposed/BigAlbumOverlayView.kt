@@ -2,13 +2,12 @@ package com.leowalk.musiclockscreen.xposed
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Outline
 import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
@@ -38,8 +37,28 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
 
     private val immersivePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val colorFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var cornerRadiusPx = 0f
+    private var shadowPadLeftPx = 0
+    private var shadowPadTopPx = 0
+    private var shadowPadRightPx = 0
+    private var shadowPadBottomPx = 0
+    private var shadowOffsetXPx = 0f
+    private var shadowOffsetYPx = 0f
+    private var shadowBlurPx = 0f
 
-    /** 配置算出的边长（px），供 MediaFollow 在尚未 layout 时使用 */
+    /** 含阴影留白的外层尺寸，供布局使用 */
+    var layoutWidthPx: Int = 1
+        private set
+
+    var layoutHeightPx: Int = 1
+        private set
+
+    /** 专辑内容区相对外层左上角的留白（阴影绘制在内容区外侧） */
+    val contentPadLeftPx: Int get() = shadowPadLeftPx
+    val contentPadTopPx: Int get() = shadowPadTopPx
+
+    /** 配置算出的专辑边长（px），供 MediaFollow 定位内容区 */
     var configuredSizePx: Int = 1
         private set
 
@@ -57,7 +76,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         isClickable = false
         isFocusable = false
         visibility = GONE
-        clipToOutline = true
+        clipToOutline = false
         setWillNotDraw(false)
 
         albumView = ImageView(context).apply {
@@ -65,10 +84,9 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         }
         addView(
             albumView,
-            LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+            LayoutParams(1, 1).apply {
+                gravity = Gravity.TOP or Gravity.START
+            }
         )
         applySizeFromConfig()
     }
@@ -91,8 +109,12 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             configuredImmersiveHeightPx = (bottomY - topY).toInt().coerceAtLeast(1)
             clipToOutline = false
             outlineProvider = null
+            albumView.clipToOutline = false
+            albumView.outlineProvider = null
             albumView.visibility = GONE
 
+            layoutWidthPx = sw
+            layoutHeightPx = configuredImmersiveHeightPx
             val lp = (layoutParams as? LayoutParams) ?: LayoutParams(sw, configuredImmersiveHeightPx).also {
                 it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 layoutParams = it
@@ -109,27 +131,49 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             val cornerDp = ConfigReader.albumCorner(context)
             val size = (sw * sizePercent / 100f).toInt().coerceAtLeast(1)
             val cornerPx = cornerDp * (sw / 360f)
+            cornerRadiusPx = cornerPx
             configuredSizePx = size
             configuredImmersiveHeightPx = size
+            updateSquareShadowInsets(sw)
+            layoutWidthPx = size + shadowPadLeftPx + shadowPadRightPx
+            layoutHeightPx = size + shadowPadTopPx + shadowPadBottomPx
             albumView.visibility = VISIBLE
 
-            outlineProvider = object : ViewOutlineProvider() {
+            val cornerProvider = object : ViewOutlineProvider() {
                 override fun getOutline(view: View, outline: Outline) {
                     outline.setRoundRect(0, 0, view.width, view.height, cornerPx)
                 }
             }
-            clipToOutline = true
+            clipToOutline = false
+            outlineProvider = null
+            albumView.outlineProvider = cornerProvider
+            albumView.clipToOutline = true
 
-            val lp = (layoutParams as? LayoutParams) ?: LayoutParams(size, size).also {
-                it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            val albumLp = (albumView.layoutParams as? LayoutParams)
+                ?: LayoutParams(size, size).also { albumView.layoutParams = it }
+            if (albumLp.width != size || albumLp.height != size ||
+                albumLp.leftMargin != shadowPadLeftPx || albumLp.topMargin != shadowPadTopPx
+            ) {
+                albumLp.width = size
+                albumLp.height = size
+                albumLp.gravity = Gravity.TOP or Gravity.START
+                albumLp.leftMargin = shadowPadLeftPx
+                albumLp.topMargin = shadowPadTopPx
+                albumLp.rightMargin = 0
+                albumLp.bottomMargin = 0
+                albumView.layoutParams = albumLp
+            }
+
+            val lp = (layoutParams as? LayoutParams) ?: LayoutParams(layoutWidthPx, layoutHeightPx).also {
+                it.gravity = Gravity.TOP or Gravity.START
                 layoutParams = it
             }
-            if (lp.width != size || lp.height != size ||
-                lp.gravity != (Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+            if (lp.width != layoutWidthPx || lp.height != layoutHeightPx ||
+                lp.gravity != (Gravity.TOP or Gravity.START)
             ) {
-                lp.width = size
-                lp.height = size
-                lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                lp.width = layoutWidthPx
+                lp.height = layoutHeightPx
+                lp.gravity = Gravity.TOP or Gravity.START
                 lp.leftMargin = 0
                 lp.topMargin = 0
                 lp.rightMargin = 0
@@ -190,8 +234,46 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         clearAlbum()
     }
 
+    private fun updateSquareShadowInsets(screenWidth: Int) {
+        val scale = screenWidth / 1080f
+        shadowBlurPx = 40f * scale
+        shadowOffsetXPx = 8f * scale
+        shadowOffsetYPx = 20f * scale
+        shadowPadLeftPx = shadowBlurPx.toInt().coerceAtLeast(1)
+        shadowPadTopPx = shadowBlurPx.toInt().coerceAtLeast(1)
+        shadowPadRightPx = (shadowOffsetXPx + shadowBlurPx).toInt().coerceAtLeast(1)
+        shadowPadBottomPx = (shadowOffsetYPx + shadowBlurPx).toInt().coerceAtLeast(1)
+    }
+
+    private fun drawSquareDropShadow(canvas: Canvas, contentSize: Float, cornerPx: Float) {
+        val left = shadowPadLeftPx.toFloat()
+        val top = shadowPadTopPx.toFloat()
+        shadowPaint.color = Color.argb(100, 0, 0, 0)
+        shadowPaint.maskFilter = BlurMaskFilter(shadowBlurPx, BlurMaskFilter.Blur.NORMAL)
+        canvas.drawRoundRect(
+            RectF(
+                left + shadowOffsetXPx,
+                top + shadowOffsetYPx,
+                left + contentSize + shadowOffsetXPx,
+                top + contentSize + shadowOffsetYPx
+            ),
+            cornerPx,
+            cornerPx,
+            shadowPaint
+        )
+    }
+
     override fun dispatchDraw(canvas: Canvas) {
-        if (!immersiveMode || albumBitmap == null || albumBitmap!!.isRecycled) {
+        if (!immersiveMode) {
+            val contentSize = configuredSizePx.toFloat()
+            if (albumView.visibility == VISIBLE && contentSize > 0f) {
+                drawSquareDropShadow(canvas, contentSize, cornerRadiusPx)
+            }
+            super.dispatchDraw(canvas)
+            return
+        }
+
+        if (albumBitmap == null || albumBitmap!!.isRecycled) {
             super.dispatchDraw(canvas)
             return
         }

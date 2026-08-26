@@ -149,6 +149,11 @@ object MediaFollowController {
             return
         }
 
+        if (!LockscreenNotificationController.shouldShowKeyguardOverlays()) {
+            album.visibility = View.GONE
+            return
+        }
+
         val showImmersive = ConfigReader.shouldShowImmersiveAlbum(ctx)
         val showSquare = ConfigReader.shouldShowSquareAlbum(ctx)
 
@@ -173,17 +178,19 @@ object MediaFollowController {
                 lastAlbumSize = sw
             }
         } else {
-            val size = album.configuredSizePx.takeIf { it > 0 }
+            val contentSize = album.configuredSizePx.takeIf { it > 0 }
                 ?: album.layoutParams?.width?.takeIf { it > 0 }
                 ?: (bg.width * ConfigReader.albumSize(ctx) / 100f).toInt().coerceAtLeast(1)
+            val layoutW = album.layoutWidthPx.takeIf { it > contentSize } ?: contentSize
+            val layoutH = album.layoutHeightPx.takeIf { it > contentSize } ?: contentSize
 
-            if (lastImmersiveAlbum || lastAlbumAnchor != anchor || lastAlbumSize != size) {
-                if (placeByScreenHeight(album, size, size, anchor)) {
-                    logI("album bottom=${anchor}% size=$size bgH=${bg.height}")
+            if (lastImmersiveAlbum || lastAlbumAnchor != anchor || lastAlbumSize != contentSize) {
+                if (placeByScreenHeight(album, layoutW, layoutH, anchor, contentSize)) {
+                    logI("album bottom=${anchor}% content=$contentSize layout=${layoutW}x$layoutH bgH=${bg.height}")
                 }
                 lastImmersiveAlbum = false
                 lastAlbumAnchor = anchor
-                lastAlbumSize = size
+                lastAlbumSize = contentSize
             }
         }
 
@@ -328,19 +335,25 @@ object MediaFollowController {
         target: View,
         width: Int,
         height: Int,
-        bottomAnchorPercent: Float
+        bottomAnchorPercent: Float,
+        contentHeight: Int = height
     ): Boolean {
         val parent = target.parent as? View ?: return false
         val bgH = parent.height
         if (bgH <= 0 || height <= 0) return false
 
         val bottomY = bgH * (bottomAnchorPercent / 100f)
-        val top = (bottomY - height).toInt().coerceAtLeast(0)
-
         val lp = target.layoutParams ?: return false
         var changed = false
+        val marginLp = lp as? ViewGroup.MarginLayoutParams ?: return false
 
         if (target is BigAlbumOverlayView) {
+            val contentSize = contentHeight.coerceAtLeast(1)
+            val top = (bottomY - contentSize - target.contentPadTopPx).toInt().coerceAtLeast(0)
+            val left = ((parent.width - contentSize) / 2f - target.contentPadLeftPx)
+                .toInt()
+                .coerceAtLeast(0)
+
             if (width > 0 && lp.width != width) {
                 lp.width = width
                 changed = true
@@ -349,9 +362,35 @@ object MediaFollowController {
                 lp.height = height
                 changed = true
             }
+            if (marginLp.topMargin != top) {
+                marginLp.topMargin = top
+                changed = true
+            }
+            if (marginLp.leftMargin != left) {
+                marginLp.leftMargin = left
+                changed = true
+            }
+            if (marginLp.rightMargin != 0) {
+                marginLp.rightMargin = 0
+                changed = true
+            }
+            if (marginLp.bottomMargin != 0) {
+                marginLp.bottomMargin = 0
+                changed = true
+            }
+            if (lp is FrameLayout.LayoutParams) {
+                val g = Gravity.TOP or Gravity.START
+                if (lp.gravity != g) {
+                    lp.gravity = g
+                    changed = true
+                }
+            }
+            if (changed) target.layoutParams = lp
+            resetViewTransform(target)
+            return changed
         }
 
-        val marginLp = lp as? ViewGroup.MarginLayoutParams ?: return false
+        val top = (bottomY - contentHeight).toInt().coerceAtLeast(0)
         if (marginLp.topMargin != top) {
             marginLp.topMargin = top
             changed = true

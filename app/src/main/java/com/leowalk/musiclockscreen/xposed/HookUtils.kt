@@ -60,18 +60,60 @@ object HookUtils {
      * 通过类名递归查找 View
      */
     fun findViewByClassName(root: ViewGroup, className: String): View? {
+        return findAllViewsByClassName(root, className).firstOrNull()
+    }
+
+    /** 收集所有匹配类名的 View（HyperOS 通知区可能有多处 NotificationNumStateView）。 */
+    fun findAllViewsByClassName(root: ViewGroup, className: String): List<View> {
+        val out = ArrayList<View>()
+        collectViewsByClassName(root, className, out)
+        return out
+    }
+
+    private fun collectViewsByClassName(root: ViewGroup, className: String, out: MutableList<View>) {
         for (i in 0 until root.childCount) {
             val child = root.getChildAt(i)
             if (child.javaClass.simpleName == className ||
-                child.javaClass.name.contains(className, true)) {
-                return child
+                child.javaClass.name.contains(className, ignoreCase = true)
+            ) {
+                out.add(child)
             }
             if (child is ViewGroup) {
-                val found = findViewByClassName(child, className)
-                if (found != null) return found
+                collectViewsByClassName(child, className, out)
             }
         }
-        return null
+    }
+
+    /** 收集所有匹配资源 id 的 View。 */
+    fun findAllViewsByIdName(root: ViewGroup, idName: String, defType: String = "id"): List<View> {
+        return try {
+            val context = root.context
+            val id = context.resources.getIdentifier(idName, defType, context.packageName)
+            if (id == 0) emptyList() else findAllViewsById(root, id)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun findAllViewsById(root: ViewGroup, id: Int): List<View> {
+        val out = ArrayList<View>()
+        collectViewsById(root, id, out)
+        return out
+    }
+
+    private fun collectViewsById(root: ViewGroup, id: Int, out: MutableList<View>) {
+        if (root.id == id) {
+            out.add(root)
+        }
+        for (i in 0 until root.childCount) {
+            val child = root.getChildAt(i)
+            if (child.id == id) {
+                out.add(child)
+            }
+            if (child is ViewGroup) {
+                collectViewsById(child, id, out)
+            }
+        }
     }
 
     /**

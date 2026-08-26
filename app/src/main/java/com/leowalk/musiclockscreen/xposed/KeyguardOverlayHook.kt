@@ -87,7 +87,7 @@ class KeyguardOverlayHook {
                                 findNotificationView(rootView)
                                 findClockView(rootView)
                                 findDateView(rootView)
-                                findNumStateView(rootView)
+                                NumStateViewController.bindKeyguardRoot(rootView)
                             }
                         }
                     }
@@ -143,10 +143,10 @@ class KeyguardOverlayHook {
             }
             // 与歌词同一套：自身尺寸 + topMargin（底边距媒体上沿），由 MediaFollow 维护
             overlay.layoutParams = FrameLayout.LayoutParams(
-                overlay.configuredSizePx,
-                overlay.configuredSizePx
+                overlay.layoutWidthPx,
+                overlay.layoutHeightPx
             ).apply {
-                gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
                 leftMargin = 0
                 topMargin = 0
                 rightMargin = 0
@@ -338,34 +338,6 @@ class KeyguardOverlayHook {
             }
         }
         return null
-    }
-
-    /**
-     * 查找勿扰/通知数量状态 View（num_state_view）
-     */
-    private fun findNumStateView(root: ViewGroup) {
-        try {
-            // 优先通过资源 id 查找
-            val numStateView = HookUtils.findViewByIdByName(root, "num_state_view")
-            if (numStateView != null) {
-                logI("Found num_state_view (${numStateView.javaClass.simpleName})")
-                logI("  parent: ${numStateView.parent?.javaClass?.simpleName}")
-                NumStateViewController.setNumStateView(numStateView)
-                return
-            }
-
-            // 兜底：通过类名查找
-            val byClass = HookUtils.findViewByClassName(root, "NotificationNumStateView")
-            if (byClass != null) {
-                logI("Found num_state_view by class name (${byClass.javaClass.simpleName})")
-                NumStateViewController.setNumStateView(byClass)
-                return
-            }
-
-            logI("num_state_view not found")
-        } catch (e: Throwable) {
-            logE("findNumStateView error", e)
-        }
     }
 
     private fun logI(msg: String) {

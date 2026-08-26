@@ -941,6 +941,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             isKeyguardLocked() &&
             !isBouncerShowing() &&
             !shadeOpen &&
+            LockscreenNotificationController.shouldShowKeyguardOverlays() &&
             hasLyric &&
             isPlaying &&
             hasDisplayableText()
