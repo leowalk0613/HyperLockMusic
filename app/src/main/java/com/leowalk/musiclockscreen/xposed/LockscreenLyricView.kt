@@ -1404,7 +1404,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         rawHasSecond = hasSecond
         secondIsTranslation = isTranslation
 
-        android.util.Log.i("MusicLockScreen_Lyric",
+        android.util.Log.i("HyperLockMusic_Lyric",
             "setLyricLines main=[$rawMain] second=[$rawSecond] hasSecond=$hasSecond isTranslation=$isTranslation")
 
         applySwapIfNeeded()
@@ -1425,7 +1425,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             Triple(rawMainText, rawSecondText, rawHasSecond)
         }
 
-        android.util.Log.i("MusicLockScreen_Lyric",
+        android.util.Log.i("HyperLockMusic_Lyric",
             "swapResult hasTrans=$hasTrans => main=[$displayMain] second=[$displaySecond]")
 
         val mainChanged = currentMainText != displayMain
@@ -1567,10 +1567,10 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun logI(msg: String) {
-        android.util.Log.i("MusicLockScreen_Lyric", msg)
+        android.util.Log.i("HyperLockMusic_Lyric", msg)
     }
 
     private fun logE(msg: String, e: Throwable? = null) {
-        android.util.Log.e("MusicLockScreen_Lyric", msg, e)
+        android.util.Log.e("HyperLockMusic_Lyric", msg, e)
     }
 }

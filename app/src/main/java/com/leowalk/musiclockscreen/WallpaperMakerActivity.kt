@@ -188,14 +188,14 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
             return
         }
         try {
-            val name = "lockmusic_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.png"
+            val name = "hyperlockmusic_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.png"
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(
                         MediaStore.MediaColumns.RELATIVE_PATH,
-                        "${Environment.DIRECTORY_PICTURES}/LockMusic"
+                        "${Environment.DIRECTORY_PICTURES}/HyperLockMusic"
                     )
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
@@ -217,7 +217,7 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
                 values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
             }
-            toast("已保存：Pictures/LockMusic/$name")
+            toast("已保存：Pictures/HyperLockMusic/$name")
         } catch (e: Exception) {
             toast("保存失败：${e.message}")
         }

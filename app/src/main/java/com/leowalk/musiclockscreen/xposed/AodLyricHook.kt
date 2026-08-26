@@ -41,7 +41,7 @@ class AodLyricHook {
     private val handler = Handler(Looper.getMainLooper())
 
     companion object {
-        private const val TAG = "MusicLockScreen_AodLyric"
+        private const val TAG = "HyperLockMusic_AodLyric"
         private const val LYRIC_URI = "content://com.leowalk.musiclockscreen.lyric"
         private const val CONFIG_URI = "content://com.leowalk.musiclockscreen.config/config"
     }

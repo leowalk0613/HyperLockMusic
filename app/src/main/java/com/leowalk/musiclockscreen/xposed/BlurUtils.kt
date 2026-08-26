@@ -20,7 +20,7 @@ import kotlin.math.min
  */
 object BlurUtils {
 
-    private const val tag = "MusicLockScreen_Blur"
+    private const val tag = "HyperLockMusic_Blur"
 
     private fun dpToPx(screenWidthPx: Int, dp: Float): Float {
         val density = screenWidthPx / 360f

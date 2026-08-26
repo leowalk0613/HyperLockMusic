@@ -20,7 +20,7 @@ import java.lang.reflect.Field
  */
 object MediaTitleSubtitleHook {
 
-    private const val TAG = "MusicLockScreen_MediaSubtitle"
+    private const val TAG = "HyperLockMusic_MediaSubtitle"
     private const val TITLE_ROW_TAG = "music_lockscreen_media_title_row"
     private const val SUBTITLE_VIEW_TAG = "music_lockscreen_media_subtitle"
     private const val LINE_SUBTITLE_VIEW_TAG = "music_lockscreen_media_line_subtitle"

@@ -12,7 +12,7 @@ import java.lang.reflect.Method
  */
 object StatusBarStateHook {
 
-    private const val TAG = "MusicLockScreen_StatusBarState"
+    private const val TAG = "HyperLockMusic_StatusBarState"
     private const val STATUS_SHADE = 0
     private const val STATUS_KEYGUARD = 1
 

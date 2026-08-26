@@ -21,7 +21,7 @@ import java.net.URL
  */
 object AlbumArtResolver {
 
-    private const val TAG = "MusicLockScreen_AlbumArt"
+    private const val TAG = "HyperLockMusic_AlbumArt"
 
     @Volatile
     private var cachedBitmap: Bitmap? = null

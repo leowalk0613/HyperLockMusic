@@ -13,7 +13,7 @@ import android.provider.Settings
 object ConfigReader {
 
     private const val AUTHORITY = "com.leowalk.musiclockscreen.config"
-    private const val TAG = "MusicLockScreen_Config"
+    private const val TAG = "HyperLockMusic_Config"
 
     private var cachedShowBigAlbum: Boolean = true
     private var cachedBlurRadius: Float = 80f

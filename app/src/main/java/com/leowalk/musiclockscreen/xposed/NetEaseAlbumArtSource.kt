@@ -12,7 +12,7 @@ import java.net.URL
  */
 object NetEaseAlbumArtSource {
 
-    private const val TAG = "MusicLockScreen_NetEaseArt"
+    private const val TAG = "HyperLockMusic_NetEaseArt"
     private const val TARGET_MIN_SIDE = 1080
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null

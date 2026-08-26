@@ -15,7 +15,7 @@ import android.graphics.drawable.BitmapDrawable
  */
 object HyperOsWallpaperBridge {
 
-    private const val TAG = "MusicLockScreen_HyperWp"
+    private const val TAG = "HyperLockMusic_HyperWp"
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 

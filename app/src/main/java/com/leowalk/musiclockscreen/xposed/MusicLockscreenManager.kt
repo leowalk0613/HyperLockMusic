@@ -12,7 +12,7 @@ import android.view.View
  */
 object MusicLockscreenManager {
 
-    private val tag = "MusicLockScreen_Mgr"
+    private val tag = "HyperLockMusic_Mgr"
 
     /** 音乐锁屏是否处于显示状态（逻辑状态，与 View 实际可见性可能有动画延迟） */
     var isShowing: Boolean = false

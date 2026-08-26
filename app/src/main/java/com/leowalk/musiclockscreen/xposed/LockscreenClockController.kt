@@ -19,7 +19,7 @@ import java.util.Locale
  */
 object LockscreenClockController {
 
-    private const val tag = "MusicLockScreen_Clock"
+    private const val tag = "HyperLockMusic_Clock"
     private const val TIME_PREFIX_MARKER = "  "
 
     private var clockView: View? = null

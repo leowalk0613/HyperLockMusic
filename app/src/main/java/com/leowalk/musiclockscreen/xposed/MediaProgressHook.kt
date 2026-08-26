@@ -23,7 +23,7 @@ import java.lang.reflect.Method
  */
 object MediaProgressHook {
 
-    private const val TAG = "MusicLockScreen_MediaProgress"
+    private const val TAG = "HyperLockMusic_MediaProgress"
 
     private const val VIEW_CONTROLLER_CLASS =
         "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaViewControllerImpl"

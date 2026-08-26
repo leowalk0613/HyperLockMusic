@@ -8,7 +8,7 @@ import android.view.ViewGroup
  */
 object SystemNotificationAnimator {
 
-    private const val tag = "MusicLockScreen_SysAnim"
+    private const val tag = "HyperLockMusic_SysAnim"
     private const val COLLAPSE_MS = 260L
     private const val EXPAND_MS = 200L
 

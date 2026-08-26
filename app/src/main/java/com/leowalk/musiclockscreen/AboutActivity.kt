@@ -14,7 +14,7 @@ class AboutActivity : BaseScrollingActivity() {
 
     override fun buildContent(list: LinearLayout) {
         val card = M3.cardContent(this)
-        card.addView(M3.title(this, "锁屏音乐"))
+        card.addView(M3.title(this, "HyperLockMusic"))
 
         val version = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
@@ -33,7 +33,7 @@ class AboutActivity : BaseScrollingActivity() {
         }))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "基于 LSPosed 的音乐锁屏模块，为重绘 HyperOS 锁屏界面的专辑背景与歌词而设计。\n\n" +
+            "基于 LSPosed 的 HyperLockMusic 模块，为重绘 HyperOS 锁屏界面的专辑背景与歌词而设计。\n\n" +
                 "开启方式：在 LSPosed 中启用本模块并勾选 SystemUI（与需要生效的应用），重启系统界面后生效。\n\n" +
                 "音乐锁屏开关位于锁屏媒体控件左侧自定义按钮，歌词开关在右侧。")))
     }

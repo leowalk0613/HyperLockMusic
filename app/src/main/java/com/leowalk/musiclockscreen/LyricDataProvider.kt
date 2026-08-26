@@ -27,7 +27,7 @@ class LyricDataProvider : ContentProvider() {
         const val AUTHORITY = "com.leowalk.musiclockscreen.lyric"
         val URI: Uri = Uri.parse("content://$AUTHORITY")
 
-        private const val TAG = "MusicLockScreen_Provider"
+        private const val TAG = "HyperLockMusic_Provider"
 
         @Volatile
         private var sLyricJson: String = "{}"

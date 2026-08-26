@@ -13,7 +13,7 @@ import java.net.URLEncoder
  */
 object NetEaseSongIdResolver {
 
-    private const val TAG = "MusicLockScreen_NetEaseId"
+    private const val TAG = "HyperLockMusic_NetEaseId"
     private const val TRACK_PREFIX = "netease:"
     private const val PKG = "com.netease.cloudmusic"
 

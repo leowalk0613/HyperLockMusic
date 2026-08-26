@@ -10,7 +10,7 @@ import io.github.libxposed.api.XposedModule
  */
 class MediaAlbumClickHook {
 
-    private val tag = "MusicLockScreen_AlbumClick"
+    private val tag = "HyperLockMusic_AlbumClick"
     private var module: XposedModule? = null
 
     fun install(classLoader: ClassLoader, module: XposedModule) {

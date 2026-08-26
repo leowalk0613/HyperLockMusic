@@ -16,7 +16,7 @@ import io.github.libxposed.api.XposedModule
  */
 class MediaScaleFixHook {
 
-    private val tag = "MusicLockScreen_MediaScale"
+    private val tag = "HyperLockMusic_MediaScale"
     private var module: XposedModule? = null
 
     fun install(classLoader: ClassLoader, module: XposedModule) {

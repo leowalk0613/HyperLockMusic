@@ -12,7 +12,7 @@ import java.lang.reflect.Method
  */
 class NotificationStackHook {
 
-    private val tag = "MusicLockScreen_StackHook"
+    private val tag = "HyperLockMusic_StackHook"
     private var module: XposedModule? = null
     private var lastIsShowing = false
 

@@ -18,7 +18,7 @@ import android.view.View
  */
 object WallpaperController {
 
-    private const val tag = "MusicLockScreen_Wallpaper"
+    private const val tag = "HyperLockMusic_Wallpaper"
 
     private var originalLockWallpaper: Bitmap? = null
     private var isMusicWallpaperSet = false

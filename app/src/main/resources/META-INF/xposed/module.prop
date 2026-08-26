@@ -3,6 +3,6 @@ name=HyperLockMusic
 version=0.1.0
 versionCode=1
 author=leowalk
-description=HyperOS 锁屏音乐壁纸与歌词重绘模块
+description=HyperOS HyperLockMusic 壁纸与歌词重绘模块
 minApiVersion=102
 targetApiVersion=102

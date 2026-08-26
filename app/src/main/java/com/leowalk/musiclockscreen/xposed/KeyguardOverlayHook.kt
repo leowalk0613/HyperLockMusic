@@ -15,7 +15,7 @@ import io.github.libxposed.api.XposedModule
  */
 class KeyguardOverlayHook {
 
-    private val tag = "MusicLockScreen_Overlay"
+    private val tag = "HyperLockMusic_Overlay"
     private var module: XposedModule? = null
 
     fun install(classLoader: ClassLoader, module: XposedModule) {

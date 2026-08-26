@@ -8,7 +8,7 @@ import io.github.libxposed.api.XposedModule
  */
 object MediaExitHook {
 
-    private const val TAG = "MusicLockScreen_MediaExit"
+    private const val TAG = "HyperLockMusic_MediaExit"
 
     private var module: XposedModule? = null
 

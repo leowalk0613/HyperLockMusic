@@ -13,7 +13,7 @@ class MainActivity : BaseScrollingActivity() {
 
     private var manageWhitelistRow: View? = null
 
-    override fun titleText() = "锁屏音乐"
+    override fun titleText() = "HyperLockMusic"
 
     override fun showHomeAsUp(): Boolean = false
 
@@ -22,7 +22,7 @@ class MainActivity : BaseScrollingActivity() {
 
     override fun buildContent(list: LinearLayout) {
         list.addView(M3.card(this, M3.tipContent(this,
-            "基于 LSPosed 的音乐锁屏模块，为锁屏重绘专辑壁纸与歌词。" +
+            "基于 LSPosed 的 HyperLockMusic 模块，为锁屏重绘专辑壁纸与歌词。" +
                 "调整后可点右上角\"重启界面\"让改动立即生效。")))
 
         val whitelistCard = M3.cardContent(this)

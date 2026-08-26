@@ -22,7 +22,7 @@ import kotlin.math.min
  */
 class MusicLockscreenView(context: Context) : FrameLayout(context) {
 
-    private val tag = "MusicLockScreen_View"
+    private val tag = "HyperLockMusic_View"
 
     // 背景模糊层
     private val bgImageView: ImageView

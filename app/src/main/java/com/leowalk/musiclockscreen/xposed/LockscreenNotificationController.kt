@@ -12,7 +12,7 @@ import android.view.ViewGroup
  */
 object LockscreenNotificationController {
 
-    private const val tag = "MusicLockScreen_NotifCtrl"
+    private const val tag = "HyperLockMusic_NotifCtrl"
 
     private var notificationStackView: ViewGroup? = null
     private var isHidden: Boolean = false

@@ -6,7 +6,7 @@ import io.github.libxposed.api.XposedModuleInterface
 class MainHook : XposedModule() {
 
     companion object {
-        private const val TAG = "MusicLockScreen"
+        private const val TAG = "HyperLockMusic"
         private const val PACKAGE_SYSTEMUI = "com.android.systemui"
         private const val PACKAGE_AOD = "com.miui.aod"
     }

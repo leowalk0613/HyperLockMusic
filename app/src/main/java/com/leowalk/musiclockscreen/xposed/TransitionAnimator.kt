@@ -243,6 +243,6 @@ object TransitionAnimator {
     }
 
     private fun logI(msg: String) {
-        logCallback?.invoke(android.util.Log.INFO, "MusicLockScreen_Anim", msg, null)
+        logCallback?.invoke(android.util.Log.INFO, "HyperLockMusic_Anim", msg, null)
     }
 }

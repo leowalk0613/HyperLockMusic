@@ -11,7 +11,7 @@ import android.view.animation.PathInterpolator
  */
 object NumStateViewController {
 
-    private const val tag = "MusicLockScreen_NumState"
+    private const val tag = "HyperLockMusic_NumState"
 
     // 过渡动画时长
     private const val FADE_MS = 260L

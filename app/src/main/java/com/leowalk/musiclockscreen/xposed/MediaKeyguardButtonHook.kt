@@ -14,7 +14,7 @@ import java.lang.ref.WeakReference
  */
 object MediaKeyguardButtonHook {
 
-    private const val TAG = "MusicLockScreen_MediaBtn"
+    private const val TAG = "HyperLockMusic_MediaBtn"
 
     private val tagAction0Bound = 0x7f000002
     private val tagAction4Bound = 0x7f000004

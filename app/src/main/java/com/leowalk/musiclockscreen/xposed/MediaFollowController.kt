@@ -13,7 +13,7 @@ import android.widget.FrameLayout
  */
 object MediaFollowController {
 
-    private const val TAG = "MusicLockScreen_MediaFollow"
+    private const val TAG = "HyperLockMusic_MediaFollow"
     private const val IMMERSIVE_TOP_PERCENT = 4f
 
     private var bgLayer: View? = null
