@@ -32,8 +32,21 @@ object LockscreenNotificationController {
             if (!WallpaperController.isShowing()) {
                 showAllNotifications()
             }
+            MediaFollowController.bindMediaView(findMiuiMediaHeaderView())
         }
         logI("notificationStackView set: ${view != null}, childCount=${view?.childCount ?: 0}")
+    }
+
+    /** 锁屏媒体控件容器（MiuiMediaHeaderView） */
+    fun findMiuiMediaHeaderView(): View? {
+        val stack = notificationStackView ?: return null
+        for (i in 0 until stack.childCount) {
+            val child = stack.getChildAt(i)
+            if (NotificationStackChildClassifier.isMiuiMediaHeaderView(child)) {
+                return child
+            }
+        }
+        return null
     }
 
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -108,6 +121,7 @@ object LockscreenNotificationController {
             }
             isHidden = true
             logI("hidden $hiddenCount rows, kept $keptCount (media header + media rows)")
+            MediaFollowController.bindMediaView(findMiuiMediaHeaderView())
         } catch (e: Throwable) {
             logE("doHide error", e)
         }

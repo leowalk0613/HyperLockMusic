@@ -19,17 +19,23 @@ object ConfigReader {
     private var cachedBlurRadius: Float = 80f
     private var cachedDarkOverlay: Int = 140
     private var cachedAlbumSize: Float = 55f
-    private var cachedAlbumOffsetY: Float = -80f
+    private var cachedAlbumOffsetY: Float = 55f
     private var cachedAlbumCorner: Float = 24f
+    private var cachedAlbumSrEnhance: Boolean = false
     private var cachedShowLyric: Boolean = true
-    private var cachedLyricWidth: Float = 100f
-    private var cachedLyricBgOffsetY: Float = 0f
+    private var cachedLyricWidth: Float = 55f
+    private var cachedLyricBgOffsetY: Float = 12f
     private var cachedLyricBgAnchorY: Float = 62f
     private var cachedTitleBracketMode: String = "default"
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
     private var lastReadTime: Long = 0
     private const val CACHE_DURATION = 1000 // 缓存 1 秒
+
+    /** 强制下次读取走 ContentProvider（配置变更后调用） */
+    fun invalidate() {
+        lastReadTime = 0
+    }
 
     private const val KEY_WALLPAPER_ACTIVE = "music_lockscreen_wallpaper_active"
 
@@ -80,14 +86,24 @@ object ConfigReader {
         return cachedAlbumSize
     }
 
-    fun albumOffsetY(context: Context): Float {
+    /** 专辑底边占屏幕高度百分比 */
+    fun albumAnchorY(context: Context): Float {
         refreshConfigIfNeeded(context)
-        return cachedAlbumOffsetY
+        return cachedAlbumOffsetY.coerceIn(10f, 95f)
     }
+
+    /** @deprecated 同 [albumAnchorY] */
+    fun albumOffsetY(context: Context): Float = albumAnchorY(context)
 
     fun albumCorner(context: Context): Float {
         refreshConfigIfNeeded(context)
         return cachedAlbumCorner
+    }
+
+    /** 是否启用专辑 UltraSharp 超分（目标 ≥1080） */
+    fun albumSrEnhance(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedAlbumSrEnhance
     }
 
     fun showLyric(context: Context): Boolean {
@@ -95,22 +111,22 @@ object ConfigReader {
         return cachedShowLyric
     }
 
-    /** 歌词区域宽度：占专辑宽度的百分比（默认 100 = 与专辑同宽） */
+    /** 歌词区域宽度：占屏幕宽度的百分比 */
     fun lyricWidth(context: Context): Float {
         refreshConfigIfNeeded(context)
         return cachedLyricWidth
     }
 
-    /** 歌词背景底边微调（dp）：正值下移，负值上移。 */
+    /** 歌词底边占屏幕高度百分比 */
+    fun lyricBgAnchorY(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return cachedLyricBgAnchorY.coerceIn(10f, 95f)
+    }
+
+    /** @deprecated 请用 [lyricBgAnchorY] */
     fun lyricBgOffsetY(context: Context): Float {
         refreshConfigIfNeeded(context)
         return cachedLyricBgOffsetY
-    }
-
-    /** 歌词背景底边占屏幕高度百分比。 */
-    fun lyricBgAnchorY(context: Context): Float {
-        refreshConfigIfNeeded(context)
-        return cachedLyricBgAnchorY
     }
 
     fun titleBracketMode(context: Context): String {
@@ -163,6 +179,7 @@ object ConfigReader {
                 val albumSizeIdx = cursor.getColumnIndex("album_size")
                 val albumOffsetYIdx = cursor.getColumnIndex("album_offset_y")
                 val albumCornerIdx = cursor.getColumnIndex("album_corner")
+                val albumSrEnhanceIdx = cursor.getColumnIndex("album_sr_enhance")
                 val showLyricIdx = cursor.getColumnIndex("show_lyric")
                 val lyricWidthIdx = cursor.getColumnIndex("lyric_width")
                 val lyricBgOffsetYIdx = cursor.getColumnIndex("lyric_bg_offset_y")
@@ -189,6 +206,9 @@ object ConfigReader {
                 if (albumCornerIdx >= 0) {
                     cachedAlbumCorner = cursor.getFloat(albumCornerIdx)
                 }
+                if (albumSrEnhanceIdx >= 0) {
+                    cachedAlbumSrEnhance = cursor.getInt(albumSrEnhanceIdx) == 1
+                }
                 if (showLyricIdx >= 0) {
                     cachedShowLyric = cursor.getInt(showLyricIdx) == 1
                 }
@@ -211,10 +231,11 @@ object ConfigReader {
                     cachedWhitelist = cursor.getString(whitelistIdx) ?: ""
                 }
                 cursor.close()
+                lastReadTime = now
             }
-            lastReadTime = now
+            // 读失败不刷新 lastReadTime，下次继续重试（避免重启后首帧锁死默认值）
         } catch (e: Throwable) {
-            // 读取失败，用默认值
+            // 读取失败，用默认值并允许马上重试
         }
     }
 }

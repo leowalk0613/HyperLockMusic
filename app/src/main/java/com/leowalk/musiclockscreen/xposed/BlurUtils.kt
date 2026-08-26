@@ -94,17 +94,13 @@ object BlurUtils {
     }
 
     /**
-     * iOS 风格模糊 + 大专辑封面合成
+     * iOS 风格模糊 + 大专辑封面合成。
      *
-     * @param albumBitmap 原始专辑图
-     * @param radius 模糊半径
-     * @param darkOverlayAlpha 暗色遮罩透明度
-     * @param showBigAlbum 是否显示大专辑封面
-     * @param targetWidth 目标壁纸宽度
-     * @param targetHeight 目标壁纸高度
+     * @param blurSource 生成模糊背景（及暗色遮罩）的图，始终用系统封面
+     * @param sharpAlbum 前景大专辑图；为 null 时与 [blurSource] 相同。网络高清只替换这一层
      */
     fun blurWithBigAlbum(
-        albumBitmap: Bitmap,
+        blurSource: Bitmap,
         radius: Float,
         darkOverlayAlpha: Int = 140,
         showBigAlbum: Boolean = true,
@@ -112,15 +108,17 @@ object BlurUtils {
         targetHeight: Int = 0,
         albumSizePercent: Float = 55f,
         albumOffsetYDp: Float = -80f,
-        albumCornerDp: Float = 24f
+        albumCornerDp: Float = 24f,
+        sharpAlbum: Bitmap? = null
     ): Bitmap {
+        val albumBitmap = sharpAlbum?.takeIf { !it.isRecycled } ?: blurSource
         val tw = if (targetWidth > 0) targetWidth else 1080
         val th = if (targetHeight > 0) targetHeight else 2400
 
-        // 模糊底图：先 center-crop 到屏幕比例，保证全屏有足够像素
+        // 模糊底图：始终来自 blurSource（系统封面）
         val blurBaseW = tw.coerceAtMost(1440)
         val blurBaseH = (th.toFloat() * blurBaseW / tw).toInt().coerceAtLeast(1)
-        val cover = scaleCenterCrop(albumBitmap, blurBaseW, blurBaseH)
+        val cover = scaleCenterCrop(blurSource, blurBaseW, blurBaseH)
 
         val blurred = softColorBlur(cover, radius)
         cover.recycle()
@@ -130,16 +128,11 @@ object BlurUtils {
 
         val blW = blurred.width
         val blH = blurred.height
-        val scale = maxOf(tw.toFloat() / blW, th.toFloat() / blH)
-        val drawW = blW * scale
-        val drawH = blH * scale
-        val left = (tw - drawW) / 2
-        val top = (th - drawH) / 2
+        val fillPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        val dstRect = RectF(0f, 0f, tw.toFloat(), th.toFloat())
         val srcRect = android.graphics.Rect(0, 0, blW, blH)
-        val dstRect = android.graphics.RectF(left, top, left + drawW, top + drawH)
-        canvas.drawBitmap(blurred, srcRect, dstRect, null)
+        canvas.drawBitmap(blurred, srcRect, dstRect, fillPaint)
 
-        // 5. 叠加暗色遮罩
         val paint = Paint().apply {
             color = Color.argb(darkOverlayAlpha, 0, 0, 0)
             isAntiAlias = true
@@ -153,7 +146,6 @@ object BlurUtils {
             val cornerPx = dpToPx(tw, albumCornerDp)
             val albumRect = RectF(albumLeft, albumTop, albumLeft + albumSize, albumTop + albumSize)
 
-            // 阴影
             val shadowPaint = Paint().apply {
                 isAntiAlias = true
                 maskFilter = BlurMaskFilter(40f, BlurMaskFilter.Blur.NORMAL)

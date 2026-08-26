@@ -9,7 +9,7 @@ import java.lang.ref.WeakReference
 
 /**
  * 锁屏 [MiuiMediaHeaderView] 媒体控件：
- * - 锁屏：action0 / action4 仅显示模块注入按钮，屏蔽应用 custom0 / custom1
+ * - 锁屏：action0 / action4 显示模块注入按钮，屏蔽应用 custom0 / custom1
  * - 解锁：action0 / action4 显示空占位（保留布局，无图标、不可点）
  */
 object MediaKeyguardButtonHook {

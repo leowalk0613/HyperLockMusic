@@ -16,14 +16,15 @@ object ModuleConfig {
     private const val KEY_ALBUM_SIZE = "album_size"
     private const val KEY_ALBUM_OFFSET_Y = "album_offset_y"
     private const val KEY_ALBUM_CORNER = "album_corner"
+    private const val KEY_ALBUM_SR_ENHANCE = "album_sr_enhance"
 
     // 歌词相关
     private const val KEY_SHOW_LYRIC = "show_lyric"
     private const val KEY_LYRIC_SIZE = "lyric_size"       // 主行字号 sp
     private const val KEY_SWAP_LYRIC = "swap_lyric"       // 歌词/翻译互换
     private const val KEY_LYRIC_WIDTH = "lyric_width"     // 歌词区域宽度（占专辑宽度百分比）
-    private const val KEY_LYRIC_BG_OFFSET_Y = "lyric_bg_offset_y" // 歌词背景底边微调（dp，正值下移）
-    private const val KEY_LYRIC_BG_ANCHOR_Y = "lyric_bg_anchor_y" // 歌词背景底边占屏幕高度百分比
+    private const val KEY_LYRIC_BG_OFFSET_Y = "lyric_bg_offset_y" // 已弃用，保留兼容
+    private const val KEY_LYRIC_BG_ANCHOR_Y = "lyric_bg_anchor_y" // 歌词底边占屏幕高度百分比
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -51,14 +52,15 @@ object ModuleConfig {
     private const val DEFAULT_BLUR_RADIUS = 80f
     private const val DEFAULT_DARK_OVERLAY = 140
     private const val DEFAULT_ALBUM_SIZE = 55f
-    private const val DEFAULT_ALBUM_OFFSET_Y = -80f
+    private const val DEFAULT_ALBUM_OFFSET_Y = 55f
     private const val DEFAULT_ALBUM_CORNER = 24f
+    private const val DEFAULT_ALBUM_SR_ENHANCE = false
 
     private const val DEFAULT_SHOW_LYRIC = true
     private const val DEFAULT_LYRIC_SIZE = 20f
     private const val DEFAULT_SWAP_LYRIC = true
-    private const val DEFAULT_LYRIC_WIDTH = 100f
-    private const val DEFAULT_LYRIC_BG_OFFSET_Y = 0f
+    private const val DEFAULT_LYRIC_WIDTH = 55f
+    private const val DEFAULT_LYRIC_BG_OFFSET_Y = 12f
     private const val DEFAULT_LYRIC_BG_ANCHOR_Y = 62f
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
@@ -89,13 +91,24 @@ object ModuleConfig {
         get() = getPrefs().getFloat(KEY_ALBUM_SIZE, DEFAULT_ALBUM_SIZE)
         set(value) = getPrefs().edit().putFloat(KEY_ALBUM_SIZE, value).apply()
 
+    /** 专辑底边占屏幕高度百分比（默认 55） */
     var albumOffsetY: Float
         get() = getPrefs().getFloat(KEY_ALBUM_OFFSET_Y, DEFAULT_ALBUM_OFFSET_Y)
         set(value) = getPrefs().edit().putFloat(KEY_ALBUM_OFFSET_Y, value).apply()
 
+    /** 与 [albumOffsetY] 同义，便于 Xposed 侧阅读 */
+    var albumAnchorY: Float
+        get() = albumOffsetY
+        set(value) { albumOffsetY = value }
+
     var albumCorner: Float
         get() = getPrefs().getFloat(KEY_ALBUM_CORNER, DEFAULT_ALBUM_CORNER)
         set(value) = getPrefs().edit().putFloat(KEY_ALBUM_CORNER, value).apply()
+
+    /** 用 4x-UltraSharp 将专辑图超分（短边 ≥1080，更大不缩小） */
+    var albumSrEnhance: Boolean
+        get() = getPrefs().getBoolean(KEY_ALBUM_SR_ENHANCE, DEFAULT_ALBUM_SR_ENHANCE)
+        set(value) = getPrefs().edit().putBoolean(KEY_ALBUM_SR_ENHANCE, value).apply()
 
     var showLyric: Boolean
         get() = getPrefs().getBoolean(KEY_SHOW_LYRIC, DEFAULT_SHOW_LYRIC)
@@ -109,20 +122,20 @@ object ModuleConfig {
         get() = getPrefs().getBoolean(KEY_SWAP_LYRIC, DEFAULT_SWAP_LYRIC)
         set(value) = getPrefs().edit().putBoolean(KEY_SWAP_LYRIC, value).apply()
 
-    /** 歌词区域宽度：占专辑宽度的百分比（默认 100 = 与专辑同宽） */
+    /** 歌词区域宽度：占屏幕宽度的百分比（默认 55） */
     var lyricWidth: Float
         get() = getPrefs().getFloat(KEY_LYRIC_WIDTH, DEFAULT_LYRIC_WIDTH)
         set(value) = getPrefs().edit().putFloat(KEY_LYRIC_WIDTH, value).apply()
 
-    /** 歌词背景底边微调（dp）：正值下移，负值上移。 */
-    var lyricBgOffsetY: Float
-        get() = getPrefs().getFloat(KEY_LYRIC_BG_OFFSET_Y, DEFAULT_LYRIC_BG_OFFSET_Y)
-        set(value) = getPrefs().edit().putFloat(KEY_LYRIC_BG_OFFSET_Y, value).apply()
-
-    /** 歌词背景底边占屏幕高度百分比（默认 62）。 */
+    /** 歌词底边占屏幕高度百分比（默认 62） */
     var lyricBgAnchorY: Float
         get() = getPrefs().getFloat(KEY_LYRIC_BG_ANCHOR_Y, DEFAULT_LYRIC_BG_ANCHOR_Y)
         set(value) = getPrefs().edit().putFloat(KEY_LYRIC_BG_ANCHOR_Y, value).apply()
+
+    /** @deprecated 请用 [lyricBgAnchorY] */
+    var lyricBgOffsetY: Float
+        get() = getPrefs().getFloat(KEY_LYRIC_BG_OFFSET_Y, DEFAULT_LYRIC_BG_OFFSET_Y)
+        set(value) = getPrefs().edit().putFloat(KEY_LYRIC_BG_OFFSET_Y, value).apply()
 
     /** 媒体标题括号：default=原样 / shrink=右侧缩小 / hide=去掉括号 */
     var titleBracketMode: String
@@ -170,6 +183,7 @@ object ModuleConfig {
                 put("album_size", albumSize)
                 put("album_offset_y", albumOffsetY)
                 put("album_corner", albumCorner)
+                put("album_sr_enhance", if (albumSrEnhance) 1 else 0)
                 put("show_lyric", if (showLyric) 1 else 0)
                 put("lyric_size", lyricSize)
                 put("swap_lyric", if (swapLyric) 1 else 0)

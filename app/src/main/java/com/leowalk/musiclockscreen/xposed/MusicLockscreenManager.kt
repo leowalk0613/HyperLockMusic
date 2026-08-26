@@ -3,14 +3,12 @@ package com.leowalk.musiclockscreen.xposed
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.view.View
-import android.graphics.Color
-import android.view.ViewGroup
 
 /**
  * 音乐锁屏管理器（单例）
  *
- * 协调壁纸切换、通知隐藏、大专辑封面显示等
- * 过渡动画模式下，visibility 由 TransitionAnimator 控制
+ * 协调壁纸切换、通知隐藏、大专辑 overlay、歌词显示等。
+ * 大专辑仅在音乐锁屏激活时以 overlay 显示，不画进壁纸。
  */
 object MusicLockscreenManager {
 
@@ -20,7 +18,7 @@ object MusicLockscreenManager {
     var isShowing: Boolean = false
         private set
 
-    // 大专辑封面 overlay
+    // 大专辑封面 overlay（仅音乐锁屏可见）
     var bigAlbumView: BigAlbumOverlayView? = null
 
     // 歌词 overlay
@@ -44,8 +42,9 @@ object MusicLockscreenManager {
      */
     fun show() {
         isShowing = true
-        bigAlbumView?.visibility = View.GONE
+        showAlbumOverlay()
         lyricView?.refreshVisibility()
+        MediaFollowController.onMusicLockscreenShown()
         logI("music lockscreen shown")
     }
 
@@ -54,17 +53,47 @@ object MusicLockscreenManager {
      */
     fun hide() {
         isShowing = false
-        bigAlbumView?.visibility = View.GONE
+        MediaFollowController.onMusicLockscreenHidden()
+        hideAlbumOverlay()
         (lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
         logI("music lockscreen hidden")
     }
 
     /**
-     * 内部使用：仅更新显示状态，不修改 View visibility（由动画控制）
+     * 内部使用：仅更新显示状态，并同步专辑 overlay 可见性。
      */
     internal fun setShowingState(showing: Boolean) {
         isShowing = showing
+        if (showing) {
+            showAlbumOverlay()
+            MediaFollowController.onMusicLockscreenShown()
+        } else {
+            MediaFollowController.onMusicLockscreenHidden()
+            hideAlbumOverlay()
+        }
         logI("showing state updated: $showing")
+    }
+
+    fun showAlbumOverlay() {
+        val album = bigAlbumView ?: return
+        if (!isShowing) {
+            album.hideForMusicLockscreenOff()
+            return
+        }
+        album.showForMusicLockscreen()
+    }
+
+    fun hideAlbumOverlay() {
+        bigAlbumView?.hideForMusicLockscreenOff()
+    }
+
+    /** 解锁离开锁屏时临时隐藏，不清除专辑图 */
+    fun pauseAlbumOverlay() {
+        bigAlbumView?.visibility = View.GONE
+    }
+
+    fun resumeAlbumOverlay() {
+        if (isShowing) showAlbumOverlay()
     }
 
     /**
@@ -96,14 +125,19 @@ object MusicLockscreenManager {
     /** 锁屏壁纸 setBitmap 已提交且画面稳定后调用，触发歌词雾状背景渲染。 */
     fun notifyWallpaperAppliedToLockScreen(albumBitmap: Bitmap? = null, trackKey: String? = null) {
         (lyricView as? LockscreenLyricView)?.onWallpaperAlbumReady(albumBitmap, trackKey)
+        if (isShowing && albumBitmap != null && !albumBitmap.isRecycled) {
+            updateAlbumBitmap(albumBitmap)
+            showAlbumOverlay()
+        }
     }
 
     /**
-     * 更新专辑图
+     * 更新专辑图（仅写入 overlay；非音乐锁屏时不显示）
      */
     fun updateAlbumArt(drawable: Drawable?) {
         try {
             bigAlbumView?.setAlbumArt(drawable)
+            if (isShowing) showAlbumOverlay()
         } catch (e: Throwable) {
             logE("updateAlbumArt error", e)
         }
@@ -111,7 +145,10 @@ object MusicLockscreenManager {
 
     fun updateAlbumBitmap(bitmap: Bitmap?) {
         try {
-            bigAlbumView?.setAlbumBitmap(bitmap)
+            if (bitmap != null && !bitmap.isRecycled) {
+                bigAlbumView?.setAlbumBitmap(bitmap)
+            }
+            if (isShowing) showAlbumOverlay()
         } catch (e: Throwable) {
             logE("updateAlbumBitmap error", e)
         }

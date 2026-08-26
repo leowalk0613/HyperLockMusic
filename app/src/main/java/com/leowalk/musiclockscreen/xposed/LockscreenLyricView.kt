@@ -14,6 +14,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -26,7 +27,7 @@ import java.io.FileInputStream
  * - 双行显示：当前行（白色加粗）+ 下一行（淡灰色小字）
  * - 歌词/翻译互换：有翻译时主行显示翻译，副行显示原文（固定开启）
  * - 主行超长自动换行显示完整内容
- * - 固定位置：背景底边按屏幕高度百分比定位，内容增高时向上延展
+ * - 垂直位置：底边 = 屏高 × [lyricBgAnchorY]%，由 [MediaFollowController] 维护
  * - 渐变遮罩背景：取专辑下半主色调，生成自下而上的半透明黑色渐变
  */
 class LockscreenLyricView(context: Context) : View(context) {
@@ -94,8 +95,12 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 是否绘制渐变遮罩背景（歌词文字不受此影响） */
     private var showFogBackground = false
     private var fogBuildGeneration = 0
-    /** 歌词背景底边锚点（父容器 y），锁定后高度变化只向上延展 */
-    private var fixedAnchorBottomInParent: Int? = null
+    /** 缓存渐变，避免每帧重建导致闪 */
+    private var fogShader: LinearGradient? = null
+    private var fogShaderW = 0
+    private var fogShaderH = 0
+    private var fogShaderTint: Int = 0
+    private val fogPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     // ============================================================
     // 配置
@@ -103,11 +108,9 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cfgShowLyric: Boolean = true
     private var cfgLyricSize: Float = 20f
     private var cfgSwapLyric: Boolean = true
-    /** 歌词区域宽度：占专辑宽度的百分比（默认 100 = 与专辑同宽） */
-    private var cfgLyricWidth: Float = 100f
-    /** 歌词背景底边微调（dp）：正值下移，负值上移 */
-    private var cfgLyricBgOffsetY: Float = 0f
-    /** 歌词背景底边占屏幕高度百分比 */
+    /** 歌词区域宽度：占屏幕宽度的百分比 */
+    private var cfgLyricWidth: Float = 55f
+    /** 歌词底边占屏幕高度百分比 */
     private var cfgLyricBgAnchorY: Float = 62f
 
     // 通知中心/QS 是否展开（展开时歌词应隐藏，只显示在锁屏）
@@ -159,81 +162,73 @@ class LockscreenLyricView(context: Context) : View(context) {
     // 测量与绘制
     // ============================================================
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val screenWidth = resources.displayMetrics.widthPixels
-
         if (!shouldDisplayLyric()) {
             setMeasuredDimension(0, 0)
             return
         }
 
         val mainText = currentMainText.ifBlank { " " }
-        val layout = buildMainLayout(mainText)
+        val layout = mainStaticLayout?.takeIf {
+            it.width == (computeLyricWidthPx() - hPaddingPx * 2).toInt()
+        } ?: buildMainLayout(mainText).also { mainStaticLayout = it }
 
-        mainStaticLayout = layout
-
-        val secondHeight = if (hasSecondLine) {
-            val sfm = secondPaint.fontMetrics
-            sfm.bottom - sfm.top
-        } else 0f
-        val textHeight = layout.height.toFloat() +
-            (if (hasSecondLine) lineGapPx + secondHeight else 0f)
-
-        // View 宽度 = 专辑宽度 × 宽度百分比；高度自适应歌词显示高度
         val lyricWidth = computeLyricWidthPx()
-        val desiredHeight = (textHeight + vPaddingPx * 2).toInt()
-
+        val desiredHeight = computeContentHeightPx(layout, hasSecondLine)
         setMeasuredDimension(
             resolveSizeAndState(lyricWidth, widthMeasureSpec, 0),
             resolveSizeAndState(desiredHeight, heightMeasureSpec, 0)
         )
-
-        updateVerticalAlignment(desiredHeight)
     }
 
-    /** 背景底边按屏幕高度百分比定位；底边锁定，内容增高时向上延展。 */
-    private fun updateVerticalAlignment(desiredHeight: Int) {
-        val lp = layoutParams as? FrameLayout.LayoutParams ?: return
-        val parentView = parent as? View ?: return
+    /** 按当前主行 StaticLayout + 副行实际内容计算高度（自适应） */
+    private fun computeContentHeightPx(layout: StaticLayout, hasSecond: Boolean): Int {
+        val secondHeight = if (hasSecond) {
+            val sfm = secondPaint.fontMetrics
+            sfm.bottom - sfm.top
+        } else 0f
+        val textHeight = layout.height.toFloat() +
+            (if (hasSecond) lineGapPx + secondHeight else 0f)
+        return (textHeight + vPaddingPx * 2).toInt().coerceAtLeast(1)
+    }
 
-        if (fixedAnchorBottomInParent == null) {
-            val parentLoc = IntArray(2)
-            parentView.getLocationOnScreen(parentLoc)
-            fixedAnchorBottomInParent = computeLyricAnchorBottomInParent(parentLoc[1])
+    /**
+     * 高度随歌词自适应，但底边锚点不变：先改 topMargin 再改 height，避免遮罩整块跳一帧。
+     */
+    private fun resizeKeepingBottom(newHeight: Int) {
+        val lyricWidth = computeLyricWidthPx()
+        val lp = layoutParams as? FrameLayout.LayoutParams
+        if (lp == null) {
+            requestLayout()
+            return
         }
-
-        val density = resources.displayMetrics.widthPixels / 360f
-        val offsetPx = cfgLyricBgOffsetY * density
-        val newTop = (fixedAnchorBottomInParent!! - desiredHeight + offsetPx).toInt()
-        applyTopMargin(lp, newTop)
-    }
-
-    /** 歌词背景底边锚点（父容器 y）：屏幕高度 × 用户设定百分比。 */
-    private fun computeLyricAnchorBottomInParent(parentTopOnScreen: Int): Int {
-        val screenHeight = resources.displayMetrics.heightPixels
-        val anchorScreenY = (screenHeight * cfgLyricBgAnchorY / 100f).toInt()
-        return anchorScreenY - parentTopOnScreen
-    }
-
-    private fun clearFixedPosition() {
-        fixedAnchorBottomInParent = null
-    }
-
-    private fun applyTopMargin(lp: FrameLayout.LayoutParams, top: Int) {
-        if (lp.topMargin == top) return
-        animate().cancel()
-        translationY = 0f
-        scaleX = 1f
-        scaleY = 1f
-        lp.topMargin = top
+        val oldHeight = when {
+            height > 0 -> height
+            measuredHeight > 0 -> measuredHeight
+            lp.height > 0 -> lp.height
+            else -> 0
+        }
+        if (oldHeight == newHeight && lp.width == lyricWidth) {
+            invalidate()
+            return
+        }
+        if (oldHeight > 0) {
+            val bottom = lp.topMargin + oldHeight
+            lp.topMargin = (bottom - newHeight).coerceAtLeast(0)
+        }
+        lp.width = lyricWidth
+        lp.height = newHeight
         layoutParams = lp
+        MediaFollowController.syncLyricLaidOut(newHeight)
     }
 
-    /** 歌词区域宽度（px）：专辑宽度 × 用户可调的宽度百分比 */
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+    }
+
+    /** 歌词区域宽度（px）：屏宽 × 用户可调的宽度百分比，与专辑尺寸无关 */
     private fun computeLyricWidthPx(): Int {
         val screenWidth = resources.displayMetrics.widthPixels
-        val sizePercent = ConfigReader.albumSize(context)
-        val albumWidth = screenWidth * sizePercent / 100f
-        return (albumWidth * cfgLyricWidth / 100f).toInt()
+        return (screenWidth * cfgLyricWidth / 100f).toInt().coerceAtLeast(1)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -336,6 +331,25 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun drawFogBackground(canvas: Canvas, w: Float, h: Float) {
         if (!showFogBackground) return
         val tint = fogTintColor ?: return
+        val wi = w.toInt()
+        val hi = h.toInt()
+        if (fogShader == null || fogShaderW != wi || fogShaderH != hi || fogShaderTint != tint) {
+            fogShader = LinearGradient(
+                0f, h, 0f, 0f,
+                intArrayOf(
+                    tintedMaskColor(fogMaskAlphaBottom, tint, 0.28f),
+                    tintedMaskColor(fogMaskAlphaMid, tint, 0.18f),
+                    tintedMaskColor(fogMaskAlphaLight, tint, 0.10f),
+                    Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.35f, 0.7f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            fogShaderW = wi
+            fogShaderH = hi
+            fogShaderTint = tint
+            fogPaint.shader = fogShader
+        }
 
         val cornerRadius = ConfigReader.albumCorner(context) * resources.displayMetrics.density
         val rect = RectF(0f, 0f, w, h)
@@ -345,19 +359,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
         canvas.save()
         canvas.clipPath(path)
-        val gradient = LinearGradient(
-            0f, h, 0f, 0f,
-            intArrayOf(
-                tintedMaskColor(fogMaskAlphaBottom, tint, 0.28f),
-                tintedMaskColor(fogMaskAlphaMid, tint, 0.18f),
-                tintedMaskColor(fogMaskAlphaLight, tint, 0.10f),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, 0.35f, 0.7f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = gradient }
-        canvas.drawRect(rect, paint)
+        canvas.drawRect(rect, fogPaint)
         canvas.restore()
     }
 
@@ -371,6 +373,11 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun clearFogCaches() {
         fogTintColor = null
+        fogShader = null
+        fogShaderW = 0
+        fogShaderH = 0
+        fogShaderTint = 0
+        fogPaint.shader = null
     }
 
     /** 切歌 / 换封面：先隐藏渐变遮罩，等壁纸专辑更新后再生成。 */
@@ -435,7 +442,6 @@ class LockscreenLyricView(context: Context) : View(context) {
     fun resetForMusicLockscreenOff() {
         fogBuildGeneration++
         showFogBackground = false
-        clearFixedPosition()
         clearFogCaches()
         cachedLines = null
         cachedCtx = null
@@ -452,7 +458,6 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 解锁离开锁屏：仅隐藏，保留数据供再次锁屏恢复 */
     fun onLeftKeyguard() {
-        clearFixedPosition()
         animate().cancel()
         translationY = 0f
         scaleX = 1f
@@ -567,25 +572,23 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxSize = cursor.getColumnIndex("lyric_size")
                 val idxSwap = cursor.getColumnIndex("swap_lyric")
                 val idxWidth = cursor.getColumnIndex("lyric_width")
-                val idxBgOffsetY = cursor.getColumnIndex("lyric_bg_offset_y")
                 val idxBgAnchorY = cursor.getColumnIndex("lyric_bg_anchor_y")
 
                 if (idxShow >= 0) cfgShowLyric = cursor.getInt(idxShow) != 0
                 if (idxSize >= 0) cfgLyricSize = cursor.getFloat(idxSize)
                 if (idxSwap >= 0) cfgSwapLyric = cursor.getInt(idxSwap) != 0
-                if (idxWidth >= 0) cfgLyricWidth = cursor.getFloat(idxWidth)
                 var positionChanged = false
-                if (idxBgOffsetY >= 0) {
-                    val newOffset = cursor.getFloat(idxBgOffsetY)
-                    if (newOffset != cfgLyricBgOffsetY) positionChanged = true
-                    cfgLyricBgOffsetY = newOffset
+                if (idxWidth >= 0) {
+                    val newWidth = cursor.getFloat(idxWidth)
+                    if (newWidth != cfgLyricWidth) positionChanged = true
+                    cfgLyricWidth = newWidth
                 }
                 if (idxBgAnchorY >= 0) {
                     val newAnchor = cursor.getFloat(idxBgAnchorY)
                     if (newAnchor != cfgLyricBgAnchorY) positionChanged = true
                     cfgLyricBgAnchorY = newAnchor
                 }
-                if (positionChanged) clearFixedPosition()
+                if (positionChanged) MediaFollowController.requestReflow()
 
                 cursor.close()
                 applyLyricStyle()
@@ -611,11 +614,19 @@ class LockscreenLyricView(context: Context) : View(context) {
         val lp = layoutParams as? FrameLayout.LayoutParams
         if (lp != null) {
             lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            lp.leftMargin = 0
+            lp.topMargin = 0
+            lp.rightMargin = 0
             lp.bottomMargin = 0
+            // 样式变更后恢复 WRAP，由 onMeasure 自适应
+            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             layoutParams = lp
         }
 
+        mainStaticLayout = null
         requestLayout()
+        MediaFollowController.requestReflow()
         invalidate()
     }
 
@@ -642,13 +653,22 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun updateVisibilityState() {
         if (shouldDisplayLyric()) {
             animate().cancel()
-            translationY = 0f
             scaleX = 1f
             scaleY = 1f
-            if (visibility != View.VISIBLE) visibility = View.VISIBLE
-            alpha = 1f
-            requestLayout()
-            invalidate()
+            // 保持 INVISIBLE，等 MediaFollow 写好 topMargin 后再设 VISIBLE
+            if (visibility == View.GONE || visibility == View.INVISIBLE) {
+                visibility = View.INVISIBLE
+                alpha = 1f
+                elevation = 12f * resources.displayMetrics.density
+                translationZ = elevation
+                requestLayout()
+                MediaFollowController.requestReflow()
+            } else {
+                alpha = 1f
+                elevation = 12f * resources.displayMetrics.density
+                translationZ = elevation
+                invalidate()
+            }
         } else {
             alpha = 0f
             setLayerType(View.LAYER_TYPE_NONE, null)
@@ -1093,7 +1113,6 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /**
      * 根据互换开关和翻译有无，决定实际显示的主行/副行。
-     * 主行行数变化时触发向上滚动刷新。
      */
     private fun applySwapIfNeeded() {
         // 判断是否有翻译：第二行是翻译且非空
@@ -1119,12 +1138,12 @@ class LockscreenLyricView(context: Context) : View(context) {
             currentSecondText = displaySecond
             hasSecondLine = displayHasSecond
 
-            // 直接构建新布局，无滚动动画，歌词原地更新
-            mainStaticLayout = buildMainLayout(displayMain.ifBlank { " " })
+            val layout = buildMainLayout(displayMain.ifBlank { " " })
+            mainStaticLayout = layout
 
-            requestLayout()
+            // 高度自适应；底边不动，只改尺寸 + 重绘，避免整块跳闪
+            resizeKeepingBottom(computeContentHeightPx(layout, displayHasSecond))
             invalidate()
-            updateVisibilityState()
         }
     }
 

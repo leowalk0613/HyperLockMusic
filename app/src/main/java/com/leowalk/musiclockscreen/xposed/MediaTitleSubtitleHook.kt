@@ -3,7 +3,6 @@ package com.leowalk.musiclockscreen.xposed
 import android.graphics.Color
 import android.text.SpannableString
 import android.text.Spanned
-import android.text.TextPaint
 import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
@@ -29,14 +28,18 @@ object MediaTitleSubtitleHook {
     private const val SUBTITLE_SIZE_RATIO = 0.72f
     private const val SUBTITLE_ALPHA = 140
     private const val LINE_SUBTITLE_ALPHA = 120
-    /** 副标题保持较小；主标题可突破原单行高度限制。 */
-    private const val LINE_MAIN_SIZE_RATIO = 1.0f
+    /** 有副标题时主标题为基准字号的 90%。 */
+    private const val LINE_MAIN_SIZE_RATIO = 0.90f
     private const val LINE_SUB_SIZE_RATIO = 0.32f
     private const val LINE_TITLE_OVER_ARTIST = 1.15f
-    private const val LINE_MIN_SCALE = 0.78f
+    /** 分行模式下收紧标题组与歌手间距（dp） */
+    private const val LINE_ARTIST_GAP_REDUCE_DP = 6
+    /** 主标题与副标题间距（dp） */
+    private const val LINE_SUB_TOP_MARGIN_DP = 0.2f
     private const val RAW_ARTIST_TAG = 0x7f140001
     private const val BASE_TITLE_SIZE_TAG = 0x7f140002
     private const val LINE_APPLIED_TAG = 0x7f140003
+    private const val ARTIST_TOP_MARGIN_TAG = 0x7f140004
 
     private var module: XposedModule? = null
     private var mediaDataField: Field? = null
@@ -133,7 +136,7 @@ object MediaTitleSubtitleHook {
 
     /**
      * 分行：主标题在上、括号副标题在下（垂直 LinearLayout）。
-     * 主标题用接近原标题字号（可高于歌手、可突破原单行高度）；副标题保持较小；行距尽量紧。
+     * 主标题固定字号，显示不全用省略号；副标题保持较小。
      */
     private fun applyLineSubtitle(
         titleText: TextView,
@@ -145,6 +148,8 @@ object MediaTitleSubtitleHook {
 
         if (sub.isEmpty()) {
             unwrapTitleRow(titleText)
+            titleText.maxLines = 1
+            titleText.ellipsize = TextUtils.TruncateAt.END
             titleText.text = main.ifEmpty { titleText.text }
             return
         }
@@ -152,20 +157,15 @@ object MediaTitleSubtitleHook {
         val displayMain = main.ifEmpty { titleText.text?.toString().orEmpty() }
         if (displayMain.isEmpty()) return
 
-        val (row, subTv) = ensureTitleRow(titleText)
+        val (_, subTv) = ensureTitleRow(titleText)
         val baseSize = rememberBaseSize(titleText)
         val titleColor = titleText.currentTextColor
-        val availWidth = when {
-            row.width > 0 -> row.width - row.paddingLeft - row.paddingRight
-            titleText.width > 0 -> titleText.width
-            else -> 0
-        }
-        val scale = computeLineScale(displayMain, sub, baseSize, availWidth)
         val artistSize = artistText?.textSize?.takeIf { it > 0f } ?: (baseSize * 0.72f)
-        // 标题：原字号（宽度不足才缩小），且至少比歌手大一截；副标题固定比例，不随标题再放大
-        val mainPx = maxOf(baseSize * LINE_MAIN_SIZE_RATIO * scale, artistSize * LINE_TITLE_OVER_ARTIST)
+        // 有副标题时主标题为基准 90%；超出宽度用省略号
+        val mainPx = maxOf(baseSize * LINE_MAIN_SIZE_RATIO, artistSize * LINE_TITLE_OVER_ARTIST)
         val subPx = baseSize * LINE_SUB_SIZE_RATIO
-        val appliedKey = "$displayMain|$sub|$mainPx|$subPx|$titleColor"
+        val subTopMargin = dp(titleText.context, LINE_SUB_TOP_MARGIN_DP)
+        val appliedKey = "$displayMain|$sub|$mainPx|$subPx|$titleColor|$subTopMargin"
 
         // 仅当实际显示内容已正确时跳过，避免 setInfoText 冲掉文本后被误判为已应用
         if (titleText.getTag(LINE_APPLIED_TAG) == appliedKey &&
@@ -195,34 +195,14 @@ object MediaTitleSubtitleHook {
             )
         )
         subTv.text = sub
-        titleText.setTag(LINE_APPLIED_TAG, appliedKey)
-
-        if (availWidth <= 0) {
-            row.post {
-                if ((titleText.parent as? View)?.tag != TITLE_ROW_TAG) return@post
-                applyLineSubtitle(titleText, artistText, main, sub)
+        (subTv.layoutParams as? LinearLayout.LayoutParams)?.let { slp ->
+            if (slp.topMargin != subTopMargin) {
+                slp.topMargin = subTopMargin
+                subTv.layoutParams = slp
             }
         }
-    }
-
-    private fun computeLineScale(
-        main: String,
-        sub: String,
-        baseSize: Float,
-        maxWidth: Int
-    ): Float {
-        if (maxWidth <= 0) return 1f
-        val paint = TextPaint()
-        var scale = 1f
-        while (scale > LINE_MIN_SCALE) {
-            paint.textSize = baseSize * LINE_MAIN_SIZE_RATIO * scale
-            val mainOk = paint.measureText(main) <= maxWidth
-            paint.textSize = baseSize * LINE_SUB_SIZE_RATIO * scale
-            val subOk = paint.measureText(sub) <= maxWidth
-            if (mainOk && subOk) return scale
-            scale -= 0.02f
-        }
-        return LINE_MIN_SCALE
+        artistText?.let { tightenArtistGap(it) }
+        titleText.setTag(LINE_APPLIED_TAG, appliedKey)
     }
 
     private fun rememberBaseSize(titleText: TextView): Float {
@@ -291,8 +271,7 @@ object MediaTitleSubtitleHook {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                // 负边距收紧主副间距
-                topMargin = -dp(context, 4)
+                topMargin = dp(context, LINE_SUB_TOP_MARGIN_DP)
             }
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -305,7 +284,32 @@ object MediaTitleSubtitleHook {
 
     private fun restoreArtistText(artistText: TextView?) {
         if (artistText == null) return
+        restoreArtistMargin(artistText)
         readRawArtist(artistText)?.let { artistText.text = it }
+    }
+
+    private fun tightenArtistGap(artistText: TextView) {
+        val lp = artistText.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        if (artistText.getTag(ARTIST_TOP_MARGIN_TAG) == null) {
+            artistText.setTag(ARTIST_TOP_MARGIN_TAG, lp.topMargin)
+        }
+        val base = artistText.getTag(ARTIST_TOP_MARGIN_TAG) as Int
+        val target = base - dp(artistText.context, LINE_ARTIST_GAP_REDUCE_DP)
+        if (lp.topMargin != target) {
+            lp.topMargin = target
+            artistText.layoutParams = lp
+        }
+    }
+
+    private fun restoreArtistMargin(artistText: TextView?) {
+        if (artistText == null) return
+        val original = artistText.getTag(ARTIST_TOP_MARGIN_TAG) as? Int ?: return
+        val lp = artistText.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        if (lp.topMargin != original) {
+            lp.topMargin = original
+            artistText.layoutParams = lp
+        }
+        artistText.setTag(ARTIST_TOP_MARGIN_TAG, null)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -324,7 +328,10 @@ object MediaTitleSubtitleHook {
         artistText.setTag(RAW_ARTIST_TAG, null)
     }
 
-    private fun dp(context: android.content.Context, v: Int): Int {
+    private fun dp(context: android.content.Context, v: Int): Int =
+        dp(context, v.toFloat())
+
+    private fun dp(context: android.content.Context, v: Float): Int {
         val density = context.resources.displayMetrics.density
         return (v * density).toInt()
     }

@@ -68,7 +68,10 @@ class KeyguardOverlayHook {
                         bgLayer.post {
                             addBigAlbumOverlay(bgLayer)
                             addLyricOverlay(bgLayer)
+                            // 歌词必须在专辑之上；遮罩最后（过渡时盖住二者）
+                            MusicLockscreenManager.lyricView?.bringToFront()
                             addTransitionMask(bgLayer)
+                            MediaFollowController.bindBackgroundLayer(bgLayer)
                         }
                     } else {
                         logE("keyguardBackgroundLayer is null")
@@ -118,8 +121,11 @@ class KeyguardOverlayHook {
         WallpaperController.logCallback = callback
         HyperOsWallpaperBridge.logCallback = callback
         AlbumArtResolver.logCallback = callback
+        NetEaseAlbumArtSource.logCallback = callback
+        NetEaseSongIdResolver.logCallback = callback
         TransitionAnimator.logCallback = callback
         SystemNotificationAnimator.logCallback = callback
+        MediaFollowController.logCallback = callback
     }
 
     private fun addBigAlbumOverlay(bgLayer: ViewGroup) {
@@ -135,10 +141,17 @@ class KeyguardOverlayHook {
                 tag = "music_big_album_overlay"
                 visibility = View.GONE
             }
+            // 与歌词同一套：自身尺寸 + topMargin（底边距媒体上沿），由 MediaFollow 维护
             overlay.layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+                overlay.configuredSizePx,
+                overlay.configuredSizePx
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                leftMargin = 0
+                topMargin = 0
+                rightMargin = 0
+                bottomMargin = 0
+            }
             bgLayer.addView(overlay)
             MusicLockscreenManager.bigAlbumView = overlay
             logI("big album overlay added")
@@ -187,13 +200,16 @@ class KeyguardOverlayHook {
                 tag = "music_lyric_overlay"
                 visibility = View.GONE
             }
-            // 包裹内容尺寸，不遮拦、不拦截触摸
+            // 与专辑同一套：WRAP_CONTENT + topMargin，初始 0，由 MediaFollow 按底边对齐媒体上沿
             overlay.layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
-                topMargin = HookUtils.dpToPxInt(bgLayer.context, 300)
+                leftMargin = 0
+                topMargin = 0
+                rightMargin = 0
+                bottomMargin = 0
             }
 
             bgLayer.addView(overlay)

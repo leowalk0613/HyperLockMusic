@@ -26,6 +26,8 @@ class MediaAlbumClickHook {
         }
         HyperOsWallpaperBridge.logCallback = WallpaperController.logCallback
         AlbumArtResolver.logCallback = WallpaperController.logCallback
+        NetEaseAlbumArtSource.logCallback = WallpaperController.logCallback
+        NetEaseSongIdResolver.logCallback = WallpaperController.logCallback
 
         try {
             logI("install start")

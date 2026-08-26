@@ -1,6 +1,7 @@
 package com.leowalk.musiclockscreen.xposed
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -64,6 +65,64 @@ object AlbumArtResolver {
         return if (b != null && !b.isRecycled) b else null
     }
 
+    /** 当前曲目封面 URL；切歌时过滤与 canonical songId 不一致的通知源 */
+    fun collectArtUrlStrings(
+        metadata: MediaMetadata?,
+        mediaData: Any?,
+        context: Context? = null
+    ): List<String> {
+        val songId = NetEaseSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)
+        val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+        val urls = mutableListOf<String>()
+        if (metadata != null) {
+            for (uriKey in METADATA_URI_KEYS) {
+                metadata.getString(uriKey)?.takeIf { it.isNotBlank() }?.let { urls.add(it) }
+            }
+        }
+        if (mediaData != null) {
+            urls.addAll(extractRemoteArtUrls(mediaData, songId, title))
+        }
+        if (context != null) {
+            val pkg = packageFromMediaData(mediaData)
+                ?: HookUtils.currentMediaPackage(context)
+            if (!pkg.isNullOrBlank()) {
+                urls.addAll(scanNotificationArtUrls(context, pkg, songId, title))
+            }
+        }
+        return urls.distinct()
+    }
+
+    private fun scanNotificationArtUrls(
+        context: Context,
+        packageName: String,
+        songId: Long?,
+        title: String?
+    ): List<String> {
+        val urls = mutableListOf<String>()
+        return try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return emptyList()
+            for (sbn in nm.activeNotifications) {
+                if (sbn.packageName != packageName) continue
+                val json = sbn.notification.extras.getString("miui.focus.param.media") ?: continue
+                val share = NetEaseSongIdResolver.parseShareContentJson(json) ?: continue
+                if (songId != null && share.songId != null && share.songId != songId) {
+                    logI("skip stale notification pic songId=${share.songId} current=$songId")
+                    continue
+                }
+                if (title != null && share.title != null && share.title != title) {
+                    logI("skip stale notification pic title=${share.title} current=$title")
+                    continue
+                }
+                share.pic?.let { urls.add(it) }
+            }
+            urls.distinct()
+        } catch (e: Throwable) {
+            logE("scanNotificationArtUrls failed: $packageName", e)
+            emptyList()
+        }
+    }
+
     fun refreshFromBind(
         context: Context,
         mediaData: Any?,
@@ -77,7 +136,7 @@ object AlbumArtResolver {
         }
         val meta = metadata ?: lastBindMetadata
         val data = mediaData ?: lastBindMediaData
-        val trackKey = computeTrackKey(meta, data)
+        val trackKey = computeTrackKey(context, meta, data)
         val trackChanged = trackKey != null && trackKey != cachedTrackKey
         if (trackChanged) {
             logI("track changed on bind: $cachedTrackKey -> $trackKey")
@@ -91,9 +150,9 @@ object AlbumArtResolver {
         )
         if (best != null) {
             updateCache(best, trackKey)
-        } else if (trackChanged && trackKey != null) {
-            cachedTrackKey = trackKey
-            cachedBitmap = null
+        } else if (trackChanged) {
+            if (trackKey != null) cachedTrackKey = trackKey
+            logI("refresh empty on track change, keep previous cache if any")
         }
     }
 
@@ -109,7 +168,7 @@ object AlbumArtResolver {
     ): Bitmap? {
         val meta = metadata ?: lastBindMetadata
         val data = mediaData ?: lastBindMediaData
-        val trackKey = computeTrackKey(meta, data)
+        val trackKey = computeTrackKey(context, meta, data)
         val trackChanged = trackKey != null && trackKey != cachedTrackKey
         val includeCache = !ignoreCache && !trackChanged
 
@@ -123,10 +182,22 @@ object AlbumArtResolver {
         if (best != null) {
             updateCache(best, trackKey)
             logI("resolved: ${best.width}x${best.height}, ignoreCache=$ignoreCache")
-        } else {
-            logE("resolve failed: no bitmap source")
+            return best
         }
-        return best
+        // 切歌时 bind 可能早于封面就绪，回退缓存/ drawable 避免空白
+        if (trackChanged) {
+            extractFromDrawable(drawable)?.let { fallback ->
+                logI("resolved fallback drawable ${fallback.width}x${fallback.height}")
+                updateCache(fallback, trackKey)
+                return fallback
+            }
+            getCached()?.let { cached ->
+                logI("resolved fallback cache ${cached.width}x${cached.height}")
+                return cached
+            }
+        }
+        logE("resolve failed: no bitmap source")
+        return null
     }
 
     fun readControllerMetadata(controller: Any?): MediaMetadata? {
@@ -150,14 +221,17 @@ object AlbumArtResolver {
             getCached()?.let { candidates.add(it) }
         }
         if (metadata != null) {
-            addMetadataSources(context, metadata, candidates)
+            addMetadataBitmaps(metadata, candidates)
         }
         if (mediaData != null) {
-            addMediaDataSources(context, mediaData, candidates)
+            extractIconBitmap(context, mediaData)?.let { candidates.add(it) }
+        }
+        for (url in collectArtUrlStrings(metadata, mediaData, context)) {
+            loadBitmapFromUri(context, normalizeArtUrl(url))?.let { candidates.add(it) }
         }
         extractFromDrawable(drawable)?.let { candidates.add(it) }
 
-        val best = pickLargest(candidates)
+        val best = pickLargestVerified(candidates, metadata, mediaData, context)
         if (candidates.isNotEmpty()) {
             val sizes = candidates.joinToString { "${it.width}x${it.height}" }
             logI("candidates=[$sizes] -> best=${best?.width}x${best?.height}")
@@ -165,17 +239,53 @@ object AlbumArtResolver {
         return best
     }
 
-    private fun addMediaDataSources(context: Context, mediaData: Any, out: MutableList<Bitmap>) {
-        extractIconBitmap(context, mediaData)?.let { out.add(it) }
-        for (url in extractRemoteArtUrls(mediaData)) {
-            loadBitmapFromUri(context, url)?.let { out.add(it) }
+    /** 取最大候选；有 songId 时大图与当前曲一致即可，否则走 URL/视觉校验 */
+    private fun pickLargestVerified(
+        candidates: List<Bitmap>,
+        metadata: MediaMetadata?,
+        mediaData: Any?,
+        context: Context
+    ): Bitmap? {
+        val valid = candidates.filter { !it.isRecycled && it.width > 0 && it.height > 0 }
+        if (valid.isEmpty()) return null
+
+        val referenceKeys = AlbumArtMatcher.collectReferenceKeys(metadata, mediaData, context)
+        val visualRef = valid.minByOrNull { it.width * it.height } ?: return valid.maxByOrNull { it.width * it.height }
+
+        val sorted = valid.sortedByDescending { it.width * it.height }
+        for (candidate in sorted) {
+            if (candidate === visualRef ||
+                candidate.width * candidate.height <= visualRef.width * visualRef.height
+            ) {
+                return candidate
+            }
+            if (AlbumArtMatcher.acceptsNetworkUpgrade(visualRef, candidate, null, referenceKeys)) {
+                return candidate
+            }
+            logI("skip unverified ${candidate.width}x${candidate.height}")
         }
+        return visualRef
     }
 
-    private fun extractRemoteArtUrls(mediaData: Any): List<String> {
+    private fun extractRemoteArtUrls(mediaData: Any, songId: Long?, title: String?): List<String> {
         val urls = mutableListOf<String>()
         extractArtUriFromMediaData(mediaData)?.let { urls.add(it) }
-        extractMiuiFocusPicUrl(mediaData)?.let { urls.add(it) }
+        val notification = readMediaDataField(mediaData, "notification") as? Notification
+        val json = notification?.extras?.getString("miui.focus.param.media")
+        if (json != null) {
+            val share = NetEaseSongIdResolver.parseShareContentJson(json)
+            if (share != null) {
+                val staleId = songId != null && share.songId != null && share.songId != songId
+                val staleTitle = title != null && share.title != null && share.title != title
+                if (!staleId && !staleTitle) {
+                    share.pic?.let { urls.add(it) }
+                } else {
+                    logI("skip stale mediaData pic songId=${share.songId}/$songId title=${share.title}/$title")
+                }
+            } else {
+                parseMiuiFocusPicJson(json)?.let { urls.add(it) }
+            }
+        }
         return urls.distinct()
     }
 
@@ -203,14 +313,21 @@ object AlbumArtResolver {
         }
     }
 
-    private fun computeTrackKey(metadata: MediaMetadata?, mediaData: Any?): String? {
+    private fun computeTrackKey(context: Context?, metadata: MediaMetadata?, mediaData: Any?): String? {
+        NetEaseSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
+            return NetEaseSongIdResolver.trackKey(it)
+        }
+
         if (metadata != null) {
             val mediaId = metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)
             if (!mediaId.isNullOrBlank()) return "id:$mediaId"
 
             val artUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
                 ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
-            if (!artUri.isNullOrBlank()) return "uri:$artUri"
+            if (!artUri.isNullOrBlank()) {
+                val key = AlbumArtMatcher.netEaseImageKey(artUri) ?: artUri
+                return "uri:$key"
+            }
 
             val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
             val artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty()
@@ -223,7 +340,10 @@ object AlbumArtResolver {
         if (mediaData != null) {
             val pkg = packageFromMediaData(mediaData).orEmpty()
             val picUrl = extractMiuiFocusPicUrl(mediaData)
-            if (!picUrl.isNullOrBlank()) return "pkg:$pkg|pic:$picUrl"
+            if (!picUrl.isNullOrBlank()) {
+                val key = AlbumArtMatcher.netEaseImageKey(picUrl) ?: picUrl
+                return "pkg:$pkg|pic:$key"
+            }
 
             val uri = extractArtUriFromMediaData(mediaData)
             if (!uri.isNullOrBlank()) return "pkg:$pkg|uri:$uri"
@@ -238,7 +358,8 @@ object AlbumArtResolver {
         return null
     }
 
-    private fun packageFromMediaData(mediaData: Any): String? {
+    private fun packageFromMediaData(mediaData: Any?): String? {
+        if (mediaData == null) return null
         return readMediaDataString(mediaData, "packageName")
     }
 
@@ -257,17 +378,6 @@ object AlbumArtResolver {
             field.get(mediaData)
         } catch (_: Throwable) {
             null
-        }
-    }
-
-    private fun addMetadataSources(
-        context: Context,
-        metadata: MediaMetadata,
-        out: MutableList<Bitmap>
-    ) {
-        addMetadataBitmaps(metadata, out)
-        for (uriKey in METADATA_URI_KEYS) {
-            loadBitmapFromUri(context, metadata.getString(uriKey))?.let { out.add(it) }
         }
     }
 
@@ -295,6 +405,15 @@ object AlbumArtResolver {
         } catch (e: Throwable) {
             logE("loadBitmapFromUri failed: $uriString", e)
             null
+        }
+    }
+
+    private fun normalizeArtUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        return if (AlbumArtMatcher.isNetEaseArtUrl(url)) {
+            NetEaseAlbumArtSource.upgradeFetchUrl(url)
+        } else {
+            url
         }
     }
 
@@ -390,13 +509,6 @@ object AlbumArtResolver {
             null
         }
     }
-
-    private fun pickLargest(bitmaps: List<Bitmap>): Bitmap? {
-        return bitmaps
-            .filter { !it.isRecycled && it.width > 0 && it.height > 0 }
-            .maxByOrNull { it.width * it.height }
-    }
-
     private val METADATA_BITMAP_KEYS = listOf(
         MediaMetadata.METADATA_KEY_ALBUM_ART,
         MediaMetadata.METADATA_KEY_ART,
@@ -416,10 +528,12 @@ object AlbumArtResolver {
     )
 
     private fun logI(msg: String) {
+        android.util.Log.i(TAG, msg)
         logCallback?.invoke(android.util.Log.INFO, TAG, msg, null)
     }
 
     private fun logE(msg: String, e: Throwable? = null) {
+        android.util.Log.e(TAG, msg, e)
         logCallback?.invoke(android.util.Log.ERROR, TAG, msg, e)
     }
 }

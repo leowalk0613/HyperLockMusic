@@ -2,7 +2,7 @@ package com.leowalk.musiclockscreen
 
 import android.widget.LinearLayout
 
-/** 歌词样式：歌词开关、字号。 */
+/** 歌词样式：歌词开关、字号、屏幕高度位置。 */
 class LyricStyleActivity : BaseScrollingActivity() {
 
     override fun titleText() = "歌词样式"
@@ -17,7 +17,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         })
 
         show.addView(M3.sliderRow(
-            this, "歌词字号", 12f, 40f, ModuleConfig.lyricSize,
+            this, "歌词字号", 12f, 40f, ModuleConfig.lyricSize.coerceIn(12f, 40f),
             { "${it.toInt()} sp" }
         ) { v ->
             ModuleConfig.lyricSize = v
@@ -25,26 +25,18 @@ class LyricStyleActivity : BaseScrollingActivity() {
         })
 
         show.addView(M3.sliderRow(
-            this, "歌词区域宽度", 50f, 130f, ModuleConfig.lyricWidth,
-            { "${it.toInt()}%" }
+            this, "歌词区域宽度", 30f, 100f, ModuleConfig.lyricWidth.coerceIn(30f, 100f),
+            { "${it.toInt()}% 屏宽" }
         ) { v ->
             ModuleConfig.lyricWidth = v
             ModuleConfig.push(this)
         })
 
         show.addView(M3.sliderRow(
-            this, "歌词背景高度", 35f, 85f, ModuleConfig.lyricBgAnchorY,
-            { "${it.toInt()}%" }
+            this, "底边位置", 30f, 80f, ModuleConfig.lyricBgAnchorY.coerceIn(30f, 80f),
+            { "${it.toInt()}% 屏高" }
         ) { v ->
             ModuleConfig.lyricBgAnchorY = v
-            ModuleConfig.push(this)
-        })
-
-        show.addView(M3.sliderRow(
-            this, "歌词背景高度微调", -40f, 40f, ModuleConfig.lyricBgOffsetY,
-            { "${it.toInt()} dp" }
-        ) { v ->
-            ModuleConfig.lyricBgOffsetY = v
             ModuleConfig.push(this)
         })
 
@@ -55,6 +47,6 @@ class LyricStyleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, show))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "修改后需重启系统界面或重新开关音乐锁屏生效。")))
+            "底边位置 = 歌词底边在屏幕高度上的百分比。与专辑独立调节，数值越大越靠下。")))
     }
 }

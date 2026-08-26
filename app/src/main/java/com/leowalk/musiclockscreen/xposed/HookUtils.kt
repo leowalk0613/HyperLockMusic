@@ -1,8 +1,12 @@
 package com.leowalk.musiclockscreen.xposed
 
 import android.content.Context
+import android.graphics.drawable.BitmapDrawable
+import android.util.DisplayMetrics
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 
 /**
  * 通用工具函数
@@ -21,6 +25,22 @@ object HookUtils {
      */
     fun dpToPx(context: Context, dp: Float): Float {
         return dp * context.resources.displayMetrics.density
+    }
+
+    /** 锁屏壁纸目标尺寸（含导航栏区域，避免底部露黑） */
+    fun lockScreenWallpaperSize(context: Context): Pair<Int, Int> {
+        val dm = DisplayMetrics()
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.getRealMetrics(dm)
+        return dm.widthPixels to dm.heightPixels
+    }
+
+    /** 遮罩/壁纸 BitmapDrawable 铺满全屏 */
+    fun fillDrawable(context: Context, bitmap: android.graphics.Bitmap): BitmapDrawable {
+        return BitmapDrawable(context.resources, bitmap).apply {
+            gravity = Gravity.FILL
+        }
     }
 
     /**

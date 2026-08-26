@@ -26,6 +26,6 @@ class MediaTitleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, card))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "默认：原样显示。缩小：括号内容缩小并置于标题右侧。隐藏：去除括号内容。分行：括号副标题叠在标题下方，主副字号合计约等于原标题，宽度不足时同步缩小。")))
+            "默认：原样显示。缩小：括号内容缩小并置于标题右侧。隐藏：去除括号内容。分行：括号副标题叠在标题下方；主标题固定字号，显示不全用省略号。")))
     }
 }

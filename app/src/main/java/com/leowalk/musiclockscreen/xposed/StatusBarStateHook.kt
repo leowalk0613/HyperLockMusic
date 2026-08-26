@@ -42,6 +42,8 @@ object StatusBarStateHook {
                             STATUS_SHADE -> {
                                 // 已离开锁屏（解锁）；OS4 不会在锁屏上单独展开 shade
                                 MusicLockscreenManager.hideTransitionMaskImmediately()
+                                MusicLockscreenManager.pauseAlbumOverlay()
+                                MediaFollowController.onMusicLockscreenHidden()
                                 (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onLeftKeyguard()
                                 MusicLockscreenManager.lyricView?.setShadeOpen(true)
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
@@ -60,7 +62,9 @@ object StatusBarStateHook {
                                 if (WallpaperController.isShowing()) {
                                     LockscreenNotificationController.forceHideNormalNotifications()
                                     NumStateViewController.hide()
+                                    MusicLockscreenManager.resumeAlbumOverlay()
                                     (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
+                                    MediaFollowController.onKeyguardShown()
                                     // 亮屏/回到锁屏时同步壁纸与歌词背景（曲目未变也会补雾状背景）
                                     val ctx = MusicLockscreenManager.lyricView?.context
                                     if (ctx != null && HookUtils.isScreenInteractive(ctx)) {

@@ -14,5 +14,6 @@
   "android-studio-lite.sdkPath": "D:\\Data\\AS",
   "android-studio-lite.adbPath": "D:\\Data\\AS\\platform-tools\\adb.exe",
   "android-studio-lite.emulatorPath": "D:\\Data\\AS\\emulator\\emulator.exe",
-  "android-studio-lite.avdHome": "C:\\Users\\lonel\\.android\\avd"
+  "android-studio-lite.avdHome": "C:\\Users\\lonel\\.android\\avd",
+  "java.configuration.updateBuildConfiguration": "automatic"
 }
