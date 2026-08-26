@@ -1,6 +1,7 @@
 package com.leowalk.musiclockscreen
 
 import android.content.Intent
+import android.net.Uri
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -31,6 +32,27 @@ class AboutActivity : BaseScrollingActivity() {
             }
             content.addView(versionView)
         }))
+
+        val metaCard = M3.cardContent(this)
+        metaCard.addView(M3.title(this, "项目信息"))
+        val repoUrl = "https://github.com/leowalk0613/HyperLockMusic"
+        metaCard.addView(TextView(this).apply {
+            text = repoUrl
+            setTextSize(14f)
+            setTextColor(M3.attrColor(this@AboutActivity,
+                com.google.android.material.R.attr.colorPrimary, 0xFFBB86FC.toInt()))
+            setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(repoUrl)))
+            }
+        })
+        metaCard.addView(TextView(this).apply {
+            text = "许可证：MIT License"
+            setTextSize(14f)
+            setTextColor(M3.attrColor(this@AboutActivity,
+                com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
+            setPadding(0, M3.dp(this@AboutActivity, 8f), 0, 0)
+        })
+        list.addView(M3.card(this, metaCard))
 
         list.addView(M3.card(this, M3.tipContent(this,
             "基于 LSPosed 的 HyperLockMusic 模块，为重绘 HyperOS 锁屏界面的专辑背景与歌词而设计。\n\n" +
