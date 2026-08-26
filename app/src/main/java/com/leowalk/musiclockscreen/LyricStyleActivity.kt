@@ -32,6 +32,22 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.push(this)
         })
 
+        show.addView(M3.sliderRow(
+            this, "歌词背景高度", 35f, 85f, ModuleConfig.lyricBgAnchorY,
+            { "${it.toInt()}%" }
+        ) { v ->
+            ModuleConfig.lyricBgAnchorY = v
+            ModuleConfig.push(this)
+        })
+
+        show.addView(M3.sliderRow(
+            this, "歌词背景高度微调", -40f, 40f, ModuleConfig.lyricBgOffsetY,
+            { "${it.toInt()} dp" }
+        ) { v ->
+            ModuleConfig.lyricBgOffsetY = v
+            ModuleConfig.push(this)
+        })
+
         show.addView(M3.switchRow(this, "歌词翻译互换", "在有翻译歌词时优先显示翻译", ModuleConfig.swapLyric) { checked ->
             ModuleConfig.swapLyric = checked
             ModuleConfig.push(this)

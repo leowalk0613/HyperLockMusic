@@ -22,6 +22,8 @@ object ModuleConfig {
     private const val KEY_LYRIC_SIZE = "lyric_size"       // 主行字号 sp
     private const val KEY_SWAP_LYRIC = "swap_lyric"       // 歌词/翻译互换
     private const val KEY_LYRIC_WIDTH = "lyric_width"     // 歌词区域宽度（占专辑宽度百分比）
+    private const val KEY_LYRIC_BG_OFFSET_Y = "lyric_bg_offset_y" // 歌词背景底边微调（dp，正值下移）
+    private const val KEY_LYRIC_BG_ANCHOR_Y = "lyric_bg_anchor_y" // 歌词背景底边占屏幕高度百分比
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -56,6 +58,8 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_SIZE = 20f
     private const val DEFAULT_SWAP_LYRIC = true
     private const val DEFAULT_LYRIC_WIDTH = 100f
+    private const val DEFAULT_LYRIC_BG_OFFSET_Y = 0f
+    private const val DEFAULT_LYRIC_BG_ANCHOR_Y = 62f
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
 
@@ -110,6 +114,16 @@ object ModuleConfig {
         get() = getPrefs().getFloat(KEY_LYRIC_WIDTH, DEFAULT_LYRIC_WIDTH)
         set(value) = getPrefs().edit().putFloat(KEY_LYRIC_WIDTH, value).apply()
 
+    /** 歌词背景底边微调（dp）：正值下移，负值上移。 */
+    var lyricBgOffsetY: Float
+        get() = getPrefs().getFloat(KEY_LYRIC_BG_OFFSET_Y, DEFAULT_LYRIC_BG_OFFSET_Y)
+        set(value) = getPrefs().edit().putFloat(KEY_LYRIC_BG_OFFSET_Y, value).apply()
+
+    /** 歌词背景底边占屏幕高度百分比（默认 62）。 */
+    var lyricBgAnchorY: Float
+        get() = getPrefs().getFloat(KEY_LYRIC_BG_ANCHOR_Y, DEFAULT_LYRIC_BG_ANCHOR_Y)
+        set(value) = getPrefs().edit().putFloat(KEY_LYRIC_BG_ANCHOR_Y, value).apply()
+
     /** 媒体标题括号：default=原样 / shrink=右侧缩小 / hide=去掉括号 */
     var titleBracketMode: String
         get() = getPrefs().getString(KEY_TITLE_BRACKET_MODE, DEFAULT_TITLE_BRACKET_MODE)
@@ -160,6 +174,8 @@ object ModuleConfig {
                 put("lyric_size", lyricSize)
                 put("swap_lyric", if (swapLyric) 1 else 0)
                 put("lyric_width", lyricWidth)
+                put("lyric_bg_offset_y", lyricBgOffsetY)
+                put("lyric_bg_anchor_y", lyricBgAnchorY)
                 put("title_bracket_mode", titleBracketMode)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)
                 put("music_whitelist", musicWhitelist)

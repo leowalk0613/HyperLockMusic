@@ -26,18 +26,18 @@ import java.io.FileInputStream
  * - 双行显示：当前行（白色加粗）+ 下一行（淡灰色小字）
  * - 歌词/翻译互换：有翻译时主行显示翻译，副行显示原文（固定开启）
  * - 主行超长自动换行显示完整内容
- * - 固定位置：底部对齐到专辑底部，歌词原地更新（无滚动动画）
- * - 雾状背景：裁剪音乐锁屏同款模糊背景，歌词显示在雾上
+ * - 固定位置：背景底边按屏幕高度百分比定位，内容增高时向上延展
+ * - 渐变遮罩背景：取专辑下半主色调，生成自下而上的半透明黑色渐变
  */
 class LockscreenLyricView(context: Context) : View(context) {
 
     // ============================================================
     // 常量
     // ============================================================
-    /** 雾底部超出专辑底边的重叠量（dp），盖住壁纸缩放/层级偏移造成的边距 */
-    private val fogBottomOverlapDp = 12f
-    /** 雾状白色渐变透明度（0-255，底部最浓、向上消散） */
-    private val fogWhiteAlpha = 72
+    /** 渐变遮罩底部/中部/顶部透明度（0-255，底部最浓、向上消散） */
+    private val fogMaskAlphaBottom = 238
+    private val fogMaskAlphaMid = 175
+    private val fogMaskAlphaLight = 80
     /** 歌词内容上下内边距（dp） */
     private val vPaddingDp = 14f
 
@@ -65,9 +65,6 @@ class LockscreenLyricView(context: Context) : View(context) {
     private val vPaddingPx: Float
         get() = vPaddingDp * resources.displayMetrics.density
 
-    private val fogBottomOverlapPx: Float
-        get() = fogBottomOverlapDp * resources.displayMetrics.density
-
     private val lineGapPx: Float
         get() = 4f * resources.displayMetrics.density
 
@@ -91,21 +88,14 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var mainStaticLayout: StaticLayout? = null
 
     // ============================================================
-    // 雾状模糊底图缓存（与壁纸相同 pipeline 生成的纯模糊背景，区域变化时裁剪）
+    // 渐变遮罩（专辑下半主色调 + 半透明黑，自下而上消散）
     // ============================================================
-    private var fogBgSource: Bitmap? = null
-    private var fogBgSourceAlbum: Bitmap? = null
-    private var fogBgSourceBlurRadius = -1f
-    private var fogBgSourceDarkOverlay = -1
-    private var fogCache: Bitmap? = null
-    private var fogCacheBgSource: Bitmap? = null
-    private var fogCacheSrcLeft = -1
-    private var fogCacheSrcTop = -1
-    private var fogCacheSrcRight = -1
-    private var fogCacheSrcBottom = -1
-    /** 是否绘制雾状背景（歌词文字不受此影响） */
+    private var fogTintColor: Int? = null
+    /** 是否绘制渐变遮罩背景（歌词文字不受此影响） */
     private var showFogBackground = false
     private var fogBuildGeneration = 0
+    /** 歌词背景底边锚点（父容器 y），锁定后高度变化只向上延展 */
+    private var fixedAnchorBottomInParent: Int? = null
 
     // ============================================================
     // 配置
@@ -115,6 +105,10 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cfgSwapLyric: Boolean = true
     /** 歌词区域宽度：占专辑宽度的百分比（默认 100 = 与专辑同宽） */
     private var cfgLyricWidth: Float = 100f
+    /** 歌词背景底边微调（dp）：正值下移，负值上移 */
+    private var cfgLyricBgOffsetY: Float = 0f
+    /** 歌词背景底边占屏幕高度百分比 */
+    private var cfgLyricBgAnchorY: Float = 62f
 
     // 通知中心/QS 是否展开（展开时歌词应隐藏，只显示在锁屏）
     @Volatile
@@ -193,16 +187,45 @@ class LockscreenLyricView(context: Context) : View(context) {
             resolveSizeAndState(desiredHeight, heightMeasureSpec, 0)
         )
 
-        // 底部对齐到专辑底部，并略超出专辑底边盖住壁纸缩放/层级偏移造成的边距
-        val lp = layoutParams as? FrameLayout.LayoutParams
-        if (lp != null) {
-            val albumBottom = computeAlbumBottomPx()
-            val newTop = (albumBottom + fogBottomOverlapPx - desiredHeight).toInt()
-            if (lp.topMargin != newTop) {
-                lp.topMargin = newTop
-                layoutParams = lp
-            }
+        updateVerticalAlignment(desiredHeight)
+    }
+
+    /** 背景底边按屏幕高度百分比定位；底边锁定，内容增高时向上延展。 */
+    private fun updateVerticalAlignment(desiredHeight: Int) {
+        val lp = layoutParams as? FrameLayout.LayoutParams ?: return
+        val parentView = parent as? View ?: return
+
+        if (fixedAnchorBottomInParent == null) {
+            val parentLoc = IntArray(2)
+            parentView.getLocationOnScreen(parentLoc)
+            fixedAnchorBottomInParent = computeLyricAnchorBottomInParent(parentLoc[1])
         }
+
+        val density = resources.displayMetrics.widthPixels / 360f
+        val offsetPx = cfgLyricBgOffsetY * density
+        val newTop = (fixedAnchorBottomInParent!! - desiredHeight + offsetPx).toInt()
+        applyTopMargin(lp, newTop)
+    }
+
+    /** 歌词背景底边锚点（父容器 y）：屏幕高度 × 用户设定百分比。 */
+    private fun computeLyricAnchorBottomInParent(parentTopOnScreen: Int): Int {
+        val screenHeight = resources.displayMetrics.heightPixels
+        val anchorScreenY = (screenHeight * cfgLyricBgAnchorY / 100f).toInt()
+        return anchorScreenY - parentTopOnScreen
+    }
+
+    private fun clearFixedPosition() {
+        fixedAnchorBottomInParent = null
+    }
+
+    private fun applyTopMargin(lp: FrameLayout.LayoutParams, top: Int) {
+        if (lp.topMargin == top) return
+        animate().cancel()
+        translationY = 0f
+        scaleX = 1f
+        scaleY = 1f
+        lp.topMargin = top
+        layoutParams = lp
     }
 
     /** 歌词区域宽度（px）：专辑宽度 × 用户可调的宽度百分比 */
@@ -213,18 +236,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         return (albumWidth * cfgLyricWidth / 100f).toInt()
     }
 
-    /** 专辑底部 y（px），与壁纸中专辑绘制位置一致 */
-    private fun computeAlbumBottomPx(): Int {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
-        val density = screenWidth / 360f // 与 BlurUtils 的 dpToPx 保持一致
-        val sizePercent = ConfigReader.albumSize(context)
-        val offsetYDp = ConfigReader.albumOffsetY(context)
-        val albumSize = screenWidth * sizePercent / 100f
-        val albumTop = (screenHeight - albumSize) / 2f + offsetYDp * density
-        return (albumTop + albumSize).toInt()
-    }
-
     override fun onDraw(canvas: Canvas) {
         if (!shouldDisplayLyric()) return
 
@@ -232,7 +243,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         val h = height.toFloat()
         if (w <= 0 || h <= 0) return
 
-        // 1. 雾状模糊背景
+        // 1. 渐变半透明黑色遮罩（专辑下半主色调）
         drawFogBackground(canvas, w, h)
 
         val contentWidth = w - hPaddingPx * 2
@@ -320,120 +331,49 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 雾状背景：裁剪音乐锁屏同款模糊背景，再叠白色渐变（磨砂感）。
+     * 渐变遮罩：取专辑下半主色调，与黑色混合后自下而上半透明消散。
      */
     private fun drawFogBackground(canvas: Canvas, w: Float, h: Float) {
         if (!showFogBackground) return
+        val tint = fogTintColor ?: return
 
-        // 圆角跟随专辑圆角
         val cornerRadius = ConfigReader.albumCorner(context) * resources.displayMetrics.density
         val rect = RectF(0f, 0f, w, h)
         val path = Path().apply {
             addRoundRect(rect, cornerRadius, cornerRadius, Path.Direction.CW)
         }
 
-        if (w > 0 && h > 0) {
-            try {
-                val location = IntArray(2)
-                getLocationOnScreen(location)
-                val viewLeft = location[0]
-                val viewTop = location[1]
-                if (viewLeft >= 0 && viewTop >= 0) {
-                    val screenWidth = resources.displayMetrics.widthPixels
-                    val screenHeight = resources.displayMetrics.heightPixels
-                    val bgSource = getFogBackgroundSource()
-                    if (bgSource != null) {
-                        val bmpW = bgSource.width
-                        val bmpH = bgSource.height
-                        val scaleX = bmpW.toFloat() / screenWidth.toFloat()
-                        val scaleY = bmpH.toFloat() / screenHeight.toFloat()
-
-                        val srcLeft = (viewLeft * scaleX).toInt().coerceIn(0, bmpW)
-                        val srcTop = (viewTop * scaleY).toInt().coerceIn(0, bmpH)
-                        val srcRight = ((viewLeft + w.toInt()) * scaleX).toInt().coerceIn(srcLeft, bmpW)
-                        val srcBottom = ((viewTop + h.toInt()) * scaleY).toInt().coerceIn(srcTop, bmpH)
-
-                        if (srcRight > srcLeft && srcBottom > srcTop) {
-                            if (fogCache == null || fogCacheBgSource !== bgSource ||
-                                fogCacheSrcLeft != srcLeft || fogCacheSrcTop != srcTop ||
-                                fogCacheSrcRight != srcRight || fogCacheSrcBottom != srcBottom) {
-                                fogCache?.recycle()
-                                fogCache = cropFogBitmap(bgSource, Rect(srcLeft, srcTop, srcRight, srcBottom))
-                                fogCacheBgSource = bgSource
-                                fogCacheSrcLeft = srcLeft
-                                fogCacheSrcTop = srcTop
-                                fogCacheSrcRight = srcRight
-                                fogCacheSrcBottom = srcBottom
-                            }
-                            canvas.save()
-                            canvas.clipPath(path)
-                            canvas.drawBitmap(fogCache!!, null, rect, null)
-                            canvas.restore()
-                        }
-                    }
-                }
-            } catch (_: Throwable) {
-            }
-        }
-
-        // 白色渐变：底部较浓、向上平滑消散
         canvas.save()
         canvas.clipPath(path)
-        val whiteGradient = LinearGradient(
+        val gradient = LinearGradient(
             0f, h, 0f, 0f,
             intArrayOf(
-                Color.argb(fogWhiteAlpha, 255, 255, 255),
-                Color.argb(fogWhiteAlpha * 3 / 4, 255, 255, 255),
-                Color.argb(fogWhiteAlpha / 2, 255, 255, 255),
-                Color.argb(0, 255, 255, 255)
+                tintedMaskColor(fogMaskAlphaBottom, tint, 0.28f),
+                tintedMaskColor(fogMaskAlphaMid, tint, 0.18f),
+                tintedMaskColor(fogMaskAlphaLight, tint, 0.10f),
+                Color.TRANSPARENT
             ),
-            floatArrayOf(0f, 0.3f, 0.65f, 1f),
+            floatArrayOf(0f, 0.35f, 0.7f, 1f),
             Shader.TileMode.CLAMP
         )
-        val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = whiteGradient }
-        canvas.drawRect(rect, whitePaint)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = gradient }
+        canvas.drawRect(rect, paint)
         canvas.restore()
     }
 
-    /** 返回已预渲染的雾状背景，不在主线程生成。 */
-    private fun getFogBackgroundSource(): Bitmap? = fogBgSource
-
-    /** 从全屏模糊背景裁剪歌词区域，不再二次模糊。 */
-    private fun cropFogBitmap(bgSource: Bitmap, srcRect: Rect): Bitmap {
-        val cw = srcRect.width()
-        val ch = srcRect.height()
-        if (cw <= 0 || ch <= 0) return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-
-        val cropped = Bitmap.createBitmap(cw, ch, Bitmap.Config.ARGB_8888)
-        Canvas(cropped).drawBitmap(
-            bgSource,
-            srcRect,
-            RectF(0f, 0f, cw.toFloat(), ch.toFloat()),
-            Paint(Paint.FILTER_BITMAP_FLAG)
-        )
-        return cropped
+    /** 将专辑主色与黑色混合，得到带色调的半透明遮罩色。 */
+    private fun tintedMaskColor(alpha: Int, tint: Int, colorWeight: Float): Int {
+        val r = (Color.red(tint) * colorWeight).toInt().coerceIn(0, 255)
+        val g = (Color.green(tint) * colorWeight).toInt().coerceIn(0, 255)
+        val b = (Color.blue(tint) * colorWeight).toInt().coerceIn(0, 255)
+        return Color.argb(alpha, r, g, b)
     }
 
     private fun clearFogCaches() {
-        fogCache?.recycle()
-        fogCache = null
-        fogCacheBgSource = null
-        fogCacheSrcLeft = -1
-        fogCacheSrcTop = -1
-        fogCacheSrcRight = -1
-        fogCacheSrcBottom = -1
-        val ownedAlbum = fogBgSourceAlbum
-        if (ownedAlbum != null && ownedAlbum !== AlbumArtResolver.getCached()) {
-            ownedAlbum.recycle()
-        }
-        fogBgSource?.recycle()
-        fogBgSource = null
-        fogBgSourceAlbum = null
-        fogBgSourceBlurRadius = -1f
-        fogBgSourceDarkOverlay = -1
+        fogTintColor = null
     }
 
-    /** 切歌 / 换封面：先隐藏雾状背景，等壁纸专辑更新后再渲染。 */
+    /** 切歌 / 换封面：先隐藏渐变遮罩，等壁纸专辑更新后再生成。 */
     fun onWallpaperAlbumPending() {
         fogBuildGeneration++
         showFogBackground = false
@@ -443,51 +383,34 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    /** 壁纸专辑已应用到锁屏：后台渲染雾状背景后再显示。 */
+    /** 壁纸专辑已应用到锁屏：后台取下半主色并生成渐变遮罩。 */
     fun onWallpaperAlbumReady(sourceAlbum: Bitmap? = null, trackKey: String? = null) {
         if (!isMusicLockscreenActive()) return
-        // 雾状背景是 overlay，锁屏即可渲染；不要求屏幕 interactive，避免 AOD/过渡期丢背景
+        // 渐变遮罩是 overlay，锁屏即可渲染；不要求屏幕 interactive，避免 AOD/过渡期丢背景
         if (!HookUtils.isOnKeyguard(context)) return
         val gen = fogBuildGeneration
         val expectedKey = trackKey ?: AlbumArtResolver.getCachedTrackKey()
         val album = sourceAlbum ?: AlbumArtResolver.getCached() ?: return
         val ownsAlbumCopy = sourceAlbum != null
-        val screenW = resources.displayMetrics.widthPixels
-        val screenH = resources.displayMetrics.heightPixels
-        val blurRadius = ConfigReader.blurRadius(context)
-        val darkOverlay = (ConfigReader.darkOverlay(context) / 4).coerceIn(0, 48)
 
         Thread {
             try {
-                val bg = BlurUtils.blurWithBigAlbum(
-                    album,
-                    blurRadius,
-                    darkOverlay,
-                    showBigAlbum = false,
-                    targetWidth = screenW,
-                    targetHeight = screenH
-                )
+                val tintColor = BlurUtils.extractLowerHalfDominantColor(album)
                 post {
                     if (gen != fogBuildGeneration || !isMusicLockscreenActive() ||
                         !HookUtils.isOnKeyguard(context)
                     ) {
-                        bg.recycle()
                         if (ownsAlbumCopy && !album.isRecycled) album.recycle()
                         return@post
                     }
                     if (expectedKey != null && expectedKey != AlbumArtResolver.getCachedTrackKey()) {
-                        bg.recycle()
                         if (ownsAlbumCopy && !album.isRecycled) album.recycle()
                         return@post
                     }
-                    fogBgSource?.recycle()
-                    fogBgSource = bg
-                    fogBgSourceAlbum = album
-                    fogBgSourceBlurRadius = blurRadius
-                    fogBgSourceDarkOverlay = darkOverlay
-                    fogCacheSrcLeft = -1
+                    fogTintColor = tintColor
                     showFogBackground = true
                     invalidate()
+                    if (ownsAlbumCopy && !album.isRecycled) album.recycle()
                 }
             } catch (_: Throwable) {
                 if (ownsAlbumCopy && !album.isRecycled) album.recycle()
@@ -495,14 +418,13 @@ class LockscreenLyricView(context: Context) : View(context) {
         }.start()
     }
 
-    /** 雾状背景是否已在显示（用于锁屏时补渲染）。 */
+    /** 渐变遮罩是否已生成（用于锁屏时补渲染）。 */
     fun isFogBackgroundReady(): Boolean {
-        val src = fogBgSource
-        return showFogBackground && src != null && !src.isRecycled
+        return showFogBackground && fogTintColor != null
     }
 
     fun invalidateBlurBackground() {
-        if (showFogBackground || fogBgSource != null) {
+        if (showFogBackground || fogTintColor != null) {
             onWallpaperAlbumReady()
         } else {
             onWallpaperAlbumPending()
@@ -513,6 +435,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     fun resetForMusicLockscreenOff() {
         fogBuildGeneration++
         showFogBackground = false
+        clearFixedPosition()
         clearFogCaches()
         cachedLines = null
         cachedCtx = null
@@ -529,6 +452,11 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 解锁离开锁屏：仅隐藏，保留数据供再次锁屏恢复 */
     fun onLeftKeyguard() {
+        clearFixedPosition()
+        animate().cancel()
+        translationY = 0f
+        scaleX = 1f
+        scaleY = 1f
         alpha = 0f
         visibility = GONE
     }
@@ -639,11 +567,25 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxSize = cursor.getColumnIndex("lyric_size")
                 val idxSwap = cursor.getColumnIndex("swap_lyric")
                 val idxWidth = cursor.getColumnIndex("lyric_width")
+                val idxBgOffsetY = cursor.getColumnIndex("lyric_bg_offset_y")
+                val idxBgAnchorY = cursor.getColumnIndex("lyric_bg_anchor_y")
 
                 if (idxShow >= 0) cfgShowLyric = cursor.getInt(idxShow) != 0
                 if (idxSize >= 0) cfgLyricSize = cursor.getFloat(idxSize)
                 if (idxSwap >= 0) cfgSwapLyric = cursor.getInt(idxSwap) != 0
                 if (idxWidth >= 0) cfgLyricWidth = cursor.getFloat(idxWidth)
+                var positionChanged = false
+                if (idxBgOffsetY >= 0) {
+                    val newOffset = cursor.getFloat(idxBgOffsetY)
+                    if (newOffset != cfgLyricBgOffsetY) positionChanged = true
+                    cfgLyricBgOffsetY = newOffset
+                }
+                if (idxBgAnchorY >= 0) {
+                    val newAnchor = cursor.getFloat(idxBgAnchorY)
+                    if (newAnchor != cfgLyricBgAnchorY) positionChanged = true
+                    cfgLyricBgAnchorY = newAnchor
+                }
+                if (positionChanged) clearFixedPosition()
 
                 cursor.close()
                 applyLyricStyle()
@@ -699,6 +641,10 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun updateVisibilityState() {
         if (shouldDisplayLyric()) {
+            animate().cancel()
+            translationY = 0f
+            scaleX = 1f
+            scaleY = 1f
             if (visibility != View.VISIBLE) visibility = View.VISIBLE
             alpha = 1f
             requestLayout()
@@ -727,7 +673,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 由系统状态回调：通知中心/QS 展开状态变化
+     * 由 [StatusBarStateHook] 回调：已离开锁屏界面（OS4 解锁；非「锁屏下拉通知中心」）
      */
     fun setShadeOpen(open: Boolean) {
         if (shadeOpen == open) return

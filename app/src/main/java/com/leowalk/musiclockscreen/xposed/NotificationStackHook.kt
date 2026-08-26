@@ -7,6 +7,7 @@ import java.lang.reflect.Method
 
 /**
  * 音乐锁屏期间持续过滤通知行（layout 结束后 post，避免死循环）。
+ * OS4 锁屏即通知中心，仅在 [HookUtils.isOnKeyguard] 时过滤。
  * 分类逻辑见 [NotificationStackChildClassifier]（对齐反编译）。
  */
 class NotificationStackHook {
@@ -62,7 +63,7 @@ class NotificationStackHook {
             }
         }
 
-        if (!showing || !HookUtils.isOnKeyguard(parent.context)) {
+        if (!LockscreenNotificationController.shouldFilterNotifications()) {
             return
         }
 

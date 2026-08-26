@@ -23,6 +23,8 @@ object ConfigReader {
     private var cachedAlbumCorner: Float = 24f
     private var cachedShowLyric: Boolean = true
     private var cachedLyricWidth: Float = 100f
+    private var cachedLyricBgOffsetY: Float = 0f
+    private var cachedLyricBgAnchorY: Float = 62f
     private var cachedTitleBracketMode: String = "default"
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
@@ -99,6 +101,18 @@ object ConfigReader {
         return cachedLyricWidth
     }
 
+    /** 歌词背景底边微调（dp）：正值下移，负值上移。 */
+    fun lyricBgOffsetY(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return cachedLyricBgOffsetY
+    }
+
+    /** 歌词背景底边占屏幕高度百分比。 */
+    fun lyricBgAnchorY(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return cachedLyricBgAnchorY
+    }
+
     fun titleBracketMode(context: Context): String {
         refreshConfigIfNeeded(context)
         return cachedTitleBracketMode
@@ -151,6 +165,8 @@ object ConfigReader {
                 val albumCornerIdx = cursor.getColumnIndex("album_corner")
                 val showLyricIdx = cursor.getColumnIndex("show_lyric")
                 val lyricWidthIdx = cursor.getColumnIndex("lyric_width")
+                val lyricBgOffsetYIdx = cursor.getColumnIndex("lyric_bg_offset_y")
+                val lyricBgAnchorYIdx = cursor.getColumnIndex("lyric_bg_anchor_y")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
@@ -178,6 +194,12 @@ object ConfigReader {
                 }
                 if (lyricWidthIdx >= 0) {
                     cachedLyricWidth = cursor.getFloat(lyricWidthIdx)
+                }
+                if (lyricBgOffsetYIdx >= 0) {
+                    cachedLyricBgOffsetY = cursor.getFloat(lyricBgOffsetYIdx)
+                }
+                if (lyricBgAnchorYIdx >= 0) {
+                    cachedLyricBgAnchorY = cursor.getFloat(lyricBgAnchorYIdx)
                 }
                 if (titleBracketModeIdx >= 0) {
                     cachedTitleBracketMode = cursor.getString(titleBracketModeIdx) ?: "default"

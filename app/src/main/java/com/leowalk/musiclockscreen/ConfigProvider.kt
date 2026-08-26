@@ -29,6 +29,8 @@ class ConfigProvider : ContentProvider() {
         const val KEY_LYRIC_SIZE = "lyric_size"
         const val KEY_SWAP_LYRIC = "swap_lyric"
         const val KEY_LYRIC_WIDTH = "lyric_width"
+        const val KEY_LYRIC_BG_OFFSET_Y = "lyric_bg_offset_y"
+        const val KEY_LYRIC_BG_ANCHOR_Y = "lyric_bg_anchor_y"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
         const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
@@ -75,6 +77,8 @@ class ConfigProvider : ContentProvider() {
                 KEY_LYRIC_SIZE,
                 KEY_SWAP_LYRIC,
                 KEY_LYRIC_WIDTH,
+                KEY_LYRIC_BG_OFFSET_Y,
+                KEY_LYRIC_BG_ANCHOR_Y,
                 KEY_TITLE_BRACKET_MODE,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
                 KEY_MUSIC_WHITELIST_ENABLED,
@@ -93,6 +97,8 @@ class ConfigProvider : ContentProvider() {
                 prefs.getFloat(KEY_LYRIC_SIZE, 20f),
                 if (prefs.getBoolean(KEY_SWAP_LYRIC, true)) 1 else 0,
                 prefs.getFloat(KEY_LYRIC_WIDTH, 100f),
+                prefs.getFloat(KEY_LYRIC_BG_OFFSET_Y, 0f),
+                prefs.getFloat(KEY_LYRIC_BG_ANCHOR_Y, 62f),
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
                 if (prefs.getBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, false)) 1 else 0,
@@ -152,6 +158,12 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_LYRIC_WIDTH)) {
                     editor.putFloat(KEY_LYRIC_WIDTH, values.getAsFloat(KEY_LYRIC_WIDTH))
+                }
+                if (values.containsKey(KEY_LYRIC_BG_OFFSET_Y)) {
+                    editor.putFloat(KEY_LYRIC_BG_OFFSET_Y, values.getAsFloat(KEY_LYRIC_BG_OFFSET_Y))
+                }
+                if (values.containsKey(KEY_LYRIC_BG_ANCHOR_Y)) {
+                    editor.putFloat(KEY_LYRIC_BG_ANCHOR_Y, values.getAsFloat(KEY_LYRIC_BG_ANCHOR_Y))
                 }
                 if (values.containsKey(KEY_TITLE_BRACKET_MODE)) {
                     editor.putString(KEY_TITLE_BRACKET_MODE, values.getAsString(KEY_TITLE_BRACKET_MODE))

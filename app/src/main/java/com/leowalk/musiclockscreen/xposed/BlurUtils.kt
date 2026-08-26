@@ -20,12 +20,77 @@ object BlurUtils {
 
     private const val tag = "MusicLockScreen_Blur"
 
-    /**
-     * 简单的 dp 转 px（假设屏幕宽度 1080px = 360dp，密度 3x）
-     */
     private fun dpToPx(screenWidthPx: Int, dp: Float): Float {
         val density = screenWidthPx / 360f
         return dp * density
+    }
+
+    /**
+     * 壁纸中专辑矩形（屏幕坐标，不含阴影），与 [blurWithBigAlbum] 绘制位置一致。
+     */
+    fun computeAlbumRect(
+        screenWidth: Int,
+        screenHeight: Int,
+        albumSizePercent: Float,
+        albumOffsetYDp: Float
+    ): RectF {
+        val albumSize = (screenWidth * albumSizePercent / 100f).toInt()
+        val albumLeft = (screenWidth - albumSize) / 2f
+        val albumTop = (screenHeight - albumSize) / 2f + dpToPx(screenWidth, albumOffsetYDp)
+        return RectF(albumLeft, albumTop, albumLeft + albumSize, albumTop + albumSize)
+    }
+
+    /**
+     * 取专辑图下半区域的主色调（缩小采样后求平均，跳过过亮/过暗像素）。
+     */
+    fun extractLowerHalfDominantColor(albumBitmap: Bitmap): Int {
+        val w = albumBitmap.width
+        val h = albumBitmap.height
+        if (w <= 0 || h <= 0) return Color.BLACK
+
+        val sampleW = 48
+        val sampleH = 48
+        val small = Bitmap.createScaledBitmap(albumBitmap, sampleW, sampleH, true)
+        val startRow = sampleH / 2
+
+        var rSum = 0L
+        var gSum = 0L
+        var bSum = 0L
+        var count = 0
+        for (y in startRow until sampleH) {
+            for (x in 0 until sampleW) {
+                val pixel = small.getPixel(x, y)
+                val a = Color.alpha(pixel)
+                if (a < 128) continue
+                val r = Color.red(pixel)
+                val g = Color.green(pixel)
+                val b = Color.blue(pixel)
+                val lum = 0.299 * r + 0.587 * g + 0.114 * b
+                if (lum < 18 || lum > 235) continue
+                rSum += r
+                gSum += g
+                bSum += b
+                count++
+            }
+        }
+        if (count == 0) {
+            for (y in startRow until sampleH) {
+                for (x in 0 until sampleW) {
+                    val pixel = small.getPixel(x, y)
+                    rSum += Color.red(pixel)
+                    gSum += Color.green(pixel)
+                    bSum += Color.blue(pixel)
+                    count++
+                }
+            }
+        }
+        if (small !== albumBitmap) small.recycle()
+        if (count == 0) return Color.BLACK
+        return Color.rgb(
+            (rSum / count).toInt().coerceIn(0, 255),
+            (gSum / count).toInt().coerceIn(0, 255),
+            (bSum / count).toInt().coerceIn(0, 255)
+        )
     }
 
     /**

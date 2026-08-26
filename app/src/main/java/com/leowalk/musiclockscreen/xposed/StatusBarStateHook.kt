@@ -4,7 +4,11 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
 
 /**
- * 状态栏状态 Hook：通知中心展开时隐藏歌词 overlay。
+ * 状态栏状态 Hook（HyperOS 4）
+ *
+ * OS4 无锁屏下拉通知中心，锁屏即通知中心：
+ * - STATUS_KEYGUARD：锁屏界面（含通知列表）→ 音乐锁屏时隐藏普通通知
+ * - STATUS_SHADE：已离开锁屏（解锁）→ 恢复通知、暂停音乐锁屏 UI
  */
 object StatusBarStateHook {
 
@@ -34,22 +38,28 @@ object StatusBarStateHook {
                 try {
                     val newState = chain.args.firstOrNull() as? Int
                     if (newState != null) {
-                        val shadeOpen = newState != STATUS_KEYGUARD
-                        MusicLockscreenManager.lyricView?.setShadeOpen(shadeOpen)
                         when (newState) {
                             STATUS_SHADE -> {
-                                // 离开锁屏（解锁/通知中心展开）时立即隐藏过渡遮罩，
-                                // 防止壁纸切换尚未完成时遮罩残留在非锁屏界面
+                                // 已离开锁屏（解锁）；OS4 不会在锁屏上单独展开 shade
                                 MusicLockscreenManager.hideTransitionMaskImmediately()
                                 (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onLeftKeyguard()
-                                LockscreenNotificationController.showAllNotifications()
+                                MusicLockscreenManager.lyricView?.setShadeOpen(true)
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
-                                logI("unlocked -> pause music lockscreen UI")
+                                val ctx = MusicLockscreenManager.lyricView?.context
+                                if (ctx != null && !HookUtils.isOnKeyguard(ctx)) {
+                                    LockscreenNotificationController.showAllNotifications()
+                                    NumStateViewController.show()
+                                    logI("left keyguard -> restore notifications, pause music lockscreen UI")
+                                } else {
+                                    logI("STATUS_SHADE but keyguard still locked -> skip notification restore")
+                                }
                             }
                             STATUS_KEYGUARD -> {
+                                MusicLockscreenManager.lyricView?.setShadeOpen(false)
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = true)
                                 if (WallpaperController.isShowing()) {
                                     LockscreenNotificationController.forceHideNormalNotifications()
+                                    NumStateViewController.hide()
                                     (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
                                     // 亮屏/回到锁屏时同步壁纸与歌词背景（曲目未变也会补雾状背景）
                                     val ctx = MusicLockscreenManager.lyricView?.context
@@ -62,7 +72,7 @@ object StatusBarStateHook {
                                 }
                             }
                         }
-                        logI("setState -> $newState shadeOpen=$shadeOpen")
+                        logI("setState -> $newState")
                     }
                 } catch (e: Throwable) {
                     logE("setState intercept error", e)

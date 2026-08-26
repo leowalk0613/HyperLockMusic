@@ -38,6 +38,9 @@ object WallpaperController {
     /** setBitmap 提交后到开始淡出的停留时长，覆盖系统壁纸刷新/交叉渐变，避免淡出与画面切换重合而闪烁。 */
     private const val MASK_SETTLE_MS = 240L
 
+    /** 退出恢复时遮罩停留时长（系统回切原壁纸往往更慢，需更长覆盖切换过程）。 */
+    private const val MASK_SETTLE_EXIT_MS = 480L
+
     /** 遮罩淡出时长 */
     private const val MASK_FADE_MS = 220L
 
@@ -251,14 +254,16 @@ object WallpaperController {
 
             val lyricView = MusicLockscreenManager.lyricView
             if (lyricView != null) {
-                TransitionAnimator.playLyricEnterAnimation(
-                    lyricView = lyricView,
-                    onEnd = {
-                        (lyricView as? LockscreenLyricView)?.refreshVisibility()
-                        isAnimating = false
-                        logI("enter transition complete")
-                    }
-                )
+                TransitionAnimator.cancelCurrent()
+                lyricView.animate().cancel()
+                lyricView.alpha = 1f
+                lyricView.translationY = 0f
+                lyricView.scaleX = 1f
+                lyricView.scaleY = 1f
+                lyricView.visibility = android.view.View.VISIBLE
+                (lyricView as? LockscreenLyricView)?.refreshVisibility()
+                isAnimating = false
+                logI("lyric shown without enter animation")
             } else {
                 isAnimating = false
                 logI("lyricView is null, skip enter animation")
@@ -548,8 +553,8 @@ object WallpaperController {
                 } catch (e: Throwable) {
                     logE("restore setBitmap error", e)
                 } finally {
-                    // setBitmap 返回即已提交系统刷新，随后停留后淡出遮罩露出恢复的原壁纸
-                    hideTransitionMask()
+                    // setBitmap 返回即已提交系统刷新，退出恢复停留更久后再淡出，避免露出切换过程
+                    hideTransitionMask(MASK_SETTLE_EXIT_MS)
                 }
             }.start()
         } catch (e: Throwable) {

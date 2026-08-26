@@ -4,8 +4,9 @@ import android.view.View
 import android.view.ViewGroup
 
 /**
- * 锁屏通知控制器（HyperOS）
+ * 锁屏通知控制器（HyperOS 4）
  *
+ * OS4 锁屏即通知中心，无「锁屏下拉通知中心」；仅在 [isOnKeyguard] 且音乐壁纸激活时隐藏普通通知。
  * 仅隐藏 [ExpandableNotificationRow] 中的非媒体行；
  * [MiuiMediaHeaderView] 及 SectionHeader/Footer 等永不 GONE。
  */
@@ -17,6 +18,11 @@ object LockscreenNotificationController {
     private var isHidden: Boolean = false
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
+
+    /** 音乐锁屏激活且仍在锁屏界面时才过滤普通通知（OS4：锁屏=通知中心，不区分 shade） */
+    fun shouldFilterNotifications(): Boolean {
+        return WallpaperController.isShowing() && isOnKeyguard()
+    }
 
     fun setNotificationStackView(view: ViewGroup?) {
         notificationStackView?.removeOnLayoutChangeListener(layoutChangeListener)
@@ -31,7 +37,9 @@ object LockscreenNotificationController {
     }
 
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        if (!isHidden || !WallpaperController.isShowing() || !isOnKeyguard()) return@OnLayoutChangeListener
+        if (!isHidden || !WallpaperController.isShowing() || !isOnKeyguard()) {
+            return@OnLayoutChangeListener
+        }
         val stack = notificationStackView ?: return@OnLayoutChangeListener
         stack.post {
             if (!WallpaperController.isShowing()) return@post
