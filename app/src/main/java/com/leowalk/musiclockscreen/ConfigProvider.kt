@@ -1,4 +1,4 @@
-﻿package com.leowalk.musiclockscreen
+package com.leowalk.musiclockscreen
 
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -37,6 +37,7 @@ class ConfigProvider : ContentProvider() {
         const val KEY_LYRIC_ALIGN = "lyric_align"
         const val KEY_IMMERSIVE_ALBUM = "immersive_album"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
+        const val KEY_AOD_FULL_MEDIA = "aod_full_media"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
         const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
         const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -90,6 +91,7 @@ class ConfigProvider : ContentProvider() {
                 KEY_LYRIC_ALIGN,
                 KEY_IMMERSIVE_ALBUM,
                 KEY_TITLE_BRACKET_MODE,
+                KEY_AOD_FULL_MEDIA,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
                 KEY_MUSIC_WHITELIST_ENABLED,
                 KEY_MUSIC_WHITELIST
@@ -117,6 +119,7 @@ class ConfigProvider : ContentProvider() {
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
+                if (prefs.getBoolean(KEY_AOD_FULL_MEDIA, true)) 1 else 0,
                 if (prefs.getBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_MUSIC_WHITELIST_ENABLED, false)) 1 else 0,
                 prefs.getString(KEY_MUSIC_WHITELIST, "") ?: ""
@@ -198,6 +201,9 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_TITLE_BRACKET_MODE)) {
                     editor.putString(KEY_TITLE_BRACKET_MODE, values.getAsString(KEY_TITLE_BRACKET_MODE))
+                }
+                if (values.containsKey(KEY_AOD_FULL_MEDIA)) {
+                    editor.putBoolean(KEY_AOD_FULL_MEDIA, values.getAsInteger(KEY_AOD_FULL_MEDIA) == 1)
                 }
                 if (values.containsKey(KEY_MEDIA_WALLPAPER_ACTIVE)) {
                     editor.putBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, values.getAsInteger(KEY_MEDIA_WALLPAPER_ACTIVE) == 1)

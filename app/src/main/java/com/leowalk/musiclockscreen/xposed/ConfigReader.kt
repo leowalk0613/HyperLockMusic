@@ -31,6 +31,7 @@ object ConfigReader {
     private var cachedLyricAlign: String = "left"
     private var cachedImmersiveAlbum: Boolean = false
     private var cachedTitleBracketMode: String = "default"
+    private var cachedAodFullMedia: Boolean = true
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
     private var lastReadTime: Long = 0
@@ -176,6 +177,12 @@ object ConfigReader {
         return cachedTitleBracketMode
     }
 
+    /** AOD 时完整显示媒体控件并实时更新进度条 */
+    fun aodFullMedia(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedAodFullMedia
+    }
+
     fun musicWhitelistEnabled(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         return cachedWhitelistEnabled
@@ -231,6 +238,7 @@ object ConfigReader {
                 val lyricAlignIdx = cursor.getColumnIndex("lyric_align")
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
+                val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
 
@@ -281,6 +289,9 @@ object ConfigReader {
                 }
                 if (titleBracketModeIdx >= 0) {
                     cachedTitleBracketMode = cursor.getString(titleBracketModeIdx) ?: "default"
+                }
+                if (aodFullMediaIdx >= 0) {
+                    cachedAodFullMedia = cursor.getInt(aodFullMediaIdx) == 1
                 }
                 if (whitelistEnabledIdx >= 0) {
                     cachedWhitelistEnabled = cursor.getInt(whitelistEnabledIdx) == 1

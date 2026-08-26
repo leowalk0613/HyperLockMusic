@@ -1,4 +1,4 @@
-﻿package com.leowalk.musiclockscreen
+package com.leowalk.musiclockscreen
 
 import android.content.ContentValues
 import android.content.Context
@@ -31,6 +31,8 @@ object ModuleConfig {
     private const val KEY_LYRIC_ALIGN = "lyric_align" // left / center / right
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
+    /** AOD 下保持媒体控件展开并实时更新进度条 */
+    private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
 
@@ -76,6 +78,7 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
+    private const val DEFAULT_AOD_FULL_MEDIA = true
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
 
     private var prefs: SharedPreferences? = null
@@ -176,6 +179,11 @@ object ModuleConfig {
             ?: DEFAULT_TITLE_BRACKET_MODE
         set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_MODE, value).apply()
 
+    /** AOD 时完整显示媒体控件并实时更新进度条 */
+    var aodFullMedia: Boolean
+        get() = getPrefs().getBoolean(KEY_AOD_FULL_MEDIA, DEFAULT_AOD_FULL_MEDIA)
+        set(value) = getPrefs().edit().putBoolean(KEY_AOD_FULL_MEDIA, value).apply()
+
     /** 开启后仅白名单内应用可开启/保持音乐锁屏 */
     var musicWhitelistEnabled: Boolean
         get() = getPrefs().getBoolean(KEY_MUSIC_WHITELIST_ENABLED, DEFAULT_MUSIC_WHITELIST_ENABLED)
@@ -228,6 +236,7 @@ object ModuleConfig {
                 put("lyric_align", lyricAlign)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
+                put("aod_full_media", if (aodFullMedia) 1 else 0)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)
                 put("music_whitelist", musicWhitelist)
             }

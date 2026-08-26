@@ -50,6 +50,10 @@ object MediaProgressHook {
             if (removeObserverMethod != null) {
                 module.deoptimize(removeObserverMethod)
                 module.hook(removeObserverMethod).intercept { chain ->
+                    if (!aodFullMediaEnabled()) {
+                        chain.proceed()
+                        return@intercept null
+                    }
                     val observer = chain.args[0]
                     val observerClassName = observer?.javaClass?.name ?: ""
                     // 匹配 seekBarObserver 的类名
@@ -77,6 +81,10 @@ object MediaProgressHook {
                 if (seekBarChangedMethod != null) {
                     module.deoptimize(seekBarChangedMethod)
                     module.hook(seekBarChangedMethod).intercept { chain ->
+                        if (!aodFullMediaEnabled()) {
+                            chain.proceed()
+                            return@intercept null
+                        }
                         try {
                             val controller = chain.thisObject
                             val holder = getFieldValue(controller, "holder")
@@ -115,6 +123,11 @@ object MediaProgressHook {
         } catch (e: Throwable) {
             logE("install failed", e)
         }
+    }
+
+    private fun aodFullMediaEnabled(): Boolean {
+        val ctx = HookUtils.systemUiApplicationContext() ?: return true
+        return ConfigReader.aodFullMedia(ctx)
     }
 
     private fun isSeekBarObserver(className: String): Boolean {

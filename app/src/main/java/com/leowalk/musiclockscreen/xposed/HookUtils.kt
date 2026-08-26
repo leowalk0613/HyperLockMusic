@@ -152,4 +152,14 @@ object HookUtils {
     fun isAllowedMusicApp(context: Context, packageName: String? = currentMediaPackage(context)): Boolean {
         return ConfigReader.isAllowedMusicApp(context, packageName)
     }
+
+    /** SystemUI 进程 Application 上下文（隐藏 API，反射获取）。 */
+    fun systemUiApplicationContext(): Context? {
+        return try {
+            val at = Class.forName("android.app.ActivityThread")
+            at.getMethod("currentApplication").invoke(null) as? Context
+        } catch (_: Throwable) {
+            null
+        }
+    }
 }

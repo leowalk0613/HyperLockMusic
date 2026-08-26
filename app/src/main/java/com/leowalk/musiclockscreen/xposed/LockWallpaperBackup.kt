@@ -14,9 +14,9 @@ import java.io.FileOutputStream
  * 之前用 createPackageContext 取模块包目录，SystemUI 无权限落盘，导致备份从未写入成功。
  *
  * 维护两份：
- *  - first：受保护的「首次干净图」（一旦写入永不清除、永不覆盖）。它是干净基准。
- *  - recent：最近一次捕获的干净图（每次 save 刷新）。
- * load() 优先返回 first，保证恢复结果是最干净的原位。
+ *  - recent：最近一次在「干净状态」下捕获的原壁纸（用户改锁屏壁纸后会刷新）。
+ *  - first：首次备份，仅作 recent 缺失时的兜底。
+ * load() 优先 recent，保证恢复的是用户当前设定的锁屏壁纸。
  */
 object LockWallpaperBackup {
 
@@ -43,24 +43,24 @@ object LockWallpaperBackup {
         }
     }
 
-    /** 返回存在的原图，优先受保护的 first，其次 recent。 */
+    /** 返回可用的原图：优先 recent（跟随用户改壁纸），其次 first。 */
     fun load(context: Context): Bitmap? {
         val dir = backupDir(context) ?: return null
         return try {
-            val first = File(dir, FIRST_FILE)
-            if (first.exists()) {
-                BitmapFactory.decodeFile(first.absolutePath)?.also { return it }
-            }
             val recent = File(dir, RECENT_FILE)
             if (recent.exists()) {
-                BitmapFactory.decodeFile(recent.absolutePath)
+                BitmapFactory.decodeFile(recent.absolutePath)?.also { return it }
+            }
+            val first = File(dir, FIRST_FILE)
+            if (first.exists()) {
+                BitmapFactory.decodeFile(first.absolutePath)
             } else null
         } catch (_: Throwable) {
             null
         }
     }
 
-    /** 清除 recent。first（干净基准）保留，供后续恢复使用。 */
+    /** 清除 recent；first 保留作兜底。恢复成功后调用，下次干净绑定时会重新 capture 并写入 recent。 */
     fun clear(context: Context) {
         val dir = backupDir(context) ?: return
         try {
@@ -84,7 +84,7 @@ object LockWallpaperBackup {
     fun allBackupPaths(context: Context): List<String> {
         val dir = backupDir(context) ?: return emptyList()
         return try {
-            listOf(File(dir, FIRST_FILE), File(dir, RECENT_FILE))
+            listOf(File(dir, RECENT_FILE), File(dir, FIRST_FILE))
                 .filter { it.exists() }
                 .map { it.absolutePath }
         } catch (_: Throwable) {

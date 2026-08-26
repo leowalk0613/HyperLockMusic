@@ -312,15 +312,6 @@ object WallpaperController {
         val ctx = context ?: return
         if (isMusicWallpaperSet) return
         if (!ConfigReader.isWallpaperActive(ctx)) return
-        // SystemUI 重启后内存态丢失但媒体仍在播：重建音乐壁纸，勿误还原桌面壁纸
-        if (HookUtils.isOnKeyguard(ctx) && hasActiveMediaSession(ctx)) {
-            logI("autoRestoreIfResidual: re-applying music wallpaper (session active)")
-            isMusicWallpaperSet = true
-            MusicLockscreenManager.setShowingState(true)
-            startSessionWatch(ctx.applicationContext)
-            rebuildWallpaperForLayout(ctx)
-            return
-        }
         try {
             val restored = restoreOriginalWallpaper(ctx)
             logI("autoRestoreIfResidual: restored=$restored")

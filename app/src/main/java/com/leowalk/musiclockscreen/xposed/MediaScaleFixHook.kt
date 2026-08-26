@@ -43,12 +43,16 @@ class MediaScaleFixHook {
                 if (onFullAodMethod != null) {
                     module.deoptimize(onFullAodMethod)
                     module.hook(onFullAodMethod).intercept { chain ->
-                        val enteringFullAod = chain.args.firstOrNull() as? Boolean == true
-                        if (enteringFullAod) {
-                            logI("onFullAodStateChanged(true) -> false")
-                            chain.proceed(arrayOf<Any?>(false))
-                        } else {
+                        if (!aodFullMediaEnabled()) {
                             chain.proceed()
+                        } else {
+                            val enteringFullAod = chain.args.firstOrNull() as? Boolean == true
+                            if (enteringFullAod) {
+                                logI("onFullAodStateChanged(true) -> false")
+                                chain.proceed(arrayOf<Any?>(false))
+                            } else {
+                                chain.proceed()
+                            }
                         }
                     }
                     logI("hook onFullAodStateChanged: OK")
@@ -74,7 +78,9 @@ class MediaScaleFixHook {
                     module.deoptimize(setAnimateHeightMethod)
                     module.hook(setAnimateHeightMethod).intercept { chain ->
                         val requestedHeight = chain.args.firstOrNull() as? Int
-                        if (requestedHeight == null || requestedHeight == 0) {
+                        if (!aodFullMediaEnabled()) {
+                            chain.proceed()
+                        } else if (requestedHeight == null || requestedHeight == 0) {
                             // 0 是完成/重置信号，必须放行
                             chain.proceed()
                         } else {
@@ -104,6 +110,11 @@ class MediaScaleFixHook {
         } catch (e: Throwable) {
             logE("install failed: ${e.message}", e)
         }
+    }
+
+    private fun aodFullMediaEnabled(): Boolean {
+        val ctx = HookUtils.systemUiApplicationContext() ?: return true
+        return ConfigReader.aodFullMedia(ctx)
     }
 
     /**
