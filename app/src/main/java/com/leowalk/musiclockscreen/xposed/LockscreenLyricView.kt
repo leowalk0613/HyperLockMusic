@@ -385,8 +385,21 @@ class LockscreenLyricView(context: Context) : View(context) {
         fogBuildGeneration++
         showFogBackground = false
         clearFogCaches()
+        onTrackMayHaveChanged()
         if (visibility == VISIBLE) {
             invalidate()
+        }
+    }
+
+    /** 切歌时强制重拉歌词（AOD 下 observer 可能不触发）。 */
+    fun onTrackMayHaveChanged() {
+        dataDirty = true
+        cachedLines = null
+        cachedCtx = null
+        lastVersionsCheck = 0
+        if (isMusicLockscreenActive() && isKeyguardLocked()) {
+            startPolling()
+            handler.post { readAndUpdate() }
         }
     }
 
@@ -496,14 +509,19 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     override fun setVisibility(visibility: Int) {
         super.setVisibility(visibility)
-        if (visibility == VISIBLE) {
-            dataDirty = true
-            lastVersionsCheck = 0
-            startPolling()
-            refreshNow()
-        } else {
-            stopPolling()
-            alpha = 0f
+        when (visibility) {
+            VISIBLE -> {
+                dataDirty = true
+                lastVersionsCheck = 0
+                startPolling()
+                refreshNow()
+            }
+            GONE -> {
+                stopPolling()
+                alpha = 0f
+            }
+            // INVISIBLE：等 MediaFollow 定位，保持轮询以便 AOD 切歌仍能刷新
+            else -> Unit
         }
     }
 
@@ -655,6 +673,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             animate().cancel()
             scaleX = 1f
             scaleY = 1f
+            startPolling()
             // 保持 INVISIBLE，等 MediaFollow 写好 topMargin 后再设 VISIBLE
             if (visibility == View.GONE || visibility == View.INVISIBLE) {
                 visibility = View.INVISIBLE
@@ -714,38 +733,32 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun readAndUpdate() {
         try {
-            val now = SystemClock.elapsedRealtime()
-            if (!dataDirty && now - lastVersionsCheck < 5000) {
-                refreshCurrentLineFromCache()
-                return
+            // AOD 下 ContentObserver 可能延迟/丢失，用媒体标题辅助检测切歌
+            val mediaTitle = readCurrentMediaTitle()
+            if (mediaTitle.isNotBlank() && lastSongTitle.isNotBlank() && mediaTitle != lastSongTitle) {
+                cachedLines = null
+                cachedCtx = null
+                dataDirty = true
             }
-            dataDirty = false
-            lastVersionsCheck = now
 
             val uri = Uri.parse(PROVIDER_URI)
-            var newVLyric = -1
-            var newVLyricFd = -1
+            var newVLyric = lastLyricVersion
+            var newVLyricFd = lastLyricFdVersion
             try {
                 val vb = context.contentResolver.call(uri, "versions", null, null)
                 if (vb != null) {
                     newVLyric = vb.getInt("lyric", -1)
                     newVLyricFd = vb.getInt("lyricfd", -1)
-                    if (newVLyric == lastLyricVersion && newVLyricFd == lastLyricFdVersion) {
-                        if (!hasValidLyricLines(JSONObject(lastLyricJson))) {
-                            cachedCtx = null
-                            cachedLines = null
-                            if (hasLyric) {
-                                hasLyric = false
-                                clearLyricDisplay()
-                                updateVisibilityState()
-                            }
-                            return
-                        }
-                        refreshCurrentLineFromCache()
-                        return
-                    }
                 }
             } catch (_: Throwable) {}
+
+            val versionsChanged = newVLyric != lastLyricVersion || newVLyricFd != lastLyricFdVersion
+            if (!dataDirty && !versionsChanged) {
+                refreshCurrentLineFromCache()
+                return
+            }
+            dataDirty = false
+            lastVersionsCheck = SystemClock.elapsedRealtime()
 
             doReadAndUpdate(newVLyric, newVLyricFd)
         } catch (e: Throwable) {
@@ -980,9 +993,16 @@ class LockscreenLyricView(context: Context) : View(context) {
             val isBouncer = isBouncerShowing()
             if (isMusicLockscreenActive() && onKeyguard && !isBouncer) {
                 refreshNow()
+            } else if (isMusicLockscreenActive() && onKeyguard) {
+                // 歌词暂不可见（如 INVISIBLE 定位中）仍拉取数据，AOD 切歌不丢
+                readAndUpdate()
             }
 
-            val interval = if (isPlaying && shouldDisplayLyric()) 200L else 1000L
+            val interval = when {
+                !isMusicLockscreenActive() || !onKeyguard -> 1000L
+                isPlaying && (visibility == VISIBLE || visibility == INVISIBLE) -> 200L
+                else -> 500L
+            }
             handler.postDelayed(this, interval)
         }
     }

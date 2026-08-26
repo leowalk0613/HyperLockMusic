@@ -16,7 +16,8 @@ object ModuleConfig {
     private const val KEY_ALBUM_SIZE = "album_size"
     private const val KEY_ALBUM_OFFSET_Y = "album_offset_y"
     private const val KEY_ALBUM_CORNER = "album_corner"
-    private const val KEY_ALBUM_SR_ENHANCE = "album_sr_enhance"
+    /** 后台拉网易云高清替换前景专辑（非本地超分） */
+    private const val KEY_ALBUM_NETWORK_HD = "album_sr_enhance"
 
     // 歌词相关
     private const val KEY_SHOW_LYRIC = "show_lyric"
@@ -54,7 +55,7 @@ object ModuleConfig {
     private const val DEFAULT_ALBUM_SIZE = 55f
     private const val DEFAULT_ALBUM_OFFSET_Y = 55f
     private const val DEFAULT_ALBUM_CORNER = 24f
-    private const val DEFAULT_ALBUM_SR_ENHANCE = false
+    private const val DEFAULT_ALBUM_NETWORK_HD = false
 
     private const val DEFAULT_SHOW_LYRIC = true
     private const val DEFAULT_LYRIC_SIZE = 20f
@@ -105,10 +106,10 @@ object ModuleConfig {
         get() = getPrefs().getFloat(KEY_ALBUM_CORNER, DEFAULT_ALBUM_CORNER)
         set(value) = getPrefs().edit().putFloat(KEY_ALBUM_CORNER, value).apply()
 
-    /** 用 4x-UltraSharp 将专辑图超分（短边 ≥1080，更大不缩小） */
-    var albumSrEnhance: Boolean
-        get() = getPrefs().getBoolean(KEY_ALBUM_SR_ENHANCE, DEFAULT_ALBUM_SR_ENHANCE)
-        set(value) = getPrefs().edit().putBoolean(KEY_ALBUM_SR_ENHANCE, value).apply()
+    /** 后台拉网易云高清替换前景大专辑（模糊背景仍用系统封面） */
+    var albumNetworkHd: Boolean
+        get() = getPrefs().getBoolean(KEY_ALBUM_NETWORK_HD, DEFAULT_ALBUM_NETWORK_HD)
+        set(value) = getPrefs().edit().putBoolean(KEY_ALBUM_NETWORK_HD, value).apply()
 
     var showLyric: Boolean
         get() = getPrefs().getBoolean(KEY_SHOW_LYRIC, DEFAULT_SHOW_LYRIC)
@@ -183,7 +184,7 @@ object ModuleConfig {
                 put("album_size", albumSize)
                 put("album_offset_y", albumOffsetY)
                 put("album_corner", albumCorner)
-                put("album_sr_enhance", if (albumSrEnhance) 1 else 0)
+                put("album_sr_enhance", if (albumNetworkHd) 1 else 0)
                 put("show_lyric", if (showLyric) 1 else 0)
                 put("lyric_size", lyricSize)
                 put("swap_lyric", if (swapLyric) 1 else 0)

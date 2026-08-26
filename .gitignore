@@ -54,7 +54,3 @@ tmp_layout/
 # Tooling / IDE caches
 .codegraph/
 .kotlin/
-
-# RealSR download scratch
-tmp_realsr/
-

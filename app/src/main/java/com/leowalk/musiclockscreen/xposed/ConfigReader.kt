@@ -21,7 +21,7 @@ object ConfigReader {
     private var cachedAlbumSize: Float = 55f
     private var cachedAlbumOffsetY: Float = 55f
     private var cachedAlbumCorner: Float = 24f
-    private var cachedAlbumSrEnhance: Boolean = false
+    private var cachedAlbumNetworkHd: Boolean = false
     private var cachedShowLyric: Boolean = true
     private var cachedLyricWidth: Float = 55f
     private var cachedLyricBgOffsetY: Float = 12f
@@ -100,10 +100,10 @@ object ConfigReader {
         return cachedAlbumCorner
     }
 
-    /** 是否启用专辑 UltraSharp 超分（目标 ≥1080） */
-    fun albumSrEnhance(context: Context): Boolean {
+    /** 是否后台拉网易云高清替换前景专辑 */
+    fun albumNetworkHd(context: Context): Boolean {
         refreshConfigIfNeeded(context)
-        return cachedAlbumSrEnhance
+        return cachedAlbumNetworkHd
     }
 
     fun showLyric(context: Context): Boolean {
@@ -179,7 +179,7 @@ object ConfigReader {
                 val albumSizeIdx = cursor.getColumnIndex("album_size")
                 val albumOffsetYIdx = cursor.getColumnIndex("album_offset_y")
                 val albumCornerIdx = cursor.getColumnIndex("album_corner")
-                val albumSrEnhanceIdx = cursor.getColumnIndex("album_sr_enhance")
+                val albumNetworkHdIdx = cursor.getColumnIndex("album_sr_enhance")
                 val showLyricIdx = cursor.getColumnIndex("show_lyric")
                 val lyricWidthIdx = cursor.getColumnIndex("lyric_width")
                 val lyricBgOffsetYIdx = cursor.getColumnIndex("lyric_bg_offset_y")
@@ -206,8 +206,8 @@ object ConfigReader {
                 if (albumCornerIdx >= 0) {
                     cachedAlbumCorner = cursor.getFloat(albumCornerIdx)
                 }
-                if (albumSrEnhanceIdx >= 0) {
-                    cachedAlbumSrEnhance = cursor.getInt(albumSrEnhanceIdx) == 1
+                if (albumNetworkHdIdx >= 0) {
+                    cachedAlbumNetworkHd = cursor.getInt(albumNetworkHdIdx) == 1
                 }
                 if (showLyricIdx >= 0) {
                     cachedShowLyric = cursor.getInt(showLyricIdx) == 1

@@ -30,7 +30,7 @@ object NetEaseAlbumArtSource {
         if (expectedId != null) {
             logI("fetch by song id=$expectedId trackKey=$trackKey")
             val picUrl = NetEaseSongIdResolver.fetchPicUrlBySongId(expectedId) ?: return null
-            val bmp = loadBitmapFromUrl(NetEaseAlbumArtSource.upgradeFetchUrl(picUrl)) ?: return null
+            val bmp = loadBitmapFromUrl(upgradeFetchUrl(picUrl)) ?: return null
             if (bmp.width * bmp.height <= reference.width * reference.height) {
                 logI("reject id=$expectedId ${bmp.width}x${bmp.height}: not larger")
                 bmp.recycle()
@@ -82,19 +82,6 @@ object NetEaseAlbumArtSource {
             logI("no verified netease art")
         }
         return best
-    }
-
-    fun tryResolveHighRes(
-        context: Context,
-        reference: Bitmap?,
-        metadata: MediaMetadata?,
-        mediaData: Any?,
-        trackKey: String? = null
-    ): Bitmap? {
-        if (reference == null || reference.isRecycled) return null
-        val minSide = minOf(reference.width, reference.height)
-        if (minSide >= TARGET_MIN_SIDE) return null
-        return fetchVerifiedHighRes(context, reference, metadata, mediaData, trackKey)
     }
 
     fun upgradeFetchUrl(url: String): String {

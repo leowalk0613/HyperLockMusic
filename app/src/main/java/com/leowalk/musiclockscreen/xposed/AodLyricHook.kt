@@ -13,13 +13,13 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import io.github.libxposed.api.XposedModule
-import java.lang.reflect.Method
+import org.json.JSONObject
 
 /**
  * AOD 双行歌词注入
  *
- * Hook AOD 进程，往 AODView 里注入双行歌词 View
- * 通过 ContentObserver 监听歌词数据变化
+ * Hook AOD 进程，往 AODView 里注入双行歌词 View。
+ * 通过 ContentObserver + 轮询读取 [LyricDataProvider]（AOD 下 observer 可能不可靠）。
  */
 class AodLyricHook {
 
@@ -31,9 +31,15 @@ class AodLyricHook {
     private var sConfigObserverRegistered = false
     private var cfgSwapLyric: Boolean = true
 
+    private var lastVLyric = -1
+    private var lastVLyricFd = -1
+    private var lastSongTitle = ""
+    private var polling = false
+    private val handler = Handler(Looper.getMainLooper())
+
     companion object {
         private const val TAG = "MusicLockScreen_AodLyric"
-        private const val LYRIC_URI = "content://com.leowalk.musiclockscreen.config/lyric"
+        private const val LYRIC_URI = "content://com.leowalk.musiclockscreen.lyric"
         private const val CONFIG_URI = "content://com.leowalk.musiclockscreen.config/config"
     }
 
@@ -63,6 +69,7 @@ class AodLyricHook {
                         registerObserverOnce()
                         setupLyricView()
                         registerConfigObserverOnce()
+                        startPolling()
                         refreshLyric()
                     } else {
                         logI("handleUpdateView: thisObj is not ViewGroup, is ${thisObj?.javaClass?.name}")
@@ -147,16 +154,12 @@ class AodLyricHook {
         val density = ctx.resources.displayMetrics.density
         logI("setupLyricView: density=$density, root width=${root.width}, height=${root.height}")
 
-        // 容器
         sLyricContainer = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setBackgroundColor(Color.argb(80, 255, 0, 0)) // 红色半透明背景，方便定位
         }
 
-        // 主歌词
         sMainLyric = TextView(ctx).apply {
-            text = "音乐锁屏测试"
             textSize = 18f
             setTextColor(Color.WHITE)
             paint.isFakeBoldText = true
@@ -165,15 +168,15 @@ class AodLyricHook {
             ellipsize = android.text.TextUtils.TruncateAt.END
             setShadowLayer(dp(density, 2f), 0f, 0f, Color.argb(128, 0, 0, 0))
         }
-        val mainParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+        sLyricContainer?.addView(
+            sMainLyric,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
         )
-        sLyricContainer?.addView(sMainLyric, mainParams)
 
-        // 副歌词
         sSubLyric = TextView(ctx).apply {
-            text = "双行歌词测试中..."
             textSize = 14f
             setTextColor(Color.argb(180, 255, 255, 255))
             includeFontPadding = false
@@ -181,15 +184,16 @@ class AodLyricHook {
             ellipsize = android.text.TextUtils.TruncateAt.END
             setShadowLayer(dp(density, 2f), 0f, 0f, Color.argb(100, 0, 0, 0))
         }
-        val subParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            topMargin = dp(density, 6f).toInt()
-        }
-        sLyricContainer?.addView(sSubLyric, subParams)
+        sLyricContainer?.addView(
+            sSubLyric,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(density, 6f).toInt()
+            }
+        )
 
-        // 布局参数：放在屏幕中间偏下
         val flp = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT
@@ -208,44 +212,88 @@ class AodLyricHook {
         try {
             val ctx = sRoot?.context ?: return
             val uri = Uri.parse(LYRIC_URI)
-            val cursor = ctx.contentResolver.query(uri, null, null, null, null)
-            if (cursor != null && cursor.moveToFirst()) {
-                val mainIdx = cursor.getColumnIndex("lyric_main")
-                val subIdx = cursor.getColumnIndex("lyric_sub")
 
-                var mainText = ""
-                var subText = ""
-                var hasSub = false
-
-                if (mainIdx >= 0) {
-                    mainText = cursor.getString(mainIdx) ?: ""
+            var vLyric = lastVLyric
+            var vFd = lastVLyricFd
+            try {
+                val vb = ctx.contentResolver.call(uri, "versions", null, null)
+                if (vb != null) {
+                    vLyric = vb.getInt("lyric", -1)
+                    vFd = vb.getInt("lyricfd", -1)
                 }
-                if (subIdx >= 0) {
-                    subText = cursor.getString(subIdx) ?: ""
-                    hasSub = subText.isNotBlank()
-                }
-
-                // 歌词/翻译互换：数据源无法区分 lyric_sub 是"翻译"还是"下一句"，
-                // 无条件互换会把没翻译歌词的后一句误当成翻译对调。
-                // 因此 AOD 不再做互换，保持 main=当前句、sub=副行原样显示。
-                // if (cfgSwapLyric && hasSub) {
-                //     val tmp = mainText
-                //     mainText = subText
-                //     subText = tmp
-                // }
-
-                sMainLyric?.text = mainText
-                sSubLyric?.text = subText
-                sSubLyric?.visibility = if (hasSub) View.VISIBLE else View.GONE
-
-                logI("refreshLyric: main=$mainText sub=$subText swap=$cfgSwapLyric")
-                cursor.close()
-            } else {
-                logI("refreshLyric: cursor is null or empty")
+            } catch (e: Throwable) {
+                logE("refreshLyric versions error", e)
             }
+
+            val mediaTitle = readCurrentMediaTitle(ctx)
+            val titleChanged = mediaTitle.isNotBlank() &&
+                lastSongTitle.isNotBlank() &&
+                mediaTitle != lastSongTitle
+            val versionsChanged = vLyric != lastVLyric || vFd != lastVLyricFd
+            if (!versionsChanged && !titleChanged) return
+
+            lastVLyric = vLyric
+            lastVLyricFd = vFd
+            if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
+
+            val lb = ctx.contentResolver.call(uri, "lyric", null, null)
+            val json = lb?.getString("n") ?: "{}"
+            val jo = JSONObject(json)
+            var mainText = jo.optString("l", "").trim()
+            var subText = jo.optString("s", "").trim()
+            val title = jo.optString("title", "").trim()
+            if (title.isNotBlank()) lastSongTitle = title
+
+            if (mainText.isEmpty() && title.isNotEmpty()) {
+                mainText = title
+            }
+
+            val hasSub = subText.isNotBlank()
+            if (mainText.isEmpty()) {
+                sLyricContainer?.visibility = View.GONE
+                return
+            }
+
+            sLyricContainer?.visibility = View.VISIBLE
+            sMainLyric?.text = mainText
+            sSubLyric?.text = subText
+            sSubLyric?.visibility = if (hasSub) View.VISIBLE else View.GONE
+
+            logI("refreshLyric: main=$mainText sub=$subText v=$vLyric/$vFd")
         } catch (e: Throwable) {
             logE("refreshLyric error", e)
         }
+    }
+
+    private fun readCurrentMediaTitle(ctx: Context): String {
+        return try {
+            val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE)
+                as? android.media.session.MediaSessionManager ?: return ""
+            val sessions = msm.getActiveSessions(null)
+            for (controller in sessions) {
+                val title = controller.metadata?.getString(
+                    android.media.MediaMetadata.METADATA_KEY_TITLE
+                )
+                if (!title.isNullOrBlank()) return title
+            }
+            ""
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            if (!polling) return
+            refreshLyric()
+            handler.postDelayed(this, 500L)
+        }
+    }
+
+    private fun startPolling() {
+        if (polling) return
+        polling = true
+        handler.post(pollRunnable)
     }
 
     private fun dp(density: Float, dp: Float): Float = dp * density
