@@ -26,6 +26,10 @@ object ModuleConfig {
     private const val KEY_LYRIC_WIDTH = "lyric_width"     // 歌词区域宽度（占专辑宽度百分比）
     private const val KEY_LYRIC_BG_OFFSET_Y = "lyric_bg_offset_y" // 已弃用，保留兼容
     private const val KEY_LYRIC_BG_ANCHOR_Y = "lyric_bg_anchor_y" // 歌词底边占屏幕高度百分比
+    private const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
+    private const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
+    private const val KEY_LYRIC_ALIGN = "lyric_align" // left / center / right
+    private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -34,6 +38,10 @@ object ModuleConfig {
     const val TITLE_BRACKET_SHRINK = "shrink"
     const val TITLE_BRACKET_HIDE = "hide"
     const val TITLE_BRACKET_LINE = "line"
+
+    const val LYRIC_ALIGN_LEFT = "left"
+    const val LYRIC_ALIGN_CENTER = "center"
+    const val LYRIC_ALIGN_RIGHT = "right"
 
     /** 默认音乐应用白名单包名 */
     val DEFAULT_WHITELIST: List<String> = listOf(
@@ -63,6 +71,10 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_WIDTH = 55f
     private const val DEFAULT_LYRIC_BG_OFFSET_Y = 12f
     private const val DEFAULT_LYRIC_BG_ANCHOR_Y = 62f
+    private const val DEFAULT_IMMERSIVE_LYRIC = false
+    private const val DEFAULT_LYRIC_HIDE_BACKGROUND = false
+    private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
+    private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
 
@@ -133,6 +145,26 @@ object ModuleConfig {
         get() = getPrefs().getFloat(KEY_LYRIC_BG_ANCHOR_Y, DEFAULT_LYRIC_BG_ANCHOR_Y)
         set(value) = getPrefs().edit().putFloat(KEY_LYRIC_BG_ANCHOR_Y, value).apply()
 
+    /** 沉浸歌词：仅显示当前行大字，隐藏方形专辑 */
+    var immersiveLyric: Boolean
+        get() = getPrefs().getBoolean(KEY_IMMERSIVE_LYRIC, DEFAULT_IMMERSIVE_LYRIC)
+        set(value) = getPrefs().edit().putBoolean(KEY_IMMERSIVE_LYRIC, value).apply()
+
+    /** 隐藏歌词雾状背景 */
+    var lyricHideBackground: Boolean
+        get() = getPrefs().getBoolean(KEY_LYRIC_HIDE_BACKGROUND, DEFAULT_LYRIC_HIDE_BACKGROUND)
+        set(value) = getPrefs().edit().putBoolean(KEY_LYRIC_HIDE_BACKGROUND, value).apply()
+
+    /** 沉浸歌词排版：left / center / right */
+    var lyricAlign: String
+        get() = getPrefs().getString(KEY_LYRIC_ALIGN, DEFAULT_LYRIC_ALIGN) ?: DEFAULT_LYRIC_ALIGN
+        set(value) = getPrefs().edit().putString(KEY_LYRIC_ALIGN, value).apply()
+
+    /** 沉浸专辑：大图羽化融入取色背景 */
+    var immersiveAlbum: Boolean
+        get() = getPrefs().getBoolean(KEY_IMMERSIVE_ALBUM, DEFAULT_IMMERSIVE_ALBUM)
+        set(value) = getPrefs().edit().putBoolean(KEY_IMMERSIVE_ALBUM, value).apply()
+
     /** @deprecated 请用 [lyricBgAnchorY] */
     var lyricBgOffsetY: Float
         get() = getPrefs().getFloat(KEY_LYRIC_BG_OFFSET_Y, DEFAULT_LYRIC_BG_OFFSET_Y)
@@ -191,6 +223,10 @@ object ModuleConfig {
                 put("lyric_width", lyricWidth)
                 put("lyric_bg_offset_y", lyricBgOffsetY)
                 put("lyric_bg_anchor_y", lyricBgAnchorY)
+                put("immersive_lyric", if (immersiveLyric) 1 else 0)
+                put("lyric_hide_background", if (lyricHideBackground) 1 else 0)
+                put("lyric_align", lyricAlign)
+                put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)
                 put("music_whitelist", musicWhitelist)

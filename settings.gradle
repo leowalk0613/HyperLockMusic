@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MusicLockScreen"
+rootProject.name = "HyperLockMusic"
 include(":app")

@@ -26,6 +26,10 @@ object ConfigReader {
     private var cachedLyricWidth: Float = 55f
     private var cachedLyricBgOffsetY: Float = 12f
     private var cachedLyricBgAnchorY: Float = 62f
+    private var cachedImmersiveLyric: Boolean = false
+    private var cachedLyricHideBackground: Boolean = false
+    private var cachedLyricAlign: String = "left"
+    private var cachedImmersiveAlbum: Boolean = false
     private var cachedTitleBracketMode: String = "default"
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
@@ -123,6 +127,44 @@ object ConfigReader {
         return cachedLyricBgAnchorY.coerceIn(10f, 95f)
     }
 
+    fun immersiveLyric(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedImmersiveLyric
+    }
+
+    fun lyricHideBackground(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedLyricHideBackground
+    }
+
+    fun lyricAlign(context: Context): String {
+        refreshConfigIfNeeded(context)
+        return cachedLyricAlign
+    }
+
+    fun immersiveAlbum(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedImmersiveAlbum
+    }
+
+    /** 方形专辑 overlay 是否应显示 */
+    fun shouldShowSquareAlbum(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        if (!cachedShowBigAlbum) return false
+        if (cachedImmersiveLyric && cachedShowLyric) return false
+        if (cachedImmersiveAlbum && shouldBakeImmersiveAlbumInWallpaper(context)) return false
+        return true
+    }
+
+    /** 沉浸专辑是否应合成进壁纸（与沉浸歌词显隐无关） */
+    fun shouldBakeImmersiveAlbumInWallpaper(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedShowBigAlbum && cachedImmersiveAlbum
+    }
+
+    /** @deprecated 沉浸专辑已合成进壁纸，overlay 不再使用 */
+    fun shouldShowImmersiveAlbum(context: Context): Boolean = false
+
     /** @deprecated 请用 [lyricBgAnchorY] */
     fun lyricBgOffsetY(context: Context): Float {
         refreshConfigIfNeeded(context)
@@ -184,6 +226,10 @@ object ConfigReader {
                 val lyricWidthIdx = cursor.getColumnIndex("lyric_width")
                 val lyricBgOffsetYIdx = cursor.getColumnIndex("lyric_bg_offset_y")
                 val lyricBgAnchorYIdx = cursor.getColumnIndex("lyric_bg_anchor_y")
+                val immersiveLyricIdx = cursor.getColumnIndex("immersive_lyric")
+                val lyricHideBackgroundIdx = cursor.getColumnIndex("lyric_hide_background")
+                val lyricAlignIdx = cursor.getColumnIndex("lyric_align")
+                val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
@@ -220,6 +266,18 @@ object ConfigReader {
                 }
                 if (lyricBgAnchorYIdx >= 0) {
                     cachedLyricBgAnchorY = cursor.getFloat(lyricBgAnchorYIdx)
+                }
+                if (immersiveLyricIdx >= 0) {
+                    cachedImmersiveLyric = cursor.getInt(immersiveLyricIdx) == 1
+                }
+                if (lyricHideBackgroundIdx >= 0) {
+                    cachedLyricHideBackground = cursor.getInt(lyricHideBackgroundIdx) == 1
+                }
+                if (lyricAlignIdx >= 0) {
+                    cachedLyricAlign = cursor.getString(lyricAlignIdx) ?: "left"
+                }
+                if (immersiveAlbumIdx >= 0) {
+                    cachedImmersiveAlbum = cursor.getInt(immersiveAlbumIdx) == 1
                 }
                 if (titleBracketModeIdx >= 0) {
                     cachedTitleBracketMode = cursor.getString(titleBracketModeIdx) ?: "default"

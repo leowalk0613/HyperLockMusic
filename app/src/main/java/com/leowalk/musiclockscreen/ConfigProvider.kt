@@ -32,6 +32,10 @@ class ConfigProvider : ContentProvider() {
         const val KEY_LYRIC_WIDTH = "lyric_width"
         const val KEY_LYRIC_BG_OFFSET_Y = "lyric_bg_offset_y"
         const val KEY_LYRIC_BG_ANCHOR_Y = "lyric_bg_anchor_y"
+        const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
+        const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
+        const val KEY_LYRIC_ALIGN = "lyric_align"
+        const val KEY_IMMERSIVE_ALBUM = "immersive_album"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
         const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
@@ -81,6 +85,10 @@ class ConfigProvider : ContentProvider() {
                 KEY_LYRIC_WIDTH,
                 KEY_LYRIC_BG_OFFSET_Y,
                 KEY_LYRIC_BG_ANCHOR_Y,
+                KEY_IMMERSIVE_LYRIC,
+                KEY_LYRIC_HIDE_BACKGROUND,
+                KEY_LYRIC_ALIGN,
+                KEY_IMMERSIVE_ALBUM,
                 KEY_TITLE_BRACKET_MODE,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
                 KEY_MUSIC_WHITELIST_ENABLED,
@@ -102,6 +110,11 @@ class ConfigProvider : ContentProvider() {
                 prefs.getFloat(KEY_LYRIC_WIDTH, 55f),
                 prefs.getFloat(KEY_LYRIC_BG_OFFSET_Y, 12f),
                 prefs.getFloat(KEY_LYRIC_BG_ANCHOR_Y, 62f),
+                if (prefs.getBoolean(KEY_IMMERSIVE_LYRIC, false)) 1 else 0,
+                if (prefs.getBoolean(KEY_LYRIC_HIDE_BACKGROUND, false)) 1 else 0,
+                prefs.getString(KEY_LYRIC_ALIGN, ModuleConfig.LYRIC_ALIGN_LEFT)
+                    ?: ModuleConfig.LYRIC_ALIGN_LEFT,
+                if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
                 if (prefs.getBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, false)) 1 else 0,
@@ -170,6 +183,18 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_LYRIC_BG_ANCHOR_Y)) {
                     editor.putFloat(KEY_LYRIC_BG_ANCHOR_Y, values.getAsFloat(KEY_LYRIC_BG_ANCHOR_Y))
+                }
+                if (values.containsKey(KEY_IMMERSIVE_LYRIC)) {
+                    editor.putBoolean(KEY_IMMERSIVE_LYRIC, values.getAsInteger(KEY_IMMERSIVE_LYRIC) == 1)
+                }
+                if (values.containsKey(KEY_LYRIC_HIDE_BACKGROUND)) {
+                    editor.putBoolean(KEY_LYRIC_HIDE_BACKGROUND, values.getAsInteger(KEY_LYRIC_HIDE_BACKGROUND) == 1)
+                }
+                if (values.containsKey(KEY_LYRIC_ALIGN)) {
+                    editor.putString(KEY_LYRIC_ALIGN, values.getAsString(KEY_LYRIC_ALIGN))
+                }
+                if (values.containsKey(KEY_IMMERSIVE_ALBUM)) {
+                    editor.putBoolean(KEY_IMMERSIVE_ALBUM, values.getAsInteger(KEY_IMMERSIVE_ALBUM) == 1)
                 }
                 if (values.containsKey(KEY_TITLE_BRACKET_MODE)) {
                     editor.putString(KEY_TITLE_BRACKET_MODE, values.getAsString(KEY_TITLE_BRACKET_MODE))

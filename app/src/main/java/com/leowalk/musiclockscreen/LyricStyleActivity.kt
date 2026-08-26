@@ -1,5 +1,6 @@
 package com.leowalk.musiclockscreen
 
+import android.view.View
 import android.widget.LinearLayout
 
 /** 歌词样式：歌词开关、字号、屏幕高度位置。 */
@@ -13,6 +14,22 @@ class LyricStyleActivity : BaseScrollingActivity() {
 
         show.addView(M3.switchRow(this, "显示歌词", null, ModuleConfig.showLyric) { checked ->
             ModuleConfig.showLyric = checked
+            ModuleConfig.push(this)
+        })
+
+        show.addView(M3.switchRow(
+            this, "沉浸歌词", "仅显示当前行大字，隐藏方形专辑；区域与专辑区块一致",
+            ModuleConfig.immersiveLyric
+        ) { checked ->
+            ModuleConfig.immersiveLyric = checked
+            ModuleConfig.push(this)
+        })
+
+        show.addView(M3.switchRow(
+            this, "隐藏歌词背景", "不绘制雾状渐变背景，仅显示文字",
+            ModuleConfig.lyricHideBackground
+        ) { checked ->
+            ModuleConfig.lyricHideBackground = checked
             ModuleConfig.push(this)
         })
 
@@ -44,9 +61,23 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.swapLyric = checked
             ModuleConfig.push(this)
         })
+
+        val alignLabels = listOf("靠左", "居中", "靠右")
+        val alignModes = listOf(
+            ModuleConfig.LYRIC_ALIGN_LEFT,
+            ModuleConfig.LYRIC_ALIGN_CENTER,
+            ModuleConfig.LYRIC_ALIGN_RIGHT
+        )
+        val alignIndex = alignModes.indexOf(ModuleConfig.lyricAlign).coerceAtLeast(0)
+        show.addView(M3.segmentGroup(this, alignLabels, alignIndex, 3) { index ->
+            ModuleConfig.lyricAlign = alignModes[index]
+            ModuleConfig.push(this)
+        })
+
         list.addView(M3.card(this, show))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "底边位置 = 歌词底边在屏幕高度上的百分比。与专辑独立调节，数值越大越靠下。")))
+            "沉浸歌词开启时，显示区域与专辑封面区块一致（大小、底边位置见专辑封面设置）。" +
+                "底边位置滑块仅在非沉浸模式下生效。")))
     }
 }

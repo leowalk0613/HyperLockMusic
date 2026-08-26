@@ -14,6 +14,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import io.github.libxposed.api.XposedModule
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.FileInputStream
 
 /**
  * AOD 双行歌词注入
@@ -34,6 +36,7 @@ class AodLyricHook {
     private var lastVLyric = -1
     private var lastVLyricFd = -1
     private var lastSongTitle = ""
+    private var lastLyricJson = "{}"
     private var polling = false
     private val handler = Handler(Looper.getMainLooper())
 
@@ -232,44 +235,113 @@ class AodLyricHook {
             val versionsChanged = vLyric != lastVLyric || vFd != lastVLyricFd
             if (!versionsChanged && !titleChanged) return
 
+            val oldVLyric = lastVLyric
+            val oldVFd = lastVLyricFd
+            if (titleChanged) {
+                lastLyricJson = "{}"
+                lastVLyric = -1
+                lastVLyricFd = -1
+            }
+
             lastVLyric = vLyric
             lastVLyricFd = vFd
             if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
 
-            val lb = ctx.contentResolver.call(uri, "lyric", null, null)
-            val json = lb?.getString("n") ?: "{}"
-            val jo = JSONObject(json)
-            var mainText = jo.optString("l", "").trim()
-            var subText = jo.optString("s", "").trim()
-            val title = jo.optString("title", "").trim()
-            if (title.isNotBlank()) lastSongTitle = title
-
-            if (mainText.isEmpty() && title.isNotEmpty()) {
-                mainText = title
+            var fdRead = false
+            if (oldVFd != vFd || titleChanged) {
+                try {
+                    val fb = ctx.contentResolver.call(uri, "lyric_fd", null, null)
+                    val pfd = fb?.getParcelable<android.os.ParcelFileDescriptor>("fd")
+                    if (pfd != null) {
+                        val fis = FileInputStream(pfd.fileDescriptor)
+                        val bos = ByteArrayOutputStream()
+                        val buf = ByteArray(8192)
+                        var n: Int
+                        while (true) {
+                            n = fis.read(buf)
+                            if (n <= 0) break
+                            bos.write(buf, 0, n)
+                        }
+                        fis.close()
+                        pfd.close()
+                        lastLyricJson = String(bos.toByteArray(), Charsets.UTF_8)
+                        fdRead = true
+                    }
+                } catch (e: Throwable) {
+                    logE("refreshLyric lyric_fd error", e)
+                }
             }
 
-            val hasSub = subText.isNotBlank()
-            if (mainText.isEmpty()) {
-                sLyricContainer?.visibility = View.GONE
-                return
+            if ((oldVLyric != vLyric || titleChanged) && (oldVFd == vFd || !fdRead)) {
+                try {
+                    val lb = ctx.contentResolver.call(uri, "lyric", null, null)
+                    val j = lb?.getString("n")
+                    if (j != null) {
+                        if (titleChanged || lastLyricJson == "{}") {
+                            lastLyricJson = j
+                        } else {
+                            try {
+                                val old = JSONObject(lastLyricJson)
+                                val neu = JSONObject(j)
+                                if (!neu.has("ctx") && old.has("ctx")) {
+                                    neu.put("ctx", old.get("ctx"))
+                                }
+                                lastLyricJson = neu.toString()
+                            } catch (_: Throwable) {
+                                lastLyricJson = j
+                            }
+                        }
+                    }
+                } catch (e: Throwable) {
+                    logE("refreshLyric lyric bundle error", e)
+                }
             }
 
-            sLyricContainer?.visibility = View.VISIBLE
-            sMainLyric?.text = mainText
-            sSubLyric?.text = subText
-            sSubLyric?.visibility = if (hasSub) View.VISIBLE else View.GONE
-
-            logI("refreshLyric: main=$mainText sub=$subText v=$vLyric/$vFd")
+            applyLyricToViews(JSONObject(lastLyricJson))
         } catch (e: Throwable) {
             logE("refreshLyric error", e)
         }
+    }
+
+    private fun applyLyricToViews(jo: JSONObject) {
+        var mainText = jo.optString("l", "").trim()
+        var subText = jo.optString("s", "").trim()
+        val title = jo.optString("title", "").trim()
+        if (title.isNotBlank()) lastSongTitle = title
+
+        if (mainText.isEmpty() && title.isNotEmpty()) {
+            mainText = title
+        }
+
+        if (cfgSwapLyric && subText.isNotBlank()) {
+            val tmp = mainText
+            mainText = subText
+            subText = tmp
+        }
+
+        val hasSub = subText.isNotBlank()
+        if (mainText.isEmpty()) {
+            sLyricContainer?.visibility = View.GONE
+            return
+        }
+
+        sLyricContainer?.visibility = View.VISIBLE
+        sMainLyric?.text = mainText
+        sSubLyric?.text = subText
+        sSubLyric?.visibility = if (hasSub) View.VISIBLE else View.GONE
+
+        logI("applyLyric: main=$mainText sub=$subText")
     }
 
     private fun readCurrentMediaTitle(ctx: Context): String {
         return try {
             val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE)
                 as? android.media.session.MediaSessionManager ?: return ""
-            val sessions = msm.getActiveSessions(null)
+            val sessions = try {
+                msm.getActiveSessions(null)
+            } catch (_: Throwable) {
+                emptyList()
+            }
             for (controller in sessions) {
                 val title = controller.metadata?.getString(
                     android.media.MediaMetadata.METADATA_KEY_TITLE

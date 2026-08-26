@@ -19,7 +19,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MusicLockScreen"
+        android:theme="@style/Theme.HyperLockMusic"
         tools:targetApi="31">
 
         <activity
@@ -61,6 +61,11 @@
             android:name=".AboutActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".WallpaperMakerActivity"
+            android:exported="false"
+            android:parentActivityName=".AboutActivity" />
 
         <provider
             android:name=".ConfigProvider"

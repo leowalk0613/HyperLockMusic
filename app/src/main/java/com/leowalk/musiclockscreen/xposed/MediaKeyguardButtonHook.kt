@@ -250,6 +250,8 @@ object MediaKeyguardButtonHook {
                 val newValue = !ConfigReader.showLyric(ctx)
                 if (ConfigReader.setShowLyric(ctx, newValue)) {
                     MusicLockscreenManager.lyricView?.refreshVisibility()
+                    MusicLockscreenManager.showAlbumOverlay()
+                    MediaFollowController.requestReflow()
                     updateLyricToggleButtonVisual(button, ctx)
                     logI("action4 toggled show lyric=$newValue")
                 } else {

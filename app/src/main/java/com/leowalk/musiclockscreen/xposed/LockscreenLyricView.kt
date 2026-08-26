@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -41,6 +42,16 @@ class LockscreenLyricView(context: Context) : View(context) {
     private val fogMaskAlphaLight = 80
     /** 歌词内容上下内边距（dp） */
     private val vPaddingDp = 14f
+
+    /** 沉浸歌词固定字号（与默认歌词字号独立） */
+    private val immersiveLyricSizeSp = 40f
+    private val immersiveSecondSizeRatio = 0.55f
+    /** 主歌词至少占用的行数（区域够宽时） */
+    private val immersiveMinMainLines = 3
+    /** 翻译最多行数 */
+    private val immersiveMaxSecondLines = 2
+    /** 沉浸歌词文字混入专辑主色的比例 */
+    private val immersiveTintWeight = 0.28f
 
     // ============================================================
     // 绘制相关
@@ -87,6 +98,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     // 主行多行显示（自动换行）
     // ============================================================
     private var mainStaticLayout: StaticLayout? = null
+    private var immersiveSecondStaticLayout: StaticLayout? = null
 
     // ============================================================
     // 渐变遮罩（专辑下半主色调 + 半透明黑，自下而上消散）
@@ -112,6 +124,9 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cfgLyricWidth: Float = 55f
     /** 歌词底边占屏幕高度百分比 */
     private var cfgLyricBgAnchorY: Float = 62f
+    private var cfgImmersiveLyric: Boolean = false
+    private var cfgLyricHideBackground: Boolean = false
+    private var cfgLyricAlign: String = "left"
 
     // 通知中心/QS 是否展开（展开时歌词应隐藏，只显示在锁屏）
     @Volatile
@@ -132,6 +147,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cachedLines: List<LyricLine>? = null
     private var cachedCtx: org.json.JSONObject? = null
     private var lastSongTitle: String = ""
+    private var lastKnownTrackKey: String? = null
 
     private var dataDirty = false
     private var lastVersionsCheck: Long = 0
@@ -167,16 +183,25 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
 
+        val lyricWidth = computeLyricWidthPx()
+        if (cfgImmersiveLyric) {
+            rebuildImmersiveLayouts()
+            setMeasuredDimension(
+                resolveSizeAndState(lyricWidth, widthMeasureSpec, 0),
+                resolveSizeAndState(lyricWidth, heightMeasureSpec, 0)
+            )
+            return
+        }
+
         val mainText = currentMainText.ifBlank { " " }
         val layout = mainStaticLayout?.takeIf {
-            it.width == (computeLyricWidthPx() - hPaddingPx * 2).toInt()
+            it.width == (lyricWidth - hPaddingPx * 2).toInt()
         } ?: buildMainLayout(mainText).also { mainStaticLayout = it }
 
-        val lyricWidth = computeLyricWidthPx()
-        val desiredHeight = computeContentHeightPx(layout, hasSecondLine)
+        val contentHeight = computeContentHeightPx(layout, hasSecondLine)
         setMeasuredDimension(
             resolveSizeAndState(lyricWidth, widthMeasureSpec, 0),
-            resolveSizeAndState(desiredHeight, heightMeasureSpec, 0)
+            resolveSizeAndState(contentHeight, heightMeasureSpec, 0)
         )
     }
 
@@ -225,10 +250,14 @@ class LockscreenLyricView(context: Context) : View(context) {
         super.onLayout(changed, left, top, right, bottom)
     }
 
-    /** 歌词区域宽度（px）：屏宽 × 用户可调的宽度百分比，与专辑尺寸无关 */
+    /** 歌词区域宽度（px）：沉浸模式用专辑区块宽度，否则屏宽 × 百分比 */
     private fun computeLyricWidthPx(): Int {
         val screenWidth = resources.displayMetrics.widthPixels
-        return (screenWidth * cfgLyricWidth / 100f).toInt().coerceAtLeast(1)
+        return if (cfgImmersiveLyric) {
+            (screenWidth * ConfigReader.albumSize(context) / 100f).toInt().coerceAtLeast(1)
+        } else {
+            (screenWidth * cfgLyricWidth / 100f).toInt().coerceAtLeast(1)
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -238,8 +267,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         val h = height.toFloat()
         if (w <= 0 || h <= 0) return
 
-        // 1. 渐变半透明黑色遮罩（专辑下半主色调）
-        drawFogBackground(canvas, w, h)
+        // 1. 渐变遮罩（非沉浸模式；沉浸歌词直接叠在壁纸上）
+        if (!cfgImmersiveLyric) {
+            drawFogBackground(canvas, w, h)
+        }
 
         val contentWidth = w - hPaddingPx * 2
 
@@ -254,8 +285,12 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun drawContent(canvas: Canvas, w: Float, contentWidth: Float,
                             mainText: String, secondText: String, hasSecond: Boolean,
                             layout: StaticLayout?) {
+        if (cfgImmersiveLyric) {
+            drawImmersiveContent(canvas, w, contentWidth, mainText, secondText, hasSecond)
+            return
+        }
+
         val h = height.toFloat()
-        // 内容底部对齐到 view 底部内边距之上
         val contentBottom = h - vPaddingPx
 
         if (layout != null) {
@@ -288,16 +323,93 @@ class LockscreenLyricView(context: Context) : View(context) {
 
         if (hasSecond) {
             val sfm = secondPaint.fontMetrics
-            // 基线取 contentBottom - sfm.bottom，使第二行文字底部贴合内容底部，避免被父容器裁剪
             val secondBaseline = contentBottom - sfm.bottom
             drawTextCentered(canvas, secondText, w / 2f, secondBaseline, secondPaint, contentWidth.toInt())
         }
     }
 
-    /**
-     * 居中绘制单行文本，超长则加省略号
-     */
-    private fun drawTextCentered(canvas: Canvas, text: String, centerX: Float, y: Float, paint: Paint, maxWidthPx: Int) {
+    /** 沉浸歌词：主行多行填满区块，翻译小字在下方，超出区域末行省略 */
+    private fun drawImmersiveContent(
+        canvas: Canvas, w: Float, contentWidth: Float,
+        mainText: String, secondText: String, hasSecond: Boolean
+    ) {
+        val mainLayout = mainStaticLayout ?: return
+        val h = height.toFloat()
+
+        val mainH = mainLayout.height.toFloat()
+        val secondLayout = if (hasSecond) immersiveSecondStaticLayout else null
+        val secondH = secondLayout?.height?.toFloat() ?: 0f
+        val gap = if (secondLayout != null) lineGapPx else 0f
+        val totalH = mainH + gap + secondH
+
+        val startY = vPaddingPx + ((h - vPaddingPx * 2f - totalH) / 2f).coerceAtLeast(0f)
+
+        canvas.save()
+        canvas.translate(hPaddingPx, startY)
+        mainLayout.draw(canvas)
+        canvas.restore()
+
+        if (secondLayout != null) {
+            canvas.save()
+            canvas.translate(hPaddingPx, startY + mainH + gap)
+            secondLayout.draw(canvas)
+            canvas.restore()
+        }
+    }
+
+    private fun rebuildImmersiveLayouts() {
+        val block = computeLyricWidthPx()
+        val contentW = (block - hPaddingPx * 2).toInt().coerceAtLeast(1)
+        val main = currentMainText.ifBlank { " " }
+        val maxMain = computeImmersiveMaxMainLines(hasSecondLine, block)
+        mainStaticLayout = buildImmersiveLayout(main, mainPaint, contentW, maxMain)
+        immersiveSecondStaticLayout = if (hasSecondLine && currentSecondText.isNotBlank()) {
+            buildImmersiveLayout(
+                currentSecondText, secondPaint, contentW, immersiveMaxSecondLines
+            )
+        } else {
+            null
+        }
+    }
+
+    private fun computeImmersiveMaxMainLines(hasSecond: Boolean, blockSizePx: Int): Int {
+        val contentH = blockSizePx - vPaddingPx * 2f
+        val mainLineH = mainPaint.fontMetrics.run { bottom - top }
+        val secondReserve = if (hasSecond) {
+            val slh = secondPaint.fontMetrics.run { bottom - top }
+            slh * immersiveMaxSecondLines + lineGapPx
+        } else 0f
+        val fit = ((contentH - secondReserve) / mainLineH).toInt().coerceAtLeast(1)
+        return if (fit >= immersiveMinMainLines) {
+            fit.coerceAtLeast(immersiveMinMainLines)
+        } else {
+            fit
+        }
+    }
+
+    private fun buildImmersiveLayout(
+        text: String, paint: Paint, contentWidth: Int, maxLines: Int
+    ): StaticLayout {
+        val tp = TextPaint(paint).apply { textAlign = Paint.Align.LEFT }
+        val alignment = when (cfgLyricAlign) {
+            "center" -> Layout.Alignment.ALIGN_CENTER
+            "right" -> Layout.Alignment.ALIGN_OPPOSITE
+            else -> Layout.Alignment.ALIGN_NORMAL
+        }
+        return StaticLayout.Builder
+            .obtain(text.ifBlank { " " }, 0, text.length, tp, contentWidth)
+            .setAlignment(alignment)
+            .setLineSpacing(0f, 1f)
+            .setIncludePad(true)
+            .setMaxLines(maxLines)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+    }
+
+    private fun drawTextCentered(
+        canvas: Canvas, text: String, centerX: Float, y: Float,
+        paint: Paint, maxWidthPx: Int
+    ) {
         var displayText = text.ifBlank { " " }
         val originalAlign = paint.textAlign
         paint.textAlign = Paint.Align.LEFT
@@ -306,10 +418,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         val x: Float
 
         if (textWidth <= maxWidthPx) {
-            // 没超宽，直接居中
             x = centerX - textWidth / 2f
         } else {
-            // 超长，加省略号后居中
             val ellipsis = "…"
             val ellipsisW = paint.measureText(ellipsis)
             val targetW = maxWidthPx - ellipsisW
@@ -325,11 +435,40 @@ class LockscreenLyricView(context: Context) : View(context) {
         paint.textAlign = originalAlign
     }
 
+    private fun ellipsizeText(text: String, paint: Paint, maxWidthPx: Int): String {
+        val raw = text.ifBlank { " " }
+        if (paint.measureText(raw) <= maxWidthPx) return raw
+        val textPaint = if (paint is TextPaint) paint else TextPaint(paint)
+        return TextUtils.ellipsize(
+            raw, textPaint, maxWidthPx.toFloat(), TextUtils.TruncateAt.END
+        ).toString()
+    }
+
+    private fun drawTextAligned(
+        canvas: Canvas, text: String, viewWidth: Float, y: Float,
+        paint: Paint, maxWidthPx: Int
+    ) {
+        val displayText = ellipsizeText(text, paint, maxWidthPx)
+        val originalAlign = paint.textAlign
+        paint.textAlign = Paint.Align.LEFT
+
+        val textWidth = paint.measureText(displayText)
+        val contentWidth = maxWidthPx.toFloat()
+        val x = when (cfgLyricAlign) {
+            "center" -> hPaddingPx + (contentWidth - textWidth) / 2f
+            "right" -> hPaddingPx + contentWidth - textWidth
+            else -> hPaddingPx
+        }
+
+        canvas.drawText(displayText, x, y, paint)
+        paint.textAlign = originalAlign
+    }
+
     /**
      * 渐变遮罩：取专辑下半主色调，与黑色混合后自下而上半透明消散。
      */
     private fun drawFogBackground(canvas: Canvas, w: Float, h: Float) {
-        if (!showFogBackground) return
+        if (cfgImmersiveLyric || !showFogBackground || cfgLyricHideBackground) return
         val tint = fogTintColor ?: return
         val wi = w.toInt()
         val hi = h.toInt()
@@ -397,6 +536,9 @@ class LockscreenLyricView(context: Context) : View(context) {
         cachedLines = null
         cachedCtx = null
         lastVersionsCheck = 0
+        lastLyricVersion = -1
+        lastLyricFdVersion = -1
+        lastKnownTrackKey = null
         if (isMusicLockscreenActive() && isKeyguardLocked()) {
             startPolling()
             handler.post { readAndUpdate() }
@@ -428,7 +570,12 @@ class LockscreenLyricView(context: Context) : View(context) {
                         return@post
                     }
                     fogTintColor = tintColor
-                    showFogBackground = true
+                    if (cfgImmersiveLyric) {
+                        showFogBackground = false
+                        applyImmersiveTextColors()
+                    } else {
+                        showFogBackground = true
+                    }
                     invalidate()
                     if (ownsAlbumCopy && !album.isRecycled) album.recycle()
                 }
@@ -438,8 +585,9 @@ class LockscreenLyricView(context: Context) : View(context) {
         }.start()
     }
 
-    /** 渐变遮罩是否已生成（用于锁屏时补渲染）。 */
+    /** 渐变遮罩是否已生成（沉浸模式仅需专辑取色用于文字染色）。 */
     fun isFogBackgroundReady(): Boolean {
+        if (cfgImmersiveLyric) return fogTintColor != null
         return showFogBackground && fogTintColor != null
     }
 
@@ -517,7 +665,10 @@ class LockscreenLyricView(context: Context) : View(context) {
                 refreshNow()
             }
             GONE -> {
-                stopPolling()
+                // 音乐锁屏 + 锁屏/AOD 时保持轮询，否则切歌后歌词不会刷新
+                if (!isMusicLockscreenActive() || !isKeyguardLocked()) {
+                    stopPolling()
+                }
                 alpha = 0f
             }
             // INVISIBLE：等 MediaFollow 定位，保持轮询以便 AOD 切歌仍能刷新
@@ -591,11 +742,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxSwap = cursor.getColumnIndex("swap_lyric")
                 val idxWidth = cursor.getColumnIndex("lyric_width")
                 val idxBgAnchorY = cursor.getColumnIndex("lyric_bg_anchor_y")
+                val idxImmersive = cursor.getColumnIndex("immersive_lyric")
+                val idxHideBg = cursor.getColumnIndex("lyric_hide_background")
+                val idxAlign = cursor.getColumnIndex("lyric_align")
 
                 if (idxShow >= 0) cfgShowLyric = cursor.getInt(idxShow) != 0
                 if (idxSize >= 0) cfgLyricSize = cursor.getFloat(idxSize)
                 if (idxSwap >= 0) cfgSwapLyric = cursor.getInt(idxSwap) != 0
                 var positionChanged = false
+                var styleChanged = false
                 if (idxWidth >= 0) {
                     val newWidth = cursor.getFloat(idxWidth)
                     if (newWidth != cfgLyricWidth) positionChanged = true
@@ -606,11 +761,34 @@ class LockscreenLyricView(context: Context) : View(context) {
                     if (newAnchor != cfgLyricBgAnchorY) positionChanged = true
                     cfgLyricBgAnchorY = newAnchor
                 }
+                if (idxImmersive >= 0) {
+                    val newImmersive = cursor.getInt(idxImmersive) == 1
+                    if (newImmersive != cfgImmersiveLyric) {
+                        positionChanged = true
+                        styleChanged = true
+                    }
+                    cfgImmersiveLyric = newImmersive
+                }
+                if (idxHideBg >= 0) {
+                    cfgLyricHideBackground = cursor.getInt(idxHideBg) == 1
+                    styleChanged = true
+                }
+                if (idxAlign >= 0) {
+                    val newAlign = cursor.getString(idxAlign) ?: "left"
+                    if (newAlign != cfgLyricAlign) styleChanged = true
+                    cfgLyricAlign = newAlign
+                }
                 if (positionChanged) MediaFollowController.requestReflow()
 
                 cursor.close()
                 applyLyricStyle()
+                if (styleChanged) {
+                    mainStaticLayout = null
+                    immersiveSecondStaticLayout = null
+                    invalidate()
+                }
                 updateVisibilityState()
+                MusicLockscreenManager.showAlbumOverlay()
             }
         } catch (e: Throwable) {
             logE("applyLyricConfig error", e)
@@ -620,11 +798,22 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun applyLyricStyle() {
         val density = resources.displayMetrics.density
 
-        mainPaint.textSize = cfgLyricSize * density
-        secondPaint.textSize = cfgLyricSize * 0.8f * density
-
-        mainPaint.color = Color.WHITE
-        secondPaint.color = Color.argb(140, 255, 255, 255)
+        if (cfgImmersiveLyric) {
+            showFogBackground = false
+            mainPaint.textSize = immersiveLyricSizeSp * density
+            secondPaint.textSize = immersiveLyricSizeSp * immersiveSecondSizeRatio * density
+            applyImmersiveTypeface()
+            applyImmersiveTextColors()
+        } else {
+            mainPaint.textSize = cfgLyricSize * density
+            secondPaint.textSize = cfgLyricSize * 0.8f * density
+            mainPaint.typeface = Typeface.DEFAULT_BOLD
+            mainPaint.isFakeBoldText = false
+            secondPaint.typeface = Typeface.DEFAULT
+            secondPaint.isFakeBoldText = false
+            mainPaint.color = Color.WHITE
+            secondPaint.color = Color.argb(140, 255, 255, 255)
+        }
 
         mainPaint.setShadowLayer(10f, 0f, 3f, Color.argb(230, 0, 0, 0))
         secondPaint.setShadowLayer(7f, 1f, 3f, Color.argb(210, 0, 0, 0))
@@ -643,9 +832,98 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
 
         mainStaticLayout = null
+        immersiveSecondStaticLayout = null
         requestLayout()
         MediaFollowController.requestReflow()
         invalidate()
+    }
+
+    /** 沉浸歌词：白字混入专辑主色；翻译同步略染色 */
+    private fun applyImmersiveTextColors() {
+        val tint = boostAlbumTint(fogTintColor ?: Color.WHITE)
+        val mainColor = blendTextColor(Color.WHITE, tint, immersiveTintWeight)
+        mainPaint.color = mainColor
+        secondPaint.color = Color.argb(
+            160,
+            Color.red(mainColor),
+            Color.green(mainColor),
+            Color.blue(mainColor)
+        )
+    }
+
+    private fun applyImmersiveTypeface() {
+        mainPaint.typeface = resolveMiSansTypeface(bold = true)
+        mainPaint.isFakeBoldText = false
+        secondPaint.typeface = resolveMiSansTypeface(bold = false)
+        secondPaint.isFakeBoldText = false
+    }
+
+    /** 提高专辑色饱和度，混进白字后更易察觉 */
+    private fun boostAlbumTint(color: Int): Int {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(color, hsv)
+        hsv[1] = (hsv[1] * 1.35f).coerceIn(0f, 1f)
+        hsv[2] = (hsv[2] * 1.12f).coerceIn(0.35f, 1f)
+        return Color.HSVToColor(hsv)
+    }
+
+    private fun resolveMiSansTypeface(bold: Boolean): Typeface {
+        if (bold) {
+            cachedMiSansBold?.let { return it }
+        } else {
+            cachedMiSansMedium?.let { return it }
+        }
+        val paths = if (bold) {
+            arrayOf(
+                "/system/fonts/MiSans-Heavy.ttf",
+                "/system/fonts/MiSans-Bold.ttf",
+                "/system/fonts/MiSans-Semibold.ttf",
+                "/system/fonts/MiSans-Demibold.ttf",
+                "/product/fonts/MiSans-Bold.ttf",
+                "/product/fonts/MiSans-Heavy.ttf",
+                "/system/fonts/MiSansVF.ttf",
+            )
+        } else {
+            arrayOf(
+                "/system/fonts/MiSans-Medium.ttf",
+                "/system/fonts/MiSans-Regular.ttf",
+                "/system/fonts/MiSans-Demibold.ttf",
+                "/product/fonts/MiSans-Regular.ttf",
+            )
+        }
+        for (path in paths) {
+            try {
+                val file = java.io.File(path)
+                if (!file.exists()) continue
+                val tf = Typeface.createFromFile(file)
+                if (bold) cachedMiSansBold = tf else cachedMiSansMedium = tf
+                return tf
+            } catch (_: Throwable) {
+            }
+        }
+        val family = if (bold) "sans-serif-black" else "sans-serif-medium"
+        for (name in arrayOf(if (bold) "MiSans" else "MiSans", "mipro-medium", family)) {
+            try {
+                val style = if (bold) Typeface.BOLD else Typeface.NORMAL
+                val tf = Typeface.create(name, style)
+                if (bold) cachedMiSansBold = tf else cachedMiSansMedium = tf
+                return tf
+            } catch (_: Throwable) {
+            }
+        }
+        val fallback = Typeface.create(Typeface.DEFAULT, if (bold) Typeface.BOLD else Typeface.NORMAL)
+        if (bold) cachedMiSansBold = fallback else cachedMiSansMedium = fallback
+        return fallback
+    }
+
+    private fun blendTextColor(base: Int, tint: Int, weight: Float): Int {
+        val w = weight.coerceIn(0f, 1f)
+        val inv = 1f - w
+        return Color.rgb(
+            (Color.red(base) * inv + Color.red(tint) * w).toInt().coerceIn(0, 255),
+            (Color.green(base) * inv + Color.green(tint) * w).toInt().coerceIn(0, 255),
+            (Color.blue(base) * inv + Color.blue(tint) * w).toInt().coerceIn(0, 255)
+        )
     }
 
     private fun isMusicLockscreenActive(): Boolean {
@@ -688,6 +966,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                 translationZ = elevation
                 invalidate()
             }
+            if (cfgImmersiveLyric) {
+                MusicLockscreenManager.showAlbumOverlay()
+            }
         } else {
             alpha = 0f
             setLayerType(View.LAYER_TYPE_NONE, null)
@@ -695,6 +976,10 @@ class LockscreenLyricView(context: Context) : View(context) {
                 clearLyricDisplay()
             }
             visibility = View.GONE
+            if (cfgImmersiveLyric) {
+                MusicLockscreenManager.showAlbumOverlay()
+                MediaFollowController.requestReflow()
+            }
         }
     }
 
@@ -729,17 +1014,17 @@ class LockscreenLyricView(context: Context) : View(context) {
     companion object {
         private const val PROVIDER_URI = "content://com.leowalk.musiclockscreen.lyric"
         private const val CONFIG_URI = "content://com.leowalk.musiclockscreen.config/config"
+
+        @Volatile
+        private var cachedMiSansBold: Typeface? = null
+
+        @Volatile
+        private var cachedMiSansMedium: Typeface? = null
     }
 
     private fun readAndUpdate() {
         try {
-            // AOD 下 ContentObserver 可能延迟/丢失，用媒体标题辅助检测切歌
-            val mediaTitle = readCurrentMediaTitle()
-            if (mediaTitle.isNotBlank() && lastSongTitle.isNotBlank() && mediaTitle != lastSongTitle) {
-                cachedLines = null
-                cachedCtx = null
-                dataDirty = true
-            }
+            detectTrackOrSongChange()
 
             val uri = Uri.parse(PROVIDER_URI)
             var newVLyric = lastLyricVersion
@@ -912,7 +1197,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 updateVisibilityState()
             }
 
-            if (cachedLines != null && cachedLines!!.isNotEmpty() && isPlaying) {
+            if (cachedLines != null && cachedLines!!.isNotEmpty()) {
                 refreshCurrentLineFromCache()
                 return
             }
@@ -941,7 +1226,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
                 newSecond = if (curTrans.isNotEmpty()) {
                     curTrans
-                } else if (idx >= 0 && idx + 1 < lines!!.size) {
+                } else if (!cfgImmersiveLyric && idx >= 0 && idx + 1 < lines!!.size) {
                     lines!![idx + 1].text
                 } else {
                     ""
@@ -964,12 +1249,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (now - lastPlayingCheck < 1000) return
         lastPlayingCheck = now
         try {
-            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-            val sessions = msm.getActiveSessions(
-                android.content.ComponentName(context,
-                    "com.leowalk.musiclockscreen.NotificationListenerServiceKt")
-            )
-            for (controller in sessions) {
+            for (controller in getMediaControllers()) {
                 val state = controller.playbackState
                 if (state != null && state.state == PlaybackState.STATE_PLAYING) {
                     isPlaying = true
@@ -1000,6 +1280,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
             val interval = when {
                 !isMusicLockscreenActive() || !onKeyguard -> 1000L
+                !HookUtils.isScreenInteractive(context) && isMusicLockscreenActive() -> 300L
                 isPlaying && (visibility == VISIBLE || visibility == INVISIBLE) -> 200L
                 else -> 500L
             }
@@ -1031,9 +1312,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
 
             val pos = getCurrentPosition()
-            if (pos < 0) return
-
-            var idx = findCurrentLineIndex(lines, pos)
+            var idx = if (pos >= 0) findCurrentLineIndex(lines, pos) else 0
             if (idx < 0) idx = 0
 
             val currentText = lines[idx].text
@@ -1042,8 +1321,13 @@ class LockscreenLyricView(context: Context) : View(context) {
             val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
 
             val newMain = currentText.ifBlank { " " }
-            // 有翻译优先显示翻译，无翻译才显示下一句（翻译参与互换，下一句不互换）
-            val newSecond = if (currentTrans.isNotEmpty()) currentTrans else nextText
+            val newSecond = if (currentTrans.isNotEmpty()) {
+                currentTrans
+            } else if (!cfgImmersiveLyric) {
+                nextText
+            } else {
+                ""
+            }
             val newHasSecond = newSecond.isNotBlank()
             val isTranslationLine = currentTrans.isNotEmpty()
 
@@ -1072,12 +1356,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun getCurrentPosition(): Long {
         try {
-            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-            val sessions: List<android.media.session.MediaController> = msm.getActiveSessions(
-                android.content.ComponentName(context, "com.leowalk.musiclockscreen.NotificationListenerServiceKt")
-            )
-
-            for (controller in sessions) {
+            for (controller in getMediaControllers()) {
                 val state = controller.playbackState
                 if (state != null) {
                     val playing = state.state == PlaybackState.STATE_PLAYING
@@ -1158,11 +1437,14 @@ class LockscreenLyricView(context: Context) : View(context) {
             currentSecondText = displaySecond
             hasSecondLine = displayHasSecond
 
-            val layout = buildMainLayout(displayMain.ifBlank { " " })
-            mainStaticLayout = layout
-
-            // 高度自适应；底边不动，只改尺寸 + 重绘，避免整块跳闪
-            resizeKeepingBottom(computeContentHeightPx(layout, displayHasSecond))
+            if (cfgImmersiveLyric) {
+                rebuildImmersiveLayouts()
+                resizeKeepingBottom(computeLyricWidthPx())
+            } else {
+                val layout = buildMainLayout(displayMain.ifBlank { " " })
+                mainStaticLayout = layout
+                resizeKeepingBottom(computeContentHeightPx(layout, displayHasSecond))
+            }
             invalidate()
         }
     }
@@ -1175,7 +1457,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
         return StaticLayout.Builder
             .obtain(text, 0, text.length, mainTextPaint, maxContentWidth)
-            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setAlignment(Layout.Alignment.ALIGN_CENTER)
             .setLineSpacing(0f, 1f)
             .setIncludePad(true)
             .build()
@@ -1186,11 +1468,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     // ============================================================
     private fun readCurrentMediaTitle(): String {
         return try {
-            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-            val sessions = msm.getActiveSessions(
-                android.content.ComponentName(context, "com.leowalk.musiclockscreen.NotificationListenerServiceKt")
-            )
-            for (controller in sessions) {
+            for (controller in getMediaControllers()) {
                 val title = controller.metadata?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE)
                 if (!title.isNullOrBlank()) return title
             }
@@ -1198,6 +1476,58 @@ class LockscreenLyricView(context: Context) : View(context) {
         } catch (_: Throwable) {
             ""
         }
+    }
+
+    /** AOD 下 NotificationListener 组件可能拿不到会话，回退 getActiveSessions(null) */
+    private fun getMediaControllers(): List<android.media.session.MediaController> {
+        return try {
+            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            val component = android.content.ComponentName(
+                context, "com.leowalk.musiclockscreen.NotificationListenerServiceKt"
+            )
+            val withComponent = try {
+                msm.getActiveSessions(component)
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            if (withComponent.isNotEmpty()) {
+                withComponent
+            } else {
+                try {
+                    msm.getActiveSessions(null)
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+            }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    /** 标题或 trackKey 变化时强制重拉歌词（AOD observer 常不可靠） */
+    private fun detectTrackOrSongChange(): Boolean {
+        val mediaTitle = readCurrentMediaTitle()
+        val trackKey = AlbumArtResolver.getCachedTrackKey()
+        var changed = false
+        if (mediaTitle.isNotBlank() && lastSongTitle.isNotBlank() && mediaTitle != lastSongTitle) {
+            changed = true
+        }
+        if (trackKey != null && lastKnownTrackKey != null && trackKey != lastKnownTrackKey) {
+            changed = true
+        }
+        if (changed) {
+            cachedLines = null
+            cachedCtx = null
+            dataDirty = true
+            lastLyricJson = "{}"
+            mainStaticLayout = null
+            immersiveSecondStaticLayout = null
+            lastLyricVersion = -1
+            lastLyricFdVersion = -1
+        }
+        if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
+        if (trackKey != null) lastKnownTrackKey = trackKey
+        return changed
     }
 
     private fun hasValidLyricLines(json: JSONObject): Boolean {
