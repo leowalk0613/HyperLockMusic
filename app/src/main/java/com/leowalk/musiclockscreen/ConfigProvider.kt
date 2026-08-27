@@ -35,10 +35,11 @@ class ConfigProvider : ContentProvider() {
         const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
         const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
         const val KEY_LYRIC_ALIGN = "lyric_align"
-        const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
         const val KEY_IMMERSIVE_ALBUM = "immersive_album"
-        const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
+        const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
         const val KEY_AOD_FULL_MEDIA = "aod_full_media"
+        const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
+        const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
         const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
         const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -90,10 +91,11 @@ class ConfigProvider : ContentProvider() {
                 KEY_IMMERSIVE_LYRIC,
                 KEY_LYRIC_HIDE_BACKGROUND,
                 KEY_LYRIC_ALIGN,
-                KEY_KEEP_LOCKSCREEN_ON,
                 KEY_IMMERSIVE_ALBUM,
-                KEY_TITLE_BRACKET_MODE,
+                KEY_IMMERSIVE_ALBUM_CENTER_Y,
                 KEY_AOD_FULL_MEDIA,
+                KEY_KEEP_LOCKSCREEN_ON,
+                KEY_TITLE_BRACKET_MODE,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
                 KEY_MUSIC_WHITELIST_ENABLED,
                 KEY_MUSIC_WHITELIST
@@ -114,15 +116,16 @@ class ConfigProvider : ContentProvider() {
                 prefs.getFloat(KEY_LYRIC_WIDTH, 55f),
                 prefs.getFloat(KEY_LYRIC_BG_OFFSET_Y, 12f),
                 prefs.getFloat(KEY_LYRIC_BG_ANCHOR_Y, 62f),
-                if (prefs.getBoolean(KEY_IMMERSIVE_LYRIC, false)) 1 else 0,
+                if (prefs.getBoolean(KEY_IMMERSIVE_LYRIC, true)) 1 else 0,
                 if (prefs.getBoolean(KEY_LYRIC_HIDE_BACKGROUND, false)) 1 else 0,
                 prefs.getString(KEY_LYRIC_ALIGN, ModuleConfig.LYRIC_ALIGN_LEFT)
                     ?: ModuleConfig.LYRIC_ALIGN_LEFT,
-                if (prefs.getBoolean(KEY_KEEP_LOCKSCREEN_ON, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) 1 else 0,
+                prefs.getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, 38f),
+                if (prefs.getBoolean(KEY_AOD_FULL_MEDIA, false)) 1 else 0,
+                if (prefs.getBoolean(KEY_KEEP_LOCKSCREEN_ON, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
-                if (prefs.getBoolean(KEY_AOD_FULL_MEDIA, true)) 1 else 0,
                 if (prefs.getBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_MUSIC_WHITELIST_ENABLED, false)) 1 else 0,
                 prefs.getString(KEY_MUSIC_WHITELIST, "") ?: ""
@@ -199,20 +202,23 @@ class ConfigProvider : ContentProvider() {
                 if (values.containsKey(KEY_LYRIC_ALIGN)) {
                     editor.putString(KEY_LYRIC_ALIGN, values.getAsString(KEY_LYRIC_ALIGN))
                 }
-                if (values.containsKey(KEY_KEEP_LOCKSCREEN_ON)) {
-                    editor.putBoolean(
-                        KEY_KEEP_LOCKSCREEN_ON,
-                        values.getAsInteger(KEY_KEEP_LOCKSCREEN_ON) == 1
-                    )
-                }
                 if (values.containsKey(KEY_IMMERSIVE_ALBUM)) {
                     editor.putBoolean(KEY_IMMERSIVE_ALBUM, values.getAsInteger(KEY_IMMERSIVE_ALBUM) == 1)
                 }
-                if (values.containsKey(KEY_TITLE_BRACKET_MODE)) {
-                    editor.putString(KEY_TITLE_BRACKET_MODE, values.getAsString(KEY_TITLE_BRACKET_MODE))
+                if (values.containsKey(KEY_IMMERSIVE_ALBUM_CENTER_Y)) {
+                    editor.putFloat(
+                        KEY_IMMERSIVE_ALBUM_CENTER_Y,
+                        values.getAsFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y)
+                    )
                 }
                 if (values.containsKey(KEY_AOD_FULL_MEDIA)) {
                     editor.putBoolean(KEY_AOD_FULL_MEDIA, values.getAsInteger(KEY_AOD_FULL_MEDIA) == 1)
+                }
+                if (values.containsKey(KEY_KEEP_LOCKSCREEN_ON)) {
+                    editor.putBoolean(KEY_KEEP_LOCKSCREEN_ON, values.getAsInteger(KEY_KEEP_LOCKSCREEN_ON) == 1)
+                }
+                if (values.containsKey(KEY_TITLE_BRACKET_MODE)) {
+                    editor.putString(KEY_TITLE_BRACKET_MODE, values.getAsString(KEY_TITLE_BRACKET_MODE))
                 }
                 if (values.containsKey(KEY_MEDIA_WALLPAPER_ACTIVE)) {
                     editor.putBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, values.getAsInteger(KEY_MEDIA_WALLPAPER_ACTIVE) == 1)

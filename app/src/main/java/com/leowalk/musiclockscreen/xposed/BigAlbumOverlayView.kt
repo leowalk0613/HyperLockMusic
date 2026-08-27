@@ -258,12 +258,14 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             configObserver = object : android.database.ContentObserver(handler) {
                 override fun onChange(selfChange: Boolean) {
                     val bakeBefore = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
-                    val anchorBefore = if (bakeBefore) ConfigReader.albumAnchorY(context) else Float.NaN
+                    val centerBefore =
+                        if (bakeBefore) ConfigReader.immersiveAlbumCenterY(context) else Float.NaN
                     ConfigReader.invalidate()
                     val bakeAfter = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
-                    val anchorAfter = if (bakeAfter) ConfigReader.albumAnchorY(context) else Float.NaN
+                    val centerAfter =
+                        if (bakeAfter) ConfigReader.immersiveAlbumCenterY(context) else Float.NaN
                     if (MusicLockscreenManager.isShowing) {
-                        val layoutChanged = bakeBefore != bakeAfter || anchorBefore != anchorAfter
+                        val layoutChanged = bakeBefore != bakeAfter || centerBefore != centerAfter
                         if (layoutChanged) {
                             if (bakeAfter) {
                                 MusicLockscreenManager.showAlbumOverlay()

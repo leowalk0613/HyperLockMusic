@@ -39,7 +39,7 @@ class MediaTitleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, card))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "AOD 选项需重启系统界面后生效。\n\n" +
+            "AOD / 迷你播放器选项需重启系统界面后生效。\n\n" +
                 "默认：原样显示括号内容。缩小：括号内容缩小并置于标题右侧。隐藏：去除括号内容。" +
                 "分行：括号副标题叠在标题下方；主标题固定字号，显示不全用省略号。")))
     }

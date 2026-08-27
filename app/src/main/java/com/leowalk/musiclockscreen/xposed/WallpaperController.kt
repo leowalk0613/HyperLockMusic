@@ -75,6 +75,10 @@ object WallpaperController {
                     }
                     mask.alpha = 1f
                     mask.visibility = View.VISIBLE
+                    val d = mask.resources.displayMetrics.density
+                    mask.elevation = 64f * d
+                    mask.translationZ = 64f * d
+                    mask.bringToFront()
                 } catch (_: Throwable) {
                 }
             }
@@ -136,6 +140,16 @@ object WallpaperController {
                         .setDuration(MASK_FADE_MS)
                         .withEndAction {
                             mask.visibility = View.INVISIBLE
+                            // 遮罩收起后把歌词拉回最上层
+                            MusicLockscreenManager.lyricView?.let { lyric ->
+                                try {
+                                    val d = lyric.resources.displayMetrics.density
+                                    lyric.elevation = 48f * d
+                                    lyric.translationZ = 48f * d
+                                    lyric.bringToFront()
+                                } catch (_: Throwable) {
+                                }
+                            }
                         }
                         .start()
                 } catch (_: Throwable) {
@@ -468,7 +482,9 @@ object WallpaperController {
                 darkOverlayAlpha = ConfigReader.darkOverlay(context),
                 targetWidth = tw,
                 targetHeight = th,
-                albumAnchorYPercent = ConfigReader.albumAnchorY(context),
+                // 烘焙区域底边固定；竖直位置只跟沉浸专用中心点走，不共用大专辑底边
+                albumAnchorYPercent = 80f,
+                albumCenterYPercent = ConfigReader.immersiveAlbumCenterY(context),
             )
         } else {
             val blurAlbum = sharpAlbum ?: systemAlbum

@@ -133,7 +133,7 @@ object MediaFollowController {
         layoutAlbum(bg)
         layoutLyric(bg)
         resetTransforms()
-        ensureLyricAboveAlbum()
+        ensureLyricOnTop()
     }
 
     private fun layoutAlbum(bg: View) {
@@ -387,17 +387,25 @@ object MediaFollowController {
         }
     }
 
-    private fun ensureLyricAboveAlbum() {
-        val album = MusicLockscreenManager.bigAlbumView ?: return
+    private fun ensureLyricOnTop() {
         val lyric = MusicLockscreenManager.lyricView ?: return
         if (lyric.visibility == View.GONE) return
         val d = lyric.resources.displayMetrics.density
-        album.elevation = 2f * d
-        lyric.elevation = 12f * d
-        lyric.translationZ = 12f * d
         try {
+            MusicLockscreenManager.bigAlbumView?.let { album ->
+                album.elevation = 2f * d
+                album.translationZ = 0f
+            }
+            // 歌词保持模块内最高（高于专辑）；过渡遮罩仅在可见时临时压过
+            lyric.elevation = 48f * d
+            lyric.translationZ = 48f * d
             lyric.bringToFront()
-            MusicLockscreenManager.transitionMaskView?.bringToFront()
+            val mask = MusicLockscreenManager.transitionMaskView
+            if (mask != null && mask.visibility == View.VISIBLE && mask.alpha > 0.01f) {
+                mask.elevation = 64f * d
+                mask.translationZ = 64f * d
+                mask.bringToFront()
+            }
         } catch (_: Throwable) {
         }
     }

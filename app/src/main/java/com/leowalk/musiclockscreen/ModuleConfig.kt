@@ -29,11 +29,12 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
     private const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
     private const val KEY_LYRIC_ALIGN = "lyric_align" // left / center / right
-    private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
+    /** 沉浸封面竖直中心占屏高百分比（与大专辑底边 [KEY_ALBUM_OFFSET_Y] 互不共用） */
+    private const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
-    /** AOD 下保持媒体控件展开并实时更新进度条 */
     private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
+    private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
 
@@ -74,13 +75,14 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_WIDTH = 55f
     private const val DEFAULT_LYRIC_BG_OFFSET_Y = 12f
     private const val DEFAULT_LYRIC_BG_ANCHOR_Y = 62f
-    private const val DEFAULT_IMMERSIVE_LYRIC = false
+    private const val DEFAULT_IMMERSIVE_LYRIC = true
     private const val DEFAULT_LYRIC_HIDE_BACKGROUND = false
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
-    private const val DEFAULT_KEEP_LOCKSCREEN_ON = false
     private const val DEFAULT_IMMERSIVE_ALBUM = false
+    private const val DEFAULT_IMMERSIVE_ALBUM_CENTER_Y = 38f
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
-    private const val DEFAULT_AOD_FULL_MEDIA = true
+    private const val DEFAULT_AOD_FULL_MEDIA = false
+    private const val DEFAULT_KEEP_LOCKSCREEN_ON = false
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
 
     private var prefs: SharedPreferences? = null
@@ -165,15 +167,40 @@ object ModuleConfig {
         get() = getPrefs().getString(KEY_LYRIC_ALIGN, DEFAULT_LYRIC_ALIGN) ?: DEFAULT_LYRIC_ALIGN
         set(value) = getPrefs().edit().putString(KEY_LYRIC_ALIGN, value).apply()
 
-    /** 音乐锁屏时保持锁屏常亮，忽略系统自动息屏（手动关屏仍生效） */
-    var keepLockScreenOn: Boolean
-        get() = getPrefs().getBoolean(KEY_KEEP_LOCKSCREEN_ON, DEFAULT_KEEP_LOCKSCREEN_ON)
-        set(value) = getPrefs().edit().putBoolean(KEY_KEEP_LOCKSCREEN_ON, value).apply()
-
-    /** 沉浸专辑：大图羽化融入取色背景 */
+    /** 沉浸专辑：Monet 取色铺底 + 完整封面 */
     var immersiveAlbum: Boolean
         get() = getPrefs().getBoolean(KEY_IMMERSIVE_ALBUM, DEFAULT_IMMERSIVE_ALBUM)
         set(value) = getPrefs().edit().putBoolean(KEY_IMMERSIVE_ALBUM, value).apply()
+
+    /** 沉浸封面竖直中心占屏高百分比（默认 38，仅沉浸烘焙用） */
+    var immersiveAlbumCenterY: Float
+        get() = getPrefs().getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, DEFAULT_IMMERSIVE_ALBUM_CENTER_Y)
+        set(value) = getPrefs().edit().putFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, value).apply()
+
+    /**
+     * 专辑样式 ↔ 歌词样式绑定：
+     * - 沉浸封面 → 普通歌词 + 无背景
+     * - 大专辑（非沉浸封面）→ 沉浸歌词
+     */
+    fun applyAlbumLyricBinding(immersiveAlbumOn: Boolean) {
+        if (immersiveAlbumOn) {
+            immersiveLyric = false
+            lyricHideBackground = true
+        } else {
+            immersiveLyric = true
+            lyricHideBackground = false
+        }
+    }
+
+    /** AOD 完整媒体控件（展开 + 进度） */
+    var aodFullMedia: Boolean
+        get() = getPrefs().getBoolean(KEY_AOD_FULL_MEDIA, DEFAULT_AOD_FULL_MEDIA)
+        set(value) = getPrefs().edit().putBoolean(KEY_AOD_FULL_MEDIA, value).apply()
+
+    /** 音乐锁屏时保持常亮 */
+    var keepLockScreenOn: Boolean
+        get() = getPrefs().getBoolean(KEY_KEEP_LOCKSCREEN_ON, DEFAULT_KEEP_LOCKSCREEN_ON)
+        set(value) = getPrefs().edit().putBoolean(KEY_KEEP_LOCKSCREEN_ON, value).apply()
 
     /** @deprecated 请用 [lyricBgAnchorY] */
     var lyricBgOffsetY: Float
@@ -185,11 +212,6 @@ object ModuleConfig {
         get() = getPrefs().getString(KEY_TITLE_BRACKET_MODE, DEFAULT_TITLE_BRACKET_MODE)
             ?: DEFAULT_TITLE_BRACKET_MODE
         set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_MODE, value).apply()
-
-    /** AOD 时完整显示媒体控件并实时更新进度条 */
-    var aodFullMedia: Boolean
-        get() = getPrefs().getBoolean(KEY_AOD_FULL_MEDIA, DEFAULT_AOD_FULL_MEDIA)
-        set(value) = getPrefs().edit().putBoolean(KEY_AOD_FULL_MEDIA, value).apply()
 
     /** 开启后仅白名单内应用可开启/保持音乐锁屏 */
     var musicWhitelistEnabled: Boolean
@@ -241,10 +263,11 @@ object ModuleConfig {
                 put("immersive_lyric", if (immersiveLyric) 1 else 0)
                 put("lyric_hide_background", if (lyricHideBackground) 1 else 0)
                 put("lyric_align", lyricAlign)
-                put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
-                put("title_bracket_mode", titleBracketMode)
+                put("immersive_album_center_y", immersiveAlbumCenterY)
                 put("aod_full_media", if (aodFullMedia) 1 else 0)
+                put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
+                put("title_bracket_mode", titleBracketMode)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)
                 put("music_whitelist", musicWhitelist)
             }

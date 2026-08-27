@@ -1,16 +1,17 @@
 package com.leowalk.musiclockscreen
 
-import android.view.View
+import android.util.TypedValue
 import android.widget.LinearLayout
-import com.google.android.material.slider.Slider
+import android.widget.TextView
 
-/** 专辑封面：大封面开关、大小、位置、圆角。 */
+/** 专辑封面：大专辑 / 沉浸封面互斥；按模式灰显无效项。 */
 class AlbumStyleActivity : BaseScrollingActivity() {
 
-    private var sizeSlider: Slider? = null
-    private var cornerSlider: Slider? = null
-    private var sizeRow: LinearLayout? = null
-    private var cornerRow: LinearLayout? = null
+    private var styleSegment: LinearLayout? = null
+    private var bigAlbumOnlyBlock: LinearLayout? = null
+    private var immersiveOnlyBlock: LinearLayout? = null
+    private var networkHdRow: LinearLayout? = null
+    private var modeHint: TextView? = null
 
     override fun titleText() = "专辑封面"
 
@@ -19,77 +20,125 @@ class AlbumStyleActivity : BaseScrollingActivity() {
         card.addView(M3.title(this, "封面显示"))
 
         card.addView(M3.switchRow(
-            this, "显示大专辑封面", "锁屏 overlay，仅音乐锁屏时可见",
+            this, "显示封面", "关闭后锁屏不绘制大专辑 / 沉浸封面",
             ModuleConfig.showBigAlbum
         ) { checked ->
             ModuleConfig.showBigAlbum = checked
             ModuleConfig.push(this)
+            refreshModeUi()
         })
 
-        card.addView(M3.switchRow(
-            this, "沉浸专辑", "大图羽化融入取色背景；隐藏歌词时自动显示",
-            ModuleConfig.immersiveAlbum
-        ) { checked ->
-            ModuleConfig.immersiveAlbum = checked
+        card.addView(sectionLabel("封面样式（二选一）"))
+        val styleIndex = if (ModuleConfig.immersiveAlbum) 1 else 0
+        styleSegment = M3.segmentGroup(this, listOf("大专辑", "沉浸封面"), styleIndex, 2) { index ->
+            val immersive = index == 1
+            ModuleConfig.showBigAlbum = true
+            ModuleConfig.immersiveAlbum = immersive
+            ModuleConfig.applyAlbumLyricBinding(immersive)
             ModuleConfig.push(this)
-            updateImmersiveControls(checked)
-        })
+            refreshModeUi()
+        }
+        card.addView(styleSegment)
 
-        val sizeRowView = M3.sliderRow(
+        modeHint = TextView(this).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(
+                M3.attrColor(
+                    this@AlbumStyleActivity,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    0xFFCAC4D0.toInt()
+                )
+            )
+            setPadding(0, 0, 0, M3.dp(this@AlbumStyleActivity, 8f))
+        }
+        card.addView(modeHint)
+
+        // 仅大专辑：大小 / 圆角 / 底边（沉浸封面不共用）
+        bigAlbumOnlyBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        bigAlbumOnlyBlock!!.addView(sectionLabel("大专辑专用"))
+        bigAlbumOnlyBlock!!.addView(M3.sliderRow(
             this, "专辑图大小", 20f, 90f, ModuleConfig.albumSize.coerceIn(20f, 90f),
             { "${it.toInt()}% 屏宽" }
         ) { v ->
             ModuleConfig.albumSize = v
             ModuleConfig.push(this)
-        }
-        sizeRow = sizeRowView
-        sizeSlider = sizeRowView.getChildAt(1) as? Slider
-        card.addView(sizeRowView)
-
-        card.addView(M3.sliderRow(
+        })
+        bigAlbumOnlyBlock!!.addView(M3.sliderRow(
+            this, "专辑图圆角", 0f, 60f, ModuleConfig.albumCorner.coerceIn(0f, 60f),
+            { "${it.toInt()} dp" }
+        ) { v ->
+            ModuleConfig.albumCorner = v
+            ModuleConfig.push(this)
+        })
+        bigAlbumOnlyBlock!!.addView(M3.sliderRow(
             this, "底边位置", 30f, 80f, migrateAlbumAnchor(ModuleConfig.albumAnchorY),
             { "${it.toInt()}% 屏高" }
         ) { v ->
             ModuleConfig.albumAnchorY = v
             ModuleConfig.push(this)
         })
+        card.addView(bigAlbumOnlyBlock)
 
-        val cornerRowView = M3.sliderRow(
-            this, "专辑图圆角", 0f, 60f, ModuleConfig.albumCorner.coerceIn(0f, 60f),
-            { "${it.toInt()} dp" }
+        // 仅沉浸封面：竖直中心（与大专辑底边独立）
+        immersiveOnlyBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        immersiveOnlyBlock!!.addView(sectionLabel("沉浸封面专用"))
+        immersiveOnlyBlock!!.addView(M3.sliderRow(
+            this, "专辑位置", 20f, 55f,
+            ModuleConfig.immersiveAlbumCenterY.coerceIn(20f, 55f),
+            { "中心 ${it.toInt()}% 屏高" }
         ) { v ->
-            ModuleConfig.albumCorner = v
+            ModuleConfig.immersiveAlbumCenterY = v
             ModuleConfig.push(this)
-        }
-        cornerRow = cornerRowView
-        cornerSlider = cornerRowView.getChildAt(1) as? Slider
-        card.addView(cornerRowView)
+        })
+        card.addView(immersiveOnlyBlock)
 
-        card.addView(M3.switchRow(
+        networkHdRow = M3.switchRow(
             this, "让专辑图显示更清晰",
-            "锁屏先显示系统封面，后台按歌曲 ID 拉取网络官方高清图替换前景专辑；模糊背景仍用系统封面。目前仅支持网易云音乐",
+            "后台拉网易云高清替换前景；沉浸封面取色仍用系统封面",
             ModuleConfig.albumNetworkHd
         ) { checked ->
             ModuleConfig.albumNetworkHd = checked
             ModuleConfig.push(this)
-        })
+        }
+        card.addView(networkHdRow)
+
         list.addView(M3.card(this, card))
-
         list.addView(M3.card(this, M3.tipContent(this,
-            "底边位置 = 专辑底边在屏幕高度上的百分比。沉浸专辑开启后大小与圆角不可用。")))
+            "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
+                "大专辑底边与沉浸封面位置互不共用。灰显项表示当前样式下不生效。")))
 
-        updateImmersiveControls(ModuleConfig.immersiveAlbum)
+        refreshModeUi()
     }
 
-    private fun updateImmersiveControls(immersive: Boolean) {
-        val alpha = if (immersive) 0.4f else 1f
-        sizeRow?.alpha = alpha
-        cornerRow?.alpha = alpha
-        sizeSlider?.isEnabled = !immersive
-        cornerSlider?.isEnabled = !immersive
+    private fun refreshModeUi() {
+        val show = ModuleConfig.showBigAlbum
+        val immersive = ModuleConfig.immersiveAlbum
+        M3.setControlsEnabled(styleSegment, show)
+        M3.setControlsEnabled(networkHdRow, show)
+        M3.setControlsEnabled(bigAlbumOnlyBlock, show && !immersive)
+        M3.setControlsEnabled(immersiveOnlyBlock, show && immersive)
+        modeHint?.text = when {
+            !show -> "封面已关闭，样式设置暂不生效。"
+            immersive -> "当前：沉浸封面。用「专辑位置」调竖直中心；大小/圆角/底边仅大专辑可用。"
+            else -> "当前：大专辑。大小/圆角/底边作用于方形封面（沉浸歌词开启时也用大小与底边定歌词区块）。"
+        }
     }
 
-    /** 旧版 dp 间距（>100）→ 默认 55% 屏高 */
+    private fun sectionLabel(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(
+                M3.attrColor(
+                    this@AlbumStyleActivity,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    0xFFCAC4D0.toInt()
+                )
+            )
+            setPadding(0, M3.dp(this@AlbumStyleActivity, 8f), 0, M3.dp(this@AlbumStyleActivity, 4f))
+        }
+    }
+
     private fun migrateAlbumAnchor(raw: Float): Float {
         if (raw > 100f || raw < 0f) {
             ModuleConfig.albumAnchorY = 55f

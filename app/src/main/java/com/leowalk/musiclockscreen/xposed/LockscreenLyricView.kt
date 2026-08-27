@@ -986,15 +986,19 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (visibility == View.GONE || visibility == View.INVISIBLE) {
                 visibility = View.INVISIBLE
                 alpha = 1f
-                elevation = 12f * resources.displayMetrics.density
+                elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
                 requestLayout()
                 MediaFollowController.requestReflow()
             } else {
                 alpha = 1f
-                elevation = 12f * resources.displayMetrics.density
+                elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
                 invalidate()
+            }
+            try {
+                bringToFront()
+            } catch (_: Throwable) {
             }
             if (cfgImmersiveLyric) {
                 MusicLockscreenManager.showAlbumOverlay()

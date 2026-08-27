@@ -22,16 +22,15 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
- * 彩蛋：沉浸封面风格壁纸制作（与锁屏 [BlurUtils.blurWithImmersiveAlbum] 同源）。
+ * 彩蛋：沉浸封面壁纸制作（Monet 取色铺底，与锁屏 [BlurUtils.blurWithImmersiveAlbum] 同源）。
  */
 class WallpaperMakerActivity : BaseScrollingActivity() {
 
     private var sourceBitmap: Bitmap? = null
     private var resultBitmap: Bitmap? = null
 
-    private var blurRadius = ModuleConfig.blurRadius
-    private var darkOverlay = ModuleConfig.darkOverlay.toFloat()
-    private var albumAnchorY = ModuleConfig.albumAnchorY.coerceIn(30f, 80f)
+    /** 专辑竖直中心占屏高百分比（中间偏上默认 38） */
+    private var albumCenterY = 38f
 
     private lateinit var previewView: ImageView
     private lateinit var progressBar: ProgressBar
@@ -53,6 +52,11 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
     }
 
     override fun buildContent(list: LinearLayout) {
+        albumCenterY = try {
+            ModuleConfig.immersiveAlbumCenterY.coerceIn(20f, 55f)
+        } catch (_: Throwable) {
+            38f
+        }
         val previewCard = M3.cardContent(this)
         previewCard.addView(M3.title(this, "预览"))
 
@@ -83,28 +87,17 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
 
         val paramCard = M3.cardContent(this)
         paramCard.addView(M3.title(this, "参数"))
-
         paramCard.addView(M3.sliderRow(
-            this, "模糊强度", 10f, 200f, blurRadius,
-            { "${it.toInt()} dp" }
+            this, "专辑位置", 20f, 55f, albumCenterY,
+            { "中心 ${it.toInt()}% 屏高" }
         ) { v ->
-            blurRadius = v
+            albumCenterY = v
+            try {
+                ModuleConfig.immersiveAlbumCenterY = v
+                ModuleConfig.push(this)
+            } catch (_: Throwable) {
+            }
         })
-
-        paramCard.addView(M3.sliderRow(
-            this, "暗色遮罩", 0f, 255f, darkOverlay,
-            { "${it.toInt()}" }
-        ) { v ->
-            darkOverlay = v
-        })
-
-        paramCard.addView(M3.sliderRow(
-            this, "封面底边", 30f, 80f, albumAnchorY,
-            { "${it.toInt()}% 屏高" }
-        ) { v ->
-            albumAnchorY = v
-        })
-
         list.addView(M3.card(this, paramCard))
 
         list.addView(M3.clickRow(this, "生成预览", "按当前参数渲染沉浸封面壁纸") {
@@ -146,20 +139,19 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
             return
         }
         setBusy(true)
-        val radius = blurRadius
-        val overlay = darkOverlay.toInt()
-        val anchor = albumAnchorY
+        val centerY = albumCenterY
         worker.execute {
             try {
                 val (tw, th) = HookUtils.lockScreenWallpaperSize(this)
                 val out = BlurUtils.blurWithImmersiveAlbum(
                     blurSource = src,
                     sharpAlbum = src,
-                    radius = radius,
-                    darkOverlayAlpha = overlay,
+                    radius = 0f,
+                    darkOverlayAlpha = 0,
                     targetWidth = tw,
                     targetHeight = th,
-                    albumAnchorYPercent = anchor,
+                    albumAnchorYPercent = 80f,
+                    albumCenterYPercent = centerY,
                 )
                 runOnUiThread {
                     if (isFinishing || isDestroyed) {

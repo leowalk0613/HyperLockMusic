@@ -26,11 +26,12 @@ object ConfigReader {
     private var cachedLyricWidth: Float = 55f
     private var cachedLyricBgOffsetY: Float = 12f
     private var cachedLyricBgAnchorY: Float = 62f
-    private var cachedImmersiveLyric: Boolean = false
+    private var cachedImmersiveLyric: Boolean = true
     private var cachedLyricHideBackground: Boolean = false
     private var cachedLyricAlign: String = "left"
     private var cachedKeepLockScreenOn: Boolean = false
     private var cachedImmersiveAlbum: Boolean = false
+    private var cachedImmersiveAlbumCenterY: Float = 38f
     private var cachedTitleBracketMode: String = "default"
     private var cachedAodFullMedia: Boolean = true
     private var cachedWhitelistEnabled: Boolean = false
@@ -92,7 +93,7 @@ object ConfigReader {
         return cachedAlbumSize
     }
 
-    /** 专辑底边占屏幕高度百分比 */
+    /** 专辑底边占屏幕高度百分比（大专辑 overlay / 沉浸歌词区块） */
     fun albumAnchorY(context: Context): Float {
         refreshConfigIfNeeded(context)
         return cachedAlbumOffsetY.coerceIn(10f, 95f)
@@ -100,6 +101,12 @@ object ConfigReader {
 
     /** @deprecated 同 [albumAnchorY] */
     fun albumOffsetY(context: Context): Float = albumAnchorY(context)
+
+    /** 沉浸封面竖直中心占屏高百分比（仅壁纸烘焙，与 [albumAnchorY] 独立） */
+    fun immersiveAlbumCenterY(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return cachedImmersiveAlbumCenterY.coerceIn(18f, 70f)
+    }
 
     fun albumCorner(context: Context): Float {
         refreshConfigIfNeeded(context)
@@ -248,6 +255,7 @@ object ConfigReader {
                 val lyricAlignIdx = cursor.getColumnIndex("lyric_align")
                 val keepLockScreenOnIdx = cursor.getColumnIndex("keep_lockscreen_on")
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
+                val immersiveAlbumCenterYIdx = cursor.getColumnIndex("immersive_album_center_y")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
@@ -300,6 +308,9 @@ object ConfigReader {
                 }
                 if (immersiveAlbumIdx >= 0) {
                     cachedImmersiveAlbum = cursor.getInt(immersiveAlbumIdx) == 1
+                }
+                if (immersiveAlbumCenterYIdx >= 0) {
+                    cachedImmersiveAlbumCenterY = cursor.getFloat(immersiveAlbumCenterYIdx)
                 }
                 if (titleBracketModeIdx >= 0) {
                     cachedTitleBracketMode = cursor.getString(titleBracketModeIdx) ?: "default"

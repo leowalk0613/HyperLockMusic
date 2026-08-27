@@ -95,65 +95,6 @@ object BlurUtils {
         )
     }
 
-    /** 加深并提高饱和度，用于沉浸封面底部取色延伸。 */
-    private fun deepenDominantColor(color: Int, satScale: Float = 1.45f, lumScale: Float = 0.52f): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        hsv[1] = (hsv[1] * satScale).coerceIn(0.35f, 1f)
-        hsv[2] = (hsv[2] * lumScale).coerceIn(0.08f, 0.55f)
-        return Color.HSVToColor(hsv)
-    }
-
-    private fun blendRgb(c1: Int, c2: Int, t: Float): Int {
-        val u = t.coerceIn(0f, 1f)
-        val inv = 1f - u
-        return Color.rgb(
-            (Color.red(c1) * inv + Color.red(c2) * u).toInt().coerceIn(0, 255),
-            (Color.green(c1) * inv + Color.green(c2) * u).toInt().coerceIn(0, 255),
-            (Color.blue(c1) * inv + Color.blue(c2) * u).toInt().coerceIn(0, 255)
-        )
-    }
-
-    private fun applyDarkOverlay(color: Int, overlayAlpha: Int): Int {
-        val a = overlayAlpha.coerceIn(0, 255) / 255f
-        return Color.rgb(
-            (Color.red(color) * (1f - a)).toInt().coerceIn(0, 255),
-            (Color.green(color) * (1f - a)).toInt().coerceIn(0, 255),
-            (Color.blue(color) * (1f - a)).toInt().coerceIn(0, 255)
-        )
-    }
-
-    /** 按屏幕 Y 在模糊底图上采样一行平均色（与壁纸合成坐标对齐）。 */
-    private fun sampleBlurRowColor(
-        blurred: Bitmap, canvasW: Int, canvasH: Int, yCanvasPx: Int, overlayAlpha: Int
-    ): Int {
-        val bh = blurred.height
-        val bw = blurred.width
-        if (bw <= 0 || bh <= 0) return Color.BLACK
-        val y = (yCanvasPx.toFloat() / canvasH * bh).toInt().coerceIn(0, bh - 1)
-        val y0 = (y - 2).coerceAtLeast(0)
-        val y1 = (y + 2).coerceAtMost(bh - 1)
-        val step = (bw / 36).coerceAtLeast(1)
-        var r = 0L
-        var g = 0L
-        var b = 0L
-        var n = 0
-        for (yy in y0..y1) {
-            var x = 0
-            while (x < bw) {
-                val p = blurred.getPixel(x, yy)
-                r += Color.red(p)
-                g += Color.green(p)
-                b += Color.blue(p)
-                n++
-                x += step
-            }
-        }
-        if (n == 0) return Color.BLACK
-        val raw = Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
-        return applyDarkOverlay(raw, overlayAlpha)
-    }
-
     /**
      * iOS 风格模糊 + 大专辑封面合成。
      *
@@ -244,8 +185,11 @@ object BlurUtils {
     }
 
     /**
-     * 模糊背景 + 沉浸专辑合成进壁纸：封面上下缘 alpha 羽化，露出同帧模糊底图。
+     * 沉浸专辑壁纸（与大专辑模糊算法分离）：
+     * Monet 取色铺底 + 区域内 contain 完整封面，上下 alpha 溶入色底。
+     * [radius] / [darkOverlayAlpha] 保留兼容；沉浸路径不做模糊、不压暗。
      */
+    @Suppress("UNUSED_PARAMETER")
     fun blurWithImmersiveAlbum(
         blurSource: Bitmap,
         sharpAlbum: Bitmap,
@@ -253,122 +197,113 @@ object BlurUtils {
         darkOverlayAlpha: Int = 140,
         targetWidth: Int = 0,
         targetHeight: Int = 0,
-        albumAnchorYPercent: Float = 55f,
+        albumAnchorYPercent: Float = 75f,
         topPercent: Float = 0f,
+        /** 专辑竖直中心占屏高百分比，默认中间偏上 */
+        albumCenterYPercent: Float = 38f,
     ): Bitmap {
-        val albumBitmap = sharpAlbum.takeIf { !it.isRecycled } ?: blurSource
+        // 取色只用系统封面；前景可用高清 sharpAlbum
+        val colorSource = blurSource.takeIf { !it.isRecycled } ?: sharpAlbum
+        val albumBitmap = sharpAlbum.takeIf { !it.isRecycled } ?: colorSource
         val tw = if (targetWidth > 0) targetWidth else 1080
         val th = if (targetHeight > 0) targetHeight else 2400
+        val w = tw.toFloat()
+        val h = th.toFloat()
 
-        // 沉浸模式模糊底与清晰封面同源，羽化露出的是同一套色调
-        val blurBaseW = tw.coerceAtMost(1440)
-        val blurBaseH = (th.toFloat() * blurBaseW / tw).toInt().coerceAtLeast(1)
-        val cover = scaleCenterCrop(albumBitmap, blurBaseW, blurBaseH)
-        val blurred = softColorBlur(cover, radius)
-        cover.recycle()
+        val fillColor = MonetPalette.extractSeedColor(colorSource)
 
         val wallpaper = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(wallpaper)
-
-        val fillPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-        canvas.drawBitmap(
-            blurred,
-            android.graphics.Rect(0, 0, blurred.width, blurred.height),
-            RectF(0f, 0f, tw.toFloat(), th.toFloat()),
-            fillPaint
-        )
-
-        val overlayPaint = Paint().apply {
-            color = Color.argb(darkOverlayAlpha, 0, 0, 0)
-            isAntiAlias = true
-        }
-        canvas.drawRect(0f, 0f, tw.toFloat(), th.toFloat(), overlayPaint)
+        canvas.drawColor(fillColor)
 
         val topY = th * topPercent / 100f
         val bottomY = th * albumAnchorYPercent.coerceIn(10f, 95f) / 100f
         val regionH = (bottomY - topY).coerceAtLeast(1f)
-        val w = tw.toFloat()
-        val bottomFeatherH = (regionH * 0.52f).coerceIn(160f, regionH * 0.68f)
-        val extensionH = th * 0.14f
-        val blendStart = (bottomY - bottomFeatherH * 1.2f).coerceAtLeast(topY)
-        val blendEnd = (bottomY + extensionH).coerceAtMost(th.toFloat())
 
-        val blurTop = sampleBlurRowColor(blurred, tw, th, blendStart.toInt(), darkOverlayAlpha)
-        val blurMid = sampleBlurRowColor(blurred, tw, th, bottomY.toInt(), darkOverlayAlpha)
-        val blurBottom = sampleBlurRowColor(blurred, tw, th, blendEnd.toInt(), darkOverlayAlpha)
-        val deepColor = deepenDominantColor(extractLowerHalfDominantColor(albumBitmap))
-        val peakColor = blendRgb(deepColor, blurMid, 0.18f)
-        val entryColor = blendRgb(deepColor, blurTop, 0.58f)
-        val exitColor = blendRgb(deepColor, blurBottom, 0.68f)
+        val srcW = albumBitmap.width.toFloat().coerceAtLeast(1f)
+        val srcH = albumBitmap.height.toFloat().coerceAtLeast(1f)
+        val fitScale = min(w / srcW, regionH / srcH)
+        val drawW = srcW * fitScale
+        val drawH = srcH * fitScale
+        val albumLeft = (w - drawW) * 0.5f
+        val preferredCenterY = h * albumCenterYPercent.coerceIn(18f, 70f) / 100f
+        val minTop = (topY + h * 0.04f).coerceAtLeast(h * 0.04f)
+        val maxTop = (bottomY - drawH).coerceAtLeast(minTop)
+        val albumTop = (preferredCenterY - drawH * 0.5f).coerceIn(minTop, maxTop)
+        val albumDrawRect = RectF(albumLeft, albumTop, albumLeft + drawW, albumTop + drawH)
 
-        fun tintAlpha(color: Int, alpha: Int) = Color.argb(
-            alpha.coerceIn(0, 255),
-            Color.red(color),
-            Color.green(color),
-            Color.blue(color)
-        )
-
-        // 延伸渐变带：两端与模糊底同色，中间浓，消除锚点硬切
-        val washPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        washPaint.shader = LinearGradient(
-            0f, blendStart, 0f, blendEnd,
-            intArrayOf(
-                tintAlpha(entryColor, 0),
-                tintAlpha(entryColor, 38),
-                tintAlpha(peakColor, 155),
-                tintAlpha(peakColor, 200),
-                tintAlpha(exitColor, 95),
-                tintAlpha(exitColor, 0)
-            ),
-            floatArrayOf(0f, 0.22f, 0.48f, 0.62f, 0.84f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, blendStart, w, blendEnd, washPaint)
-
-        val albumRect = RectF(0f, topY, w, bottomY)
-
-        // 封面略向上下 bleed，底部多段 alpha 羽化
-        val bleedPx = (regionH * 0.04f).coerceAtLeast(16f)
-        val albumDrawH = (regionH + bleedPx).toInt().coerceAtLeast(1)
-        val albumScaled = scaleCenterCrop(albumBitmap, tw, albumDrawH)
-        val albumDrawTop = topY - bleedPx * 0.5f
-        val albumDrawRect = RectF(0f, albumDrawTop, w, albumDrawTop + albumDrawH)
+        val featherH = (drawH * 0.28f).coerceIn(72f, drawH * 0.42f)
+        // 上沿渐变约为原先一半
+        val topFeatherH = (drawH * 0.18f).coerceIn(55f, drawH * 0.26f)
+        val fadePast = (drawH * 0.12f).coerceIn(36f, 96f)
+        val layerTop = (albumTop - fadePast * 0.2f).coerceAtLeast(0f)
+        val layerBottom = (albumDrawRect.bottom + fadePast).coerceAtMost(h)
+        val layerRect = RectF(0f, layerTop, w, layerBottom)
+        val fadeStartY = (albumDrawRect.bottom - featherH).coerceAtLeast(albumTop + drawH * 0.42f)
+        val topFadeEndY = (albumTop + topFeatherH).coerceAtMost(fadeStartY - drawH * 0.12f)
 
         val albumPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        val layer = canvas.saveLayer(albumRect, null)
-        canvas.drawBitmap(albumScaled, null, albumDrawRect, albumPaint)
+        val albumFitted = Bitmap.createScaledBitmap(
+            albumBitmap,
+            drawW.toInt().coerceAtLeast(1),
+            drawH.toInt().coerceAtLeast(1),
+            true
+        )
 
-        val fadeStartY = bottomY - bottomFeatherH
-        val fadeStartNorm = ((fadeStartY - topY) / regionH).coerceIn(0.20f, 0.45f)
+        val layer = canvas.saveLayer(layerRect, null)
+        canvas.drawBitmap(albumFitted, null, albumDrawRect, albumPaint)
+
         val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-        maskPaint.shader = LinearGradient(
-            0f, topY, 0f, bottomY,
-            intArrayOf(
-                Color.WHITE,
-                Color.WHITE,
-                Color.argb(235, 255, 255, 255),
-                Color.argb(170, 255, 255, 255),
-                Color.argb(85, 255, 255, 255),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(
-                0f,
-                fadeStartNorm,
-                fadeStartNorm + 0.10f,
-                fadeStartNorm + 0.24f,
-                fadeStartNorm + 0.42f,
-                1f
-            ),
-            Shader.TileMode.CLAMP
+        maskPaint.shader = buildMonetFeatherMask(
+            topY = layerTop,
+            bottomY = layerBottom,
+            albumTop = albumTop,
+            topFadeEndY = topFadeEndY,
+            fadeStartY = fadeStartY,
         )
-        canvas.drawRect(albumRect, maskPaint)
+        canvas.drawRect(layerRect, maskPaint)
         maskPaint.xfermode = null
         canvas.restoreToCount(layer)
 
-        blurred.recycle()
-        if (albumScaled !== albumBitmap) albumScaled.recycle()
+        if (albumFitted !== albumBitmap) albumFitted.recycle()
         return wallpaper
+    }
+
+    /** 沉浸封面上下沿溶入 Monet 色底的 alpha 蒙版。 */
+    private fun buildMonetFeatherMask(
+        topY: Float,
+        bottomY: Float,
+        albumTop: Float,
+        topFadeEndY: Float,
+        fadeStartY: Float,
+    ): Shader {
+        val height = (bottomY - topY).coerceAtLeast(1f)
+        val stops = 33
+        val colors = IntArray(stops)
+        val positions = FloatArray(stops)
+        for (i in 0 until stops) {
+            val t = i / (stops - 1f)
+            positions[i] = t
+            val y = topY + t * height
+            val alpha = when {
+                y < albumTop -> 0f
+                y < topFadeEndY && topFadeEndY > albumTop + 0.5f -> {
+                    val u = ((y - albumTop) / (topFadeEndY - albumTop)).coerceIn(0f, 1f)
+                    // 上沿更长、更柔：smoothstep 后再缓一点
+                    val s = u * u * (3f - 2f * u)
+                    s * s * (0.35f + 0.65f * s)
+                }
+                y <= fadeStartY -> 1f
+                else -> {
+                    val u = ((y - fadeStartY) / (bottomY - fadeStartY)).coerceIn(0f, 1f)
+                    val s = u * u * (3f - 2f * u)
+                    (1f - s) * (1f - s)
+                }
+            }
+            colors[i] = Color.argb((alpha * 255f).toInt().coerceIn(0, 255), 255, 255, 255)
+        }
+        return LinearGradient(0f, topY, 0f, bottomY, colors, positions, Shader.TileMode.CLAMP)
     }
 
     /**

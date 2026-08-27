@@ -394,4 +394,29 @@ object M3 {
     fun attrColor(ctx: Context, attr: Int, fallback: Int): Int {
         return MaterialColors.getColor(ctx, attr, fallback)
     }
+
+    /**
+     * 按模式启用/禁用一整块设置：半透明 + 子控件不可点，区分「当前模式不用」。
+     */
+    fun setControlsEnabled(root: View?, enabled: Boolean) {
+        if (root == null) return
+        root.alpha = if (enabled) 1f else 0.38f
+        root.isEnabled = enabled
+        when (root) {
+            is Slider -> root.isEnabled = enabled
+            is MaterialSwitch -> root.isEnabled = enabled
+            is com.google.android.material.button.MaterialButton -> root.isEnabled = enabled
+            is com.google.android.material.button.MaterialButtonToggleGroup -> {
+                root.isEnabled = enabled
+                for (i in 0 until root.childCount) {
+                    root.getChildAt(i).isEnabled = enabled
+                }
+            }
+            is ViewGroup -> {
+                for (i in 0 until root.childCount) {
+                    setControlsEnabled(root.getChildAt(i), enabled)
+                }
+            }
+        }
+    }
 }

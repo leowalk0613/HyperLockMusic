@@ -66,11 +66,16 @@ class KeyguardOverlayHook {
 
                     if (bgLayer != null) {
                         bgLayer.post {
+                            // 子 View 顺序：遮罩(底) → 专辑 → 歌词(顶)；过渡时再把遮罩临时抬起
+                            addTransitionMask(bgLayer)
                             addBigAlbumOverlay(bgLayer)
                             addLyricOverlay(bgLayer)
-                            // 歌词必须在专辑之上；遮罩最后（过渡时盖住二者）
-                            MusicLockscreenManager.lyricView?.bringToFront()
-                            addTransitionMask(bgLayer)
+                            MusicLockscreenManager.lyricView?.let { lyric ->
+                                val d = lyric.resources.displayMetrics.density
+                                lyric.elevation = 48f * d
+                                lyric.translationZ = 48f * d
+                                lyric.bringToFront()
+                            }
                             MediaFollowController.bindBackgroundLayer(bgLayer)
                             KeepScreenController.bindLayer(bgLayer)
                         }
