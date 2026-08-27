@@ -947,6 +947,11 @@ class LockscreenLyricView(context: Context) : View(context) {
             hasDisplayableText()
     }
 
+    /** 沉浸歌词模式且当前有歌词正在显示（占用专辑区块）。 */
+    fun isImmersiveLyricDisplayActive(): Boolean {
+        return cfgImmersiveLyric && shouldDisplayLyric()
+    }
+
     private fun updateVisibilityState() {
         if (shouldDisplayLyric()) {
             animate().cancel()

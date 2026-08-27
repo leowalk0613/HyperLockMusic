@@ -487,7 +487,14 @@ object WallpaperController {
         }
         if (!ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)) {
             val overlayAlbum = sharpAlbum?.takeIf { !it.isRecycled } ?: systemAlbum
-            MusicLockscreenManager.updateAlbumBitmap(overlayAlbum)
+            val overlayCopy = try {
+                overlayAlbum.copy(overlayAlbum.config ?: Bitmap.Config.ARGB_8888, false)
+            } catch (_: Throwable) {
+                null
+            }
+            if (overlayCopy != null) {
+                mainHandler.post { MusicLockscreenManager.updateAlbumBitmap(overlayCopy) }
+            }
         }
         return BlurredWallpaperResult(wallpaper, systemAlbum, trackKey)
     }
@@ -831,10 +838,14 @@ object WallpaperController {
         if (!isMusicWallpaperSet) return false
         wallpaperLayoutStale = true
         logI("refresh wallpaper for immersive album visibility")
-        return rebuildWallpaperForLayout(context)
+        val appCtx = context.applicationContext
+        Thread {
+            rebuildWallpaperForLayout(appCtx)
+        }.start()
+        return true
     }
 
-    /** 曲目不变，仅切换壁纸布局（是否合成沉浸封面）。 */
+    /** 曲目不变，仅切换壁纸布局（是否合成沉浸封面）。可在后台线程调用。 */
     private fun rebuildWallpaperForLayout(context: Context): Boolean {
         if (!isMusicWallpaperSet) return false
         if (!HookUtils.canApplyLockWallpaper(context)) {
@@ -848,20 +859,20 @@ object WallpaperController {
                     logE("layout rebuild: build failed")
                     return false
                 }
-            val albumForLyric = wallpaperResult.systemAlbum.copy(
-                wallpaperResult.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
-                false
-            )
-            val trackKey = wallpaperResult.trackKey
+            mainHandler.post {
+                MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
+            }
             applyLockBitmapAsync(
                 context,
                 wallpaperResult,
                 maskBuilder = null,
                 onSettled = {
-                    MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(albumForLyric, trackKey)
+                    mainHandler.post {
+                        MusicLockscreenManager.showAlbumOverlay()
+                        MediaFollowController.requestReflow()
+                    }
                 }
             )
-            MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
             logI("layout rebuild ok bake=${ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)}")
             return true
         } catch (e: Throwable) {

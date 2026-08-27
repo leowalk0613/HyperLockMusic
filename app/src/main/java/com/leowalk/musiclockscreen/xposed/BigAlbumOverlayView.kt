@@ -5,11 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.View
@@ -21,8 +19,8 @@ import android.widget.ImageView
 /**
  * 大专辑封面 overlay（仅音乐锁屏可见）。
  *
- * 普通模式：尺寸/圆角由配置决定，底边 = 屏高 × [albumAnchorY]%。
- * 沉浸模式：全宽大图，下缘羽化融入取色背景。
+ * 方形大封面：尺寸/圆角由配置决定，底边 = 屏高 × [albumAnchorY]%。
+ * 沉浸专辑由 [WallpaperController] 合成进壁纸，此处不再绘制。
  */
 class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
 
@@ -31,12 +29,9 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     private var configObserver: android.database.ContentObserver? = null
     private var configObserverRegistered = false
 
-    private var albumBitmap: Bitmap? = null
-    private var dominantColor: Int = Color.BLACK
-    private var immersiveMode = false
+    /** overlay 独占副本，避免 WallpaperController 回收后 ImageView 仍引用原 bitmap */
+    private var ownedAlbumBitmap: Bitmap? = null
 
-    private val immersivePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val colorFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cornerRadiusPx = 0f
     private var shadowPadLeftPx = 0
@@ -62,13 +57,8 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     var configuredSizePx: Int = 1
         private set
 
-    /** 沉浸模式下的高度（px） */
-    var configuredImmersiveHeightPx: Int = 1
-        private set
-
     private companion object {
         const val CONFIG_URI = "content://com.leowalk.musiclockscreen.config/config"
-        private const val IMMERSIVE_TOP_PERCENT = 4f
     }
 
     init {
@@ -91,95 +81,61 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         applySizeFromConfig()
     }
 
-    fun isImmersiveMode(): Boolean = immersiveMode
-
     /** 只更新尺寸与圆角；top 由 MediaFollowController 负责 */
     fun applySizeFromConfig() {
         val dm = resources.displayMetrics
         val sw = dm.widthPixels
-        val sh = dm.heightPixels
-        immersiveMode = ConfigReader.shouldShowImmersiveAlbum(context) ||
-            (ConfigReader.immersiveAlbum(context) && ConfigReader.immersiveLyric(context))
+        val sizePercent = ConfigReader.albumSize(context)
+        val cornerDp = ConfigReader.albumCorner(context)
+        val size = (sw * sizePercent / 100f).toInt().coerceAtLeast(1)
+        val cornerPx = cornerDp * (sw / 360f)
+        cornerRadiusPx = cornerPx
+        configuredSizePx = size
+        updateSquareShadowInsets(sw)
+        layoutWidthPx = size + shadowPadLeftPx + shadowPadRightPx
+        layoutHeightPx = size + shadowPadTopPx + shadowPadBottomPx
+        albumView.visibility = VISIBLE
 
-        if (immersiveMode) {
-            configuredSizePx = sw
-            val anchor = ConfigReader.albumAnchorY(context).coerceIn(10f, 95f)
-            val topY = sh * IMMERSIVE_TOP_PERCENT / 100f
-            val bottomY = sh * anchor / 100f
-            configuredImmersiveHeightPx = (bottomY - topY).toInt().coerceAtLeast(1)
-            clipToOutline = false
-            outlineProvider = null
-            albumView.clipToOutline = false
-            albumView.outlineProvider = null
-            albumView.visibility = GONE
+        val cornerProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, cornerPx)
+            }
+        }
+        clipToOutline = false
+        outlineProvider = null
+        albumView.outlineProvider = cornerProvider
+        albumView.clipToOutline = true
 
-            layoutWidthPx = sw
-            layoutHeightPx = configuredImmersiveHeightPx
-            val lp = (layoutParams as? LayoutParams) ?: LayoutParams(sw, configuredImmersiveHeightPx).also {
-                it.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                layoutParams = it
-            }
-            if (lp.width != sw || lp.height != configuredImmersiveHeightPx) {
-                lp.width = sw
-                lp.height = configuredImmersiveHeightPx
-                lp.gravity = Gravity.TOP or Gravity.START
-                lp.leftMargin = 0
-                layoutParams = lp
-            }
-        } else {
-            val sizePercent = ConfigReader.albumSize(context)
-            val cornerDp = ConfigReader.albumCorner(context)
-            val size = (sw * sizePercent / 100f).toInt().coerceAtLeast(1)
-            val cornerPx = cornerDp * (sw / 360f)
-            cornerRadiusPx = cornerPx
-            configuredSizePx = size
-            configuredImmersiveHeightPx = size
-            updateSquareShadowInsets(sw)
-            layoutWidthPx = size + shadowPadLeftPx + shadowPadRightPx
-            layoutHeightPx = size + shadowPadTopPx + shadowPadBottomPx
-            albumView.visibility = VISIBLE
+        val albumLp = (albumView.layoutParams as? LayoutParams)
+            ?: LayoutParams(size, size).also { albumView.layoutParams = it }
+        if (albumLp.width != size || albumLp.height != size ||
+            albumLp.leftMargin != shadowPadLeftPx || albumLp.topMargin != shadowPadTopPx
+        ) {
+            albumLp.width = size
+            albumLp.height = size
+            albumLp.gravity = Gravity.TOP or Gravity.START
+            albumLp.leftMargin = shadowPadLeftPx
+            albumLp.topMargin = shadowPadTopPx
+            albumLp.rightMargin = 0
+            albumLp.bottomMargin = 0
+            albumView.layoutParams = albumLp
+        }
 
-            val cornerProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    outline.setRoundRect(0, 0, view.width, view.height, cornerPx)
-                }
-            }
-            clipToOutline = false
-            outlineProvider = null
-            albumView.outlineProvider = cornerProvider
-            albumView.clipToOutline = true
-
-            val albumLp = (albumView.layoutParams as? LayoutParams)
-                ?: LayoutParams(size, size).also { albumView.layoutParams = it }
-            if (albumLp.width != size || albumLp.height != size ||
-                albumLp.leftMargin != shadowPadLeftPx || albumLp.topMargin != shadowPadTopPx
-            ) {
-                albumLp.width = size
-                albumLp.height = size
-                albumLp.gravity = Gravity.TOP or Gravity.START
-                albumLp.leftMargin = shadowPadLeftPx
-                albumLp.topMargin = shadowPadTopPx
-                albumLp.rightMargin = 0
-                albumLp.bottomMargin = 0
-                albumView.layoutParams = albumLp
-            }
-
-            val lp = (layoutParams as? LayoutParams) ?: LayoutParams(layoutWidthPx, layoutHeightPx).also {
-                it.gravity = Gravity.TOP or Gravity.START
-                layoutParams = it
-            }
-            if (lp.width != layoutWidthPx || lp.height != layoutHeightPx ||
-                lp.gravity != (Gravity.TOP or Gravity.START)
-            ) {
-                lp.width = layoutWidthPx
-                lp.height = layoutHeightPx
-                lp.gravity = Gravity.TOP or Gravity.START
-                lp.leftMargin = 0
-                lp.topMargin = 0
-                lp.rightMargin = 0
-                lp.bottomMargin = 0
-                layoutParams = lp
-            }
+        val lp = (layoutParams as? LayoutParams) ?: LayoutParams(layoutWidthPx, layoutHeightPx).also {
+            it.gravity = Gravity.TOP or Gravity.START
+            layoutParams = it
+        }
+        if (lp.width != layoutWidthPx || lp.height != layoutHeightPx ||
+            lp.gravity != (Gravity.TOP or Gravity.START)
+        ) {
+            lp.width = layoutWidthPx
+            lp.height = layoutHeightPx
+            lp.gravity = Gravity.TOP or Gravity.START
+            lp.leftMargin = 0
+            lp.topMargin = 0
+            lp.rightMargin = 0
+            lp.bottomMargin = 0
+            layoutParams = lp
         }
 
         elevation = 2f * dm.density
@@ -191,20 +147,21 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     }
 
     fun setAlbumBitmap(bitmap: Bitmap?) {
-        if (bitmap != null && !bitmap.isRecycled) {
-            albumView.setImageBitmap(bitmap)
-            albumBitmap?.takeIf { it !== bitmap && !it.isRecycled }?.recycle()
-            albumBitmap = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false)
-            dominantColor = BlurUtils.extractLowerHalfDominantColor(bitmap)
-            invalidate()
+        if (bitmap == null || bitmap.isRecycled) return
+        val copy = try {
+            bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (_: Throwable) {
+            return
         }
+        ownedAlbumBitmap?.takeIf { it !== copy && !it.isRecycled }?.recycle()
+        ownedAlbumBitmap = copy
+        albumView.setImageBitmap(copy)
     }
 
     fun clearAlbum() {
         albumView.setImageDrawable(null)
-        albumBitmap?.takeIf { !it.isRecycled }?.recycle()
-        albumBitmap = null
-        invalidate()
+        ownedAlbumBitmap?.takeIf { !it.isRecycled }?.recycle()
+        ownedAlbumBitmap = null
     }
 
     fun showForMusicLockscreen() {
@@ -212,9 +169,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             visibility = GONE
             return
         }
-        val showImmersive = ConfigReader.shouldShowImmersiveAlbum(context)
-        val showSquare = ConfigReader.shouldShowSquareAlbum(context)
-        if (!showImmersive && !showSquare) {
+        if (!ConfigReader.shouldShowSquareAlbum(context)) {
             visibility = GONE
             return
         }
@@ -264,42 +219,26 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        if (!immersiveMode) {
-            val contentSize = configuredSizePx.toFloat()
-            if (albumView.visibility == VISIBLE && contentSize > 0f) {
-                drawSquareDropShadow(canvas, contentSize, cornerRadiusPx)
+        val drawable = albumView.drawable
+        if (drawable is android.graphics.drawable.BitmapDrawable) {
+            val bmp = drawable.bitmap
+            if (bmp.isRecycled) {
+                clearAlbum()
+                super.dispatchDraw(canvas)
+                return
             }
-            super.dispatchDraw(canvas)
-            return
         }
-
-        if (albumBitmap == null || albumBitmap!!.isRecycled) {
+        val contentSize = configuredSizePx.toFloat()
+        if (albumView.visibility == VISIBLE && contentSize > 0f) {
+            val layer = canvas.saveLayer(
+                0f, 0f, width.toFloat(), height.toFloat(), null
+            )
+            drawSquareDropShadow(canvas, contentSize, cornerRadiusPx)
             super.dispatchDraw(canvas)
-            return
+            canvas.restoreToCount(layer)
+        } else {
+            super.dispatchDraw(canvas)
         }
-
-        val bmp = albumBitmap ?: return
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-
-        val featherH = h * 0.22f
-        val imageH = h - featherH * 0.35f
-
-        val dst = RectF(0f, 0f, w, imageH)
-        canvas.drawBitmap(bmp, null, dst, immersivePaint)
-
-        val fadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        fadePaint.shader = LinearGradient(
-            0f, imageH - featherH, 0f, h,
-            intArrayOf(Color.TRANSPARENT, dominantColor),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, imageH - featherH, w, h, fadePaint)
-
-        colorFillPaint.color = dominantColor
-        canvas.drawRect(0f, imageH, w, h, colorFillPaint)
     }
 
     override fun onAttachedToWindow() {
@@ -318,10 +257,23 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             val uri = android.net.Uri.parse(CONFIG_URI)
             configObserver = object : android.database.ContentObserver(handler) {
                 override fun onChange(selfChange: Boolean) {
+                    val bakeBefore = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
+                    val anchorBefore = if (bakeBefore) ConfigReader.albumAnchorY(context) else Float.NaN
                     ConfigReader.invalidate()
-                    if (visibility == VISIBLE || visibility == INVISIBLE) {
+                    val bakeAfter = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
+                    val anchorAfter = if (bakeAfter) ConfigReader.albumAnchorY(context) else Float.NaN
+                    if (MusicLockscreenManager.isShowing) {
+                        val layoutChanged = bakeBefore != bakeAfter || anchorBefore != anchorAfter
+                        if (layoutChanged) {
+                            if (bakeAfter) {
+                                MusicLockscreenManager.showAlbumOverlay()
+                            }
+                            WallpaperController.refreshWallpaperForAlbumVisibility(context)
+                        } else {
+                            MusicLockscreenManager.showAlbumOverlay()
+                        }
+                    } else if (visibility == VISIBLE || visibility == INVISIBLE) {
                         applySizeFromConfig()
-                        invalidate()
                     } else {
                         MediaFollowController.requestReflow()
                     }

@@ -67,7 +67,7 @@ class AlbumStyleActivity : BaseScrollingActivity() {
 
         card.addView(M3.switchRow(
             this, "让专辑图显示更清晰",
-            "先显示系统封面，后台替换为网易云高清；模糊背景始终用系统封面",
+            "锁屏先显示系统封面，后台按歌曲 ID 拉取网络官方高清图替换前景专辑；模糊背景仍用系统封面。目前仅支持网易云音乐",
             ModuleConfig.albumNetworkHd
         ) { checked ->
             ModuleConfig.albumNetworkHd = checked

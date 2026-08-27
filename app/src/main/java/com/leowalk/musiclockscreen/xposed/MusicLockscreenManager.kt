@@ -74,6 +74,11 @@ object MusicLockscreenManager {
         logI("showing state updated: $showing")
     }
 
+    /** 沉浸歌词是否正在占用专辑区块（有歌词可显示时）。 */
+    fun isImmersiveLyricDisplayActive(): Boolean {
+        return (lyricView as? LockscreenLyricView)?.isImmersiveLyricDisplayActive() == true
+    }
+
     fun showAlbumOverlay() {
         val album = bigAlbumView ?: return
         if (!isShowing || !LockscreenNotificationController.shouldShowKeyguardOverlays()) {

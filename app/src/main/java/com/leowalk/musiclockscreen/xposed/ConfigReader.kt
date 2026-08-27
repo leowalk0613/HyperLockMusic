@@ -152,8 +152,12 @@ object ConfigReader {
     fun shouldShowSquareAlbum(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         if (!cachedShowBigAlbum) return false
-        if (cachedImmersiveLyric && cachedShowLyric) return false
         if (cachedImmersiveAlbum && shouldBakeImmersiveAlbumInWallpaper(context)) return false
+        if (cachedImmersiveLyric && cachedShowLyric &&
+            MusicLockscreenManager.isImmersiveLyricDisplayActive()
+        ) {
+            return false
+        }
         return true
     }
 

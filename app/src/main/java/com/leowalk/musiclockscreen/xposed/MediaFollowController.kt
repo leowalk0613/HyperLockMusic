@@ -8,13 +8,11 @@ import android.widget.FrameLayout
 
 /**
  * 专辑 / 歌词垂直位置：底边 = 屏高 × 配置百分比，水平居中。
- * 沉浸专辑：全宽，自顶部延伸至专辑底边锚点。
  * 沉浸歌词：与专辑同区块（方形），排版可左/中/右。
  */
 object MediaFollowController {
 
     private const val TAG = "HyperLockMusic_MediaFollow"
-    private const val IMMERSIVE_TOP_PERCENT = 4f
 
     private var bgLayer: View? = null
     private var predrawListener: ViewTreeObserver.OnPreDrawListener? = null
@@ -24,7 +22,6 @@ object MediaFollowController {
     private var lastLyricAnchor = Float.NaN
     private var lastAlbumSize = -1
     private var lastLyricHeight = -1
-    private var lastImmersiveAlbum = false
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
@@ -82,7 +79,6 @@ object MediaFollowController {
         lastLyricAnchor = Float.NaN
         lastAlbumSize = -1
         lastLyricHeight = -1
-        lastImmersiveAlbum = false
     }
 
     private fun startListening() {
@@ -144,7 +140,7 @@ object MediaFollowController {
         val album = MusicLockscreenManager.bigAlbumView ?: return
         val ctx = bg.context
 
-        if (!ConfigReader.showBigAlbum(ctx)) {
+        if (!ConfigReader.showBigAlbum(ctx) || !ConfigReader.shouldShowSquareAlbum(ctx)) {
             album.visibility = View.GONE
             return
         }
@@ -154,44 +150,19 @@ object MediaFollowController {
             return
         }
 
-        val showImmersive = ConfigReader.shouldShowImmersiveAlbum(ctx)
-        val showSquare = ConfigReader.shouldShowSquareAlbum(ctx)
-
-        if (!showImmersive && !showSquare) {
-            album.visibility = View.GONE
-            return
-        }
-
         val anchor = ConfigReader.albumAnchorY(ctx).coerceIn(10f, 95f)
+        val contentSize = album.configuredSizePx.takeIf { it > 0 }
+            ?: album.layoutParams?.width?.takeIf { it > 0 }
+            ?: (bg.width * ConfigReader.albumSize(ctx) / 100f).toInt().coerceAtLeast(1)
+        val layoutW = album.layoutWidthPx.takeIf { it > contentSize } ?: contentSize
+        val layoutH = album.layoutHeightPx.takeIf { it > contentSize } ?: contentSize
 
-        if (showImmersive) {
-            val sw = bg.width
-            val topY = (bg.height * IMMERSIVE_TOP_PERCENT / 100f).toInt()
-            val bottomY = (bg.height * anchor / 100f).toInt()
-            val height = (bottomY - topY).coerceAtLeast(1)
-
-            if (lastImmersiveAlbum != true || lastAlbumAnchor != anchor || lastAlbumSize != sw) {
-                placeImmersiveAlbum(album, sw, height, topY)
-                logI("immersive album top=$topY h=$height anchor=$anchor")
-                lastImmersiveAlbum = true
-                lastAlbumAnchor = anchor
-                lastAlbumSize = sw
+        if (lastAlbumAnchor != anchor || lastAlbumSize != contentSize) {
+            if (placeByScreenHeight(album, layoutW, layoutH, anchor, contentSize)) {
+                logI("album bottom=${anchor}% content=$contentSize layout=${layoutW}x$layoutH bgH=${bg.height}")
             }
-        } else {
-            val contentSize = album.configuredSizePx.takeIf { it > 0 }
-                ?: album.layoutParams?.width?.takeIf { it > 0 }
-                ?: (bg.width * ConfigReader.albumSize(ctx) / 100f).toInt().coerceAtLeast(1)
-            val layoutW = album.layoutWidthPx.takeIf { it > contentSize } ?: contentSize
-            val layoutH = album.layoutHeightPx.takeIf { it > contentSize } ?: contentSize
-
-            if (lastImmersiveAlbum || lastAlbumAnchor != anchor || lastAlbumSize != contentSize) {
-                if (placeByScreenHeight(album, layoutW, layoutH, anchor, contentSize)) {
-                    logI("album bottom=${anchor}% content=$contentSize layout=${layoutW}x$layoutH bgH=${bg.height}")
-                }
-                lastImmersiveAlbum = false
-                lastAlbumAnchor = anchor
-                lastAlbumSize = contentSize
-            }
+            lastAlbumAnchor = anchor
+            lastAlbumSize = contentSize
         }
 
         album.alpha = 1f
@@ -246,41 +217,6 @@ object MediaFollowController {
         }
         lyric.alpha = 1f
         if (lyric.visibility == View.INVISIBLE) lyric.visibility = View.VISIBLE
-    }
-
-    private fun placeImmersiveAlbum(target: View, width: Int, height: Int, top: Int) {
-        val lp = target.layoutParams as? ViewGroup.MarginLayoutParams ?: return
-        var changed = false
-        if (lp.width != width) {
-            lp.width = width
-            changed = true
-        }
-        if (lp.height != height) {
-            lp.height = height
-            changed = true
-        }
-        if (lp.topMargin != top) {
-            lp.topMargin = top
-            changed = true
-        }
-        if (lp.leftMargin != 0) {
-            lp.leftMargin = 0
-            changed = true
-        }
-        if (lp.rightMargin != 0) {
-            lp.rightMargin = 0
-            changed = true
-        }
-        if (lp.bottomMargin != 0) {
-            lp.bottomMargin = 0
-            changed = true
-        }
-        if (lp is FrameLayout.LayoutParams && lp.gravity != (Gravity.TOP or Gravity.START)) {
-            lp.gravity = Gravity.TOP or Gravity.START
-            changed = true
-        }
-        if (changed) target.layoutParams = lp
-        resetViewTransform(target)
     }
 
     private fun placeImmersiveLyric(target: View, width: Int, height: Int, bottomAnchorPercent: Float) {
