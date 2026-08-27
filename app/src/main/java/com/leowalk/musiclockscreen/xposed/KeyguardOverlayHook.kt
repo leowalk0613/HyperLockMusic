@@ -72,6 +72,7 @@ class KeyguardOverlayHook {
                             MusicLockscreenManager.lyricView?.bringToFront()
                             addTransitionMask(bgLayer)
                             MediaFollowController.bindBackgroundLayer(bgLayer)
+                            KeepScreenController.bindLayer(bgLayer)
                         }
                     } else {
                         logE("keyguardBackgroundLayer is null")

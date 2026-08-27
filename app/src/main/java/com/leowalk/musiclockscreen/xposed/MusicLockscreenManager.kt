@@ -45,6 +45,7 @@ object MusicLockscreenManager {
         showAlbumOverlay()
         lyricView?.refreshVisibility()
         MediaFollowController.onMusicLockscreenShown()
+        KeepScreenController.sync()
         logI("music lockscreen shown")
     }
 
@@ -56,6 +57,7 @@ object MusicLockscreenManager {
         MediaFollowController.onMusicLockscreenHidden()
         hideAlbumOverlay()
         (lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
+        KeepScreenController.sync()
         logI("music lockscreen hidden")
     }
 
@@ -71,6 +73,7 @@ object MusicLockscreenManager {
             MediaFollowController.onMusicLockscreenHidden()
             hideAlbumOverlay()
         }
+        KeepScreenController.sync()
         logI("showing state updated: $showing")
     }
 

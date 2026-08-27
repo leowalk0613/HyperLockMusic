@@ -33,6 +33,14 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.push(this)
         })
 
+        show.addView(M3.switchRow(
+            this, "保持锁屏常亮", "音乐锁屏时忽略系统自动息屏；手动关屏仍生效",
+            ModuleConfig.keepLockScreenOn
+        ) { checked ->
+            ModuleConfig.keepLockScreenOn = checked
+            ModuleConfig.push(this)
+        })
+
         show.addView(M3.sliderRow(
             this, "歌词字号", 12f, 40f, ModuleConfig.lyricSize.coerceIn(12f, 40f),
             { "${it.toInt()} sp" }

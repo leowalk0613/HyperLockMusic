@@ -29,6 +29,7 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
     private const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
     private const val KEY_LYRIC_ALIGN = "lyric_align" // left / center / right
+    private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     /** AOD 下保持媒体控件展开并实时更新进度条 */
@@ -76,6 +77,7 @@ object ModuleConfig {
     private const val DEFAULT_IMMERSIVE_LYRIC = false
     private const val DEFAULT_LYRIC_HIDE_BACKGROUND = false
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
+    private const val DEFAULT_KEEP_LOCKSCREEN_ON = false
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_AOD_FULL_MEDIA = true
@@ -163,6 +165,11 @@ object ModuleConfig {
         get() = getPrefs().getString(KEY_LYRIC_ALIGN, DEFAULT_LYRIC_ALIGN) ?: DEFAULT_LYRIC_ALIGN
         set(value) = getPrefs().edit().putString(KEY_LYRIC_ALIGN, value).apply()
 
+    /** 音乐锁屏时保持锁屏常亮，忽略系统自动息屏（手动关屏仍生效） */
+    var keepLockScreenOn: Boolean
+        get() = getPrefs().getBoolean(KEY_KEEP_LOCKSCREEN_ON, DEFAULT_KEEP_LOCKSCREEN_ON)
+        set(value) = getPrefs().edit().putBoolean(KEY_KEEP_LOCKSCREEN_ON, value).apply()
+
     /** 沉浸专辑：大图羽化融入取色背景 */
     var immersiveAlbum: Boolean
         get() = getPrefs().getBoolean(KEY_IMMERSIVE_ALBUM, DEFAULT_IMMERSIVE_ALBUM)
@@ -234,6 +241,7 @@ object ModuleConfig {
                 put("immersive_lyric", if (immersiveLyric) 1 else 0)
                 put("lyric_hide_background", if (lyricHideBackground) 1 else 0)
                 put("lyric_align", lyricAlign)
+                put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
                 put("aod_full_media", if (aodFullMedia) 1 else 0)

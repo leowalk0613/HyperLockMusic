@@ -45,6 +45,7 @@ object StatusBarStateHook {
                                 MusicLockscreenManager.hideTransitionMaskImmediately()
                                 MusicLockscreenManager.pauseAlbumOverlay()
                                 MediaFollowController.onMusicLockscreenHidden()
+                                KeepScreenController.sync()
                                 (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onLeftKeyguard()
                                 MusicLockscreenManager.lyricView?.setShadeOpen(true)
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
@@ -66,6 +67,7 @@ object StatusBarStateHook {
                                     LockscreenNotificationController.syncKeyguardOverlayVisibility()
                                     (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
                                     MediaFollowController.onKeyguardShown()
+                                    KeepScreenController.sync()
                                     // 亮屏/回到锁屏时同步壁纸与歌词背景（曲目未变也会补雾状背景）
                                     val ctx = MusicLockscreenManager.lyricView?.context
                                     if (ctx != null && HookUtils.isScreenInteractive(ctx)) {
