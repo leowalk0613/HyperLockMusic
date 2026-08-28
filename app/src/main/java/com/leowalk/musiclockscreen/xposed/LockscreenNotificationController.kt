@@ -8,7 +8,7 @@ import android.view.ViewGroup
  *
  * OS4 锁屏即通知中心，无「锁屏下拉通知中心」；仅在 [isOnKeyguard] 且音乐壁纸激活时隐藏普通通知。
  * 仅隐藏 [ExpandableNotificationRow] 中的非媒体行；
- * [MiuiMediaHeaderView] 及 SectionHeader/Footer 等永不 GONE。
+ * 音乐锁屏过滤期间 [MiuiMediaHeaderView] 保持可见；解锁或退出音乐锁屏时交还 SystemUI 默认布局。
  */
 object LockscreenNotificationController {
 
@@ -92,8 +92,8 @@ object LockscreenNotificationController {
         notificationStackView = view
         if (view != null) {
             view.addOnLayoutChangeListener(layoutChangeListener)
-            if (!WallpaperController.isShowing()) {
-                showAllNotifications()
+            if (isHidden) {
+                releaseToSystemUi()
             }
             MediaFollowController.bindMediaView(findMiuiMediaHeaderView())
         }
@@ -195,37 +195,50 @@ object LockscreenNotificationController {
         }
     }
 
-    fun showAllNotifications() {
+    /**
+     * 解锁 / 退出音乐锁屏：撤销模块对通知栈的干预，恢复 SystemUI 默认行为。
+     * 仅还原本模块藏起的通知行，不强制 [MiuiMediaHeaderView] 展开或可见。
+     */
+    fun releaseToSystemUi() {
         try {
             val stack = notificationStackView
             if (stack == null) {
-                logE("show failed: notificationStackView is null")
+                logE("release failed: notificationStackView is null")
                 isHidden = false
                 return
             }
 
             SystemNotificationAnimator.reset()
 
-            var restored = 0
+            var restoredRows = 0
             for (i in 0 until stack.childCount) {
                 val child = stack.getChildAt(i)
-                if (!NotificationStackChildClassifier.isMiuiMediaHeaderView(child) &&
-                    !NotificationStackChildClassifier.isExpandableNotificationRow(child)
-                ) {
-                    continue
+                when {
+                    NotificationStackChildClassifier.isMiuiMediaHeaderView(child) -> {
+                        releaseMediaHeaderToSystem(child)
+                    }
+                    NotificationStackChildClassifier.isExpandableNotificationRow(child) &&
+                        isHidden &&
+                        (SystemNotificationAnimator.isHidden(child) || child.visibility == View.GONE) -> {
+                        SystemNotificationAnimator.snapVisible(child)
+                        restoredRows++
+                    }
                 }
-                SystemNotificationAnimator.snapVisible(child)
-                ensureVisible(child)
-                restored++
             }
             isHidden = false
-            logI("restored $restored rows + media header")
+            stack.requestLayout()
+            logI("released to SystemUI, restored $restoredRows hidden row(s)")
             syncKeyguardOverlayVisibility()
             NumStateViewController.syncVisibility()
         } catch (e: Throwable) {
-            logE("showAllNotifications error", e)
+            logE("releaseToSystemUi error", e)
             isHidden = false
         }
+    }
+
+    /** 停止干预媒体 header，高度/可见性交还 SystemUI（如无媒体则自行收起）。 */
+    private fun releaseMediaHeaderToSystem(header: View) {
+        header.animate().cancel()
     }
 
     fun isHidden(): Boolean = isHidden

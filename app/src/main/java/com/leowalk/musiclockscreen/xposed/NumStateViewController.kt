@@ -53,30 +53,36 @@ object NumStateViewController {
         HookUtils.findAllViewsByIdName(root, "num_state_view").forEach { found.add(it) }
         HookUtils.findAllViewsByClassName(root, "NotificationNumStateView").forEach { found.add(it) }
 
+        var newly = 0
         for (view in found) {
-            registerView(view)
+            if (registerView(view)) newly++
         }
-        if (found.isNotEmpty()) {
-            logI("registered ${found.size} num_state view(s)")
+        if (newly > 0) {
+            logI("registered $newly new num_state view(s), total=${trackedViews.size}")
         }
         if (!LockscreenNotificationController.shouldShowNumState()) {
             found.forEach { applyHideImmediate(it) }
         }
     }
 
-    private fun registerView(view: View) {
-        if (view in trackedViews) return
+    /** @return true 若为新注册 */
+    private fun registerView(view: View): Boolean {
+        if (view in trackedViews) return false
         val vis = view.visibility
         originalVisibility[view] = if (vis == View.GONE) View.VISIBLE else vis
         view.addOnLayoutChangeListener(layoutChangeListener)
         trackedViews.add(view)
-        logI("num_state_view found (${view.javaClass.simpleName}), originalVisibility=${originalVisibility[view]}")
+        return true
     }
 
     fun hide() {
         if (isHidden) {
-            rescanAndRegister()
-            trackedViews.forEach { applyHideImmediate(it) }
+            // 已隐藏时只强制收起，避免每次 layout 全树扫描刷日志
+            if (trackedViews.isEmpty()) {
+                rescanAndRegister()
+            } else {
+                trackedViews.forEach { applyHideImmediate(it) }
+            }
             return
         }
         isHidden = true
@@ -93,9 +99,6 @@ object NumStateViewController {
                 view.visibility = View.VISIBLE
                 view.alpha = 1f
                 restoreNumStateWrapper(view)
-            }
-            if (trackedViews.isNotEmpty()) {
-                logI("num_state shown (${trackedViews.size} view(s))")
             }
         } catch (e: Throwable) {
             logE("show error", e)

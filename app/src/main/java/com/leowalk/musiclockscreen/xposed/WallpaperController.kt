@@ -754,9 +754,9 @@ object WallpaperController {
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
 
             try {
-                LockscreenNotificationController.showAllNotifications()
+                LockscreenNotificationController.releaseToSystemUi()
             } catch (e: Throwable) {
-                logE("showAllNotifications error", e)
+                logE("releaseToSystemUi error", e)
             }
 
             try {

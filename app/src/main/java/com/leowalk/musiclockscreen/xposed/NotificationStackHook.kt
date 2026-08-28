@@ -58,8 +58,7 @@ class NotificationStackHook {
         if (showing != lastIsShowing) {
             lastIsShowing = showing
             if (!showing) {
-                SystemNotificationAnimator.reset()
-                restoreAllRows(parent)
+                LockscreenNotificationController.releaseToSystemUi()
             }
         }
 
@@ -83,22 +82,6 @@ class NotificationStackHook {
                     ensureVisible(child)
                 }
             }
-        }
-    }
-
-    private fun restoreAllRows(parent: ViewGroup) {
-        try {
-            for (i in 0 until parent.childCount) {
-                val child = parent.getChildAt(i)
-                if (NotificationStackChildClassifier.isMiuiMediaHeaderView(child) ||
-                    NotificationStackChildClassifier.isExpandableNotificationRow(child)
-                ) {
-                    SystemNotificationAnimator.expandInPlace(child)
-                    ensureVisible(child)
-                }
-            }
-        } catch (e: Throwable) {
-            logE("restoreAllRows error", e)
         }
     }
 

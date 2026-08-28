@@ -50,15 +50,14 @@ object MediaProgressHook {
             if (removeObserverMethod != null) {
                 module.deoptimize(removeObserverMethod)
                 module.hook(removeObserverMethod).intercept { chain ->
-                    if (!aodFullMediaEnabled()) {
+                    // 仅 AOD/息屏拦截；亮屏交给系统，避免我们强留 observer 带动整棵 shade 刷帧
+                    if (!shouldKeepAodProgress()) {
                         chain.proceed()
                         return@intercept null
                     }
                     val observer = chain.args[0]
                     val observerClassName = observer?.javaClass?.name ?: ""
-                    // 匹配 seekBarObserver 的类名
                     if (observer != null && isSeekBarObserver(observerClassName)) {
-                        logI("removeObserver intercepted: $observerClassName")
                         null // 拦截，不执行移除
                     } else {
                         chain.proceed()
@@ -81,7 +80,7 @@ object MediaProgressHook {
                 if (seekBarChangedMethod != null) {
                     module.deoptimize(seekBarChangedMethod)
                     module.hook(seekBarChangedMethod).intercept { chain ->
-                        if (!aodFullMediaEnabled()) {
+                        if (!shouldKeepAodProgress()) {
                             chain.proceed()
                             return@intercept null
                         }
@@ -126,8 +125,15 @@ object MediaProgressHook {
     }
 
     private fun aodFullMediaEnabled(): Boolean {
-        val ctx = HookUtils.systemUiApplicationContext() ?: return true
+        val ctx = HookUtils.systemUiApplicationContext() ?: return false
         return ConfigReader.aodFullMedia(ctx)
+    }
+
+    /** 开关开启且屏幕非交互（AOD/息屏）时才强留进度；亮屏走系统默认。 */
+    private fun shouldKeepAodProgress(): Boolean {
+        if (!aodFullMediaEnabled()) return false
+        val ctx = HookUtils.systemUiApplicationContext() ?: return false
+        return !HookUtils.isScreenInteractive(ctx)
     }
 
     private fun isSeekBarObserver(className: String): Boolean {

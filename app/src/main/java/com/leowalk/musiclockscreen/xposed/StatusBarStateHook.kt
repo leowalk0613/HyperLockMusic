@@ -51,8 +51,8 @@ object StatusBarStateHook {
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
                                 val ctx = MusicLockscreenManager.lyricView?.context
                                 if (ctx != null && !HookUtils.isOnKeyguard(ctx)) {
-                                    LockscreenNotificationController.showAllNotifications()
-                                    logI("left keyguard -> restore notifications, pause music lockscreen UI")
+                                    LockscreenNotificationController.releaseToSystemUi()
+                                    logI("left keyguard -> release notification stack to SystemUI")
                                 } else {
                                     logI("notification shade open on keyguard")
                                 }

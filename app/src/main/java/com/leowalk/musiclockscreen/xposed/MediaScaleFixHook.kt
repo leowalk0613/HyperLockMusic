@@ -48,7 +48,6 @@ class MediaScaleFixHook {
                         } else {
                             val enteringFullAod = chain.args.firstOrNull() as? Boolean == true
                             if (enteringFullAod) {
-                                logI("onFullAodStateChanged(true) -> false")
                                 chain.proceed(arrayOf<Any?>(false))
                             } else {
                                 chain.proceed()
@@ -78,7 +77,8 @@ class MediaScaleFixHook {
                     module.deoptimize(setAnimateHeightMethod)
                     module.hook(setAnimateHeightMethod).intercept { chain ->
                         val requestedHeight = chain.args.firstOrNull() as? Int
-                        if (!aodFullMediaEnabled()) {
+                        // 仅 AOD/息屏改高度；亮屏压缩动画交给系统，避免误撑展开高度
+                        if (!shouldKeepAodExpanded()) {
                             chain.proceed()
                         } else if (requestedHeight == null || requestedHeight == 0) {
                             // 0 是完成/重置信号，必须放行
@@ -87,7 +87,6 @@ class MediaScaleFixHook {
                             val mediaHeader = chain.thisObject as? View
                             val expandedHeight = mediaHeader?.getExpandedMediaHeight()
                             if (expandedHeight != null && expandedHeight > 0) {
-                                logI("setAnimateHeight($requestedHeight) -> $expandedHeight")
                                 chain.proceed(arrayOf<Any?>(expandedHeight))
                             } else {
                                 chain.proceed()
@@ -113,8 +112,14 @@ class MediaScaleFixHook {
     }
 
     private fun aodFullMediaEnabled(): Boolean {
-        val ctx = HookUtils.systemUiApplicationContext() ?: return true
+        val ctx = HookUtils.systemUiApplicationContext() ?: return false
         return ConfigReader.aodFullMedia(ctx)
+    }
+
+    private fun shouldKeepAodExpanded(): Boolean {
+        if (!aodFullMediaEnabled()) return false
+        val ctx = HookUtils.systemUiApplicationContext() ?: return false
+        return !HookUtils.isScreenInteractive(ctx)
     }
 
     /**
