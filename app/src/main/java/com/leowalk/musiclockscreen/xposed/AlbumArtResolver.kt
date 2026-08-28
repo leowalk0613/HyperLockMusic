@@ -123,11 +123,14 @@ object AlbumArtResolver {
         }
     }
 
+    /**
+     * @return 是否检测到曲目切换（用于锁屏即时刷新专辑/模糊/歌词取色）
+     */
     fun refreshFromBind(
         context: Context,
         mediaData: Any?,
         metadata: MediaMetadata?
-    ) {
+    ): Boolean {
         if (metadata != null) {
             lastBindMetadata = metadata
         }
@@ -151,9 +154,13 @@ object AlbumArtResolver {
         if (best != null) {
             updateCache(best, trackKey)
         } else if (trackChanged) {
-            if (trackKey != null) cachedTrackKey = trackKey
-            logI("refresh empty on track change, keep previous cache if any")
+            // 切歌时封面可能尚未就绪：更新 trackKey 并清空旧封面，避免新歌挂上旧图后
+            // 后续 resolve 误判「同曲」而一直复用上一首封面。
+            cachedBitmap = null
+            cachedTrackKey = trackKey
+            logI("refresh empty on track change, cleared stale album cache")
         }
+        return trackChanged
     }
 
     /**

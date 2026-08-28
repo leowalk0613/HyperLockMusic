@@ -68,12 +68,10 @@ object StatusBarStateHook {
                                     (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
                                     MediaFollowController.onKeyguardShown()
                                     KeepScreenController.sync()
-                                    // 亮屏/回到锁屏时同步壁纸与歌词背景（曲目未变也会补雾状背景）
+                                    // 亮屏 / AOD 回到锁屏：同步壁纸与歌词背景（解锁或 AOD 期间切歌也要即时追上）
                                     val ctx = MusicLockscreenManager.lyricView?.context
-                                    if (ctx != null && HookUtils.isScreenInteractive(ctx)) {
+                                    if (ctx != null) {
                                         WallpaperController.refreshMusicWallpaper(ctx)
-                                    } else if (ctx != null) {
-                                        WallpaperController.ensureLyricFogReady()
                                     }
                                     logI("keyguard shown -> resume music lockscreen UI")
                                 }

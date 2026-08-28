@@ -98,8 +98,9 @@ class MediaAlbumClickHook {
                     if (holder != null) {
                         val albumView = albumViewField.get(holder) as? View
                         val ctx = albumView?.context
+                        var trackChanged = false
                         if (ctx != null && mediaData != null) {
-                            AlbumArtResolver.refreshFromBind(ctx, mediaData, metadata)
+                            trackChanged = AlbumArtResolver.refreshFromBind(ctx, mediaData, metadata)
                         }
 
                         // 媒体控件被划掉时，若仍在锁屏且音乐锁屏开启则恢复壁纸
@@ -121,42 +122,30 @@ class MediaAlbumClickHook {
                             logI("albumView detach listener set")
                         }
 
-                        // 只有专辑图更新时才更新壁纸
                         val isArtUpdate = artWorkUpdateField?.getBoolean(thisObj) ?: false
                         val isNewSong = newSongUpdateField?.getBoolean(thisObj) ?: false
+                        val needRefresh = isArtUpdate || isNewSong || trackChanged
 
-                        if (WallpaperController.isShowing() && (isArtUpdate || isNewSong)) {
-                            logI("Artwork updated, refreshing wallpaper")
-                            // 延迟 300ms 等专辑图动画完成；勿提前 pending，避免跳过更新后歌词背景卡住
-                            albumView?.postDelayed({
+                        if (WallpaperController.isShowing() && needRefresh) {
+                            logI(
+                                "media bind refresh: art=$isArtUpdate newSong=$isNewSong " +
+                                    "trackChanged=$trackChanged"
+                            )
+                            // 即时刷新：不依赖专辑 ImageView 动画；封面优先走 AlbumArtResolver
+                            albumView?.post {
                                 try {
-                                    val ctx = albumView.context
-                                    if (!HookUtils.canApplyLockWallpaper(ctx)) {
-                                        logI("delayed wallpaper update deferred: screen off or not on keyguard")
-                                        WallpaperController.markWallpaperStale()
-                                        return@postDelayed
-                                    }
-                                    val pkg = HookUtils.packageFromMediaData(mediaData)
-                                        ?: HookUtils.currentMediaPackage(ctx)
-                                    if (!HookUtils.isAllowedMusicApp(ctx, pkg)) {
-                                        logI("delayed wallpaper update blocked: $pkg not in whitelist")
-                                        WallpaperController.restoreOriginalWallpaper(ctx.applicationContext)
-                                        return@postDelayed
-                                    }
-                                    val albumImageView = albumImageViewField.get(holder) as? ImageView
-                                    val drawable = albumImageView?.drawable
-                                    val bindMeta = mediaMetadataField?.get(thisObj)
-                                        as? android.media.MediaMetadata
-                                    WallpaperController.setMusicWallpaper(
-                                        ctx,
-                                        drawable,
-                                        true,
-                                        bindMeta
+                                    refreshMusicLockscreenFromBind(
+                                        albumView.context,
+                                        mediaData,
+                                        holder,
+                                        albumImageViewField,
+                                        mediaMetadataField,
+                                        thisObj
                                     )
                                 } catch (e: Throwable) {
-                                    logE("delayed wallpaper update error", e)
+                                    logE("instant wallpaper update error", e)
                                 }
-                            }, 300)
+                            }
                         }
                     }
                 } catch (e: Throwable) {
@@ -169,6 +158,49 @@ class MediaAlbumClickHook {
         } catch (e: Throwable) {
             logE("install failed", e)
         }
+    }
+
+    /**
+     * 切歌 / 换封面后即时刷新：专辑 overlay、模糊壁纸、歌词与取色。
+     * 解锁态无法写壁纸时标记 stale，并先更新内存中的专辑与歌词，待回锁屏再补壁纸。
+     */
+    private fun refreshMusicLockscreenFromBind(
+        ctx: android.content.Context,
+        mediaData: Any?,
+        holder: Any,
+        albumImageViewField: java.lang.reflect.Field,
+        mediaMetadataField: java.lang.reflect.Field?,
+        controller: Any
+    ) {
+        val pkg = HookUtils.packageFromMediaData(mediaData)
+            ?: HookUtils.currentMediaPackage(ctx)
+        if (!HookUtils.isAllowedMusicApp(ctx, pkg)) {
+            logI("wallpaper update blocked: $pkg not in whitelist")
+            if (HookUtils.canApplyLockWallpaper(ctx)) {
+                WallpaperController.restoreOriginalWallpaper(ctx.applicationContext)
+            }
+            return
+        }
+
+        val albumImageView = albumImageViewField.get(holder) as? ImageView
+        val drawable = albumImageView?.drawable
+        val bindMeta = mediaMetadataField?.get(controller) as? android.media.MediaMetadata
+
+        // 先推 overlay / 歌词，壁纸异步构建时画面已切到新歌
+        if (drawable != null) {
+            MusicLockscreenManager.updateAlbumArt(drawable)
+        } else {
+            AlbumArtResolver.getCached()?.let { MusicLockscreenManager.updateAlbumBitmap(it) }
+        }
+        (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onTrackMayHaveChanged()
+
+        if (!HookUtils.canApplyLockWallpaper(ctx)) {
+            logI("wallpaper update deferred: screen off or not on keyguard")
+            WallpaperController.markWallpaperStale()
+            return
+        }
+
+        WallpaperController.setMusicWallpaper(ctx, drawable, true, bindMeta)
     }
 
     private fun logI(msg: String) {

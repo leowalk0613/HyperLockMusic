@@ -251,13 +251,23 @@ object WallpaperController {
             bumpWallpaperGeneration()
             saveOriginalWallpaper(context)
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
-            // 同曲重开时复用 AlbumArtResolver 缓存；切歌走 force 分支 ignoreCache=true
+            // 同曲重开可复用缓存；解锁期间切过歌或壁纸已 stale 时强制重解析
+            val trackKeyHint = try {
+                AlbumArtResolver.getCachedTrackKey()
+            } catch (_: Throwable) {
+                null
+            }
+            val mustIgnoreCache = wallpaperLayoutStale ||
+                (trackKeyHint != null && trackKeyHint != lastWallpaperTrackKey) ||
+                lastWallpaperTrackKey == null
             val wallpaperResult = buildBlurredBitmap(
                 context,
                 albumDrawable,
                 bestMeta,
-                ignoreCache = false
+                ignoreCache = mustIgnoreCache
             ) ?: return false
+
+            notifyAlbumVisualsImmediate(wallpaperResult)
 
             val albumForNetwork = wallpaperResult.systemAlbum.copy(
                 wallpaperResult.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
@@ -272,7 +282,8 @@ object WallpaperController {
                 },
                 onSettled = {
                     scheduleNetworkAlbumEnhance(context, albumForNetwork, trackForNetwork)
-                }
+                },
+                notifyLyricOnSettle = false
             )
 
             // 已写入音乐壁纸，此后锁屏壁纸即为音乐壁纸（激活态），标记持久化以便重启后识别残留
@@ -410,10 +421,11 @@ object WallpaperController {
                 ignoreCache
             )
             if (wallpaperResult == null) {
-                logE("silent update: build failed, restore lyric fog if possible")
-                ensureLyricFogReady()
+                logE("silent update: build failed (keep lyric pending until next art bind)")
                 return false
             }
+            // 切歌：壁纸写入前先用系统封面推歌词取色 / 雾状背景，避免等 setBitmap settle
+            notifyAlbumVisualsImmediate(wallpaperResult)
             // 切歌不走全屏 overlay / 过渡遮罩，直接换壁纸；歌词 fog 已在 pending 中隐藏
             val albumForNetwork = wallpaperResult.systemAlbum.copy(
                 wallpaperResult.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
@@ -426,14 +438,14 @@ object WallpaperController {
                 maskBuilder = null,
                 onSettled = {
                     scheduleNetworkAlbumEnhance(context, albumForNetwork, trackForNetwork)
-                }
+                },
+                notifyLyricOnSettle = false
             )
             MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
             logI("silent wallpaper update ok (system first), track=$trackForNetwork")
             return true
         } catch (e: Throwable) {
             logE("updateMusicWallpaperSilently error", e)
-            ensureLyricFogReady()
             return false
         }
     }
@@ -659,15 +671,20 @@ object WallpaperController {
         context: Context,
         result: BlurredWallpaperResult,
         maskBuilder: (() -> Bitmap?)? = null,
-        onSettled: (() -> Unit)? = null
+        onSettled: (() -> Unit)? = null,
+        notifyLyricOnSettle: Boolean = true
     ) {
         val appCtx = context.applicationContext
         val applyGen = bumpWallpaperGeneration()
         val copy = Bitmap.createBitmap(result.wallpaper)
-        val albumForLyric = result.systemAlbum.copy(
-            result.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
-            false
-        )
+        val albumForLyric = if (notifyLyricOnSettle) {
+            result.systemAlbum.copy(
+                result.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
+                false
+            )
+        } else {
+            null
+        }
         val trackKey = result.trackKey
         val hadMask = maskBuilder != null
         Thread {
@@ -707,32 +724,57 @@ object WallpaperController {
                     hideTransitionMask()
                 }
                 if (!copy.isRecycled) copy.recycle()
-                val settleDelay = if (hadMask) MASK_SETTLE_MS + MASK_FADE_MS else 120L
+                val settleDelay = when {
+                    hadMask -> MASK_SETTLE_MS + MASK_FADE_MS
+                    notifyLyricOnSettle -> 0L
+                    else -> 0L
+                }
                 mainHandler.postDelayed({
                     if (applyGen != wallpaperApplyGeneration) {
-                        if (!albumForLyric.isRecycled) albumForLyric.recycle()
+                        albumForLyric?.takeIf { !it.isRecycled }?.recycle()
                         // 被顶掉时不触发 onSettled（避免旧曲网络替换）
                         return@postDelayed
                     }
                     if (applied && (HookUtils.canApplyLockWallpaper(appCtx) ||
                             (isMusicWallpaperSet && HookUtils.isOnKeyguard(appCtx)))
                     ) {
-                        MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(
-                            albumForLyric,
-                            trackKey
-                        )
+                        if (notifyLyricOnSettle && albumForLyric != null) {
+                            MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(
+                                albumForLyric,
+                                trackKey
+                            )
+                        } else {
+                            albumForLyric?.takeIf { !it.isRecycled }?.recycle()
+                        }
                         try {
                             onSettled?.invoke()
                         } catch (e: Throwable) {
                             logE("onSettled error", e)
                         }
                     } else {
-                        if (!albumForLyric.isRecycled) albumForLyric.recycle()
+                        albumForLyric?.takeIf { !it.isRecycled }?.recycle()
                         if (isMusicWallpaperSet) ensureLyricFogReady()
                     }
                 }, settleDelay)
             }
         }.start()
+    }
+
+    /** 壁纸写入前立即刷新专辑 overlay 与歌词取色（切歌即时感）。 */
+    private fun notifyAlbumVisualsImmediate(result: BlurredWallpaperResult) {
+        val albumCopy = try {
+            result.systemAlbum.copy(
+                result.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
+                false
+            )
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        // 记录曲目，避免 settle 前又被 ensureLyricFogReady 用旧图盖回去
+        lastSystemAlbumBitmap = result.systemAlbum
+        lastWallpaperAlbumBitmap = result.systemAlbum
+        lastWallpaperTrackKey = result.trackKey
+        MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(albumCopy, result.trackKey)
     }
 
     private fun restoreWallpaperImmediately(context: Context) {

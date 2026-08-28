@@ -649,8 +649,14 @@ class LockscreenLyricView(context: Context) : View(context) {
         visibility = GONE
     }
 
-    /** 重新进入锁屏：按当前状态刷新可见性 */
+    /** 重新进入锁屏：按当前状态刷新可见性，并强制重拉歌词（解锁期间切歌） */
     fun onKeyguardShown() {
+        dataDirty = true
+        lastVersionsCheck = 0
+        if (isMusicLockscreenActive()) {
+            startPolling()
+            handler.post { readAndUpdate() }
+        }
         updateVisibilityState()
     }
 
