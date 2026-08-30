@@ -1,5 +1,7 @@
 package com.leowalk.musiclockscreen.xposed
 
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.ImageView
 import io.github.libxposed.api.XposedModule
@@ -12,6 +14,7 @@ class MediaAlbumClickHook {
 
     private val tag = "HyperLockMusic_AlbumClick"
     private var module: XposedModule? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun install(classLoader: ClassLoader, module: XposedModule) {
         this.module = module
@@ -98,6 +101,7 @@ class MediaAlbumClickHook {
                     if (holder != null) {
                         val albumView = albumViewField.get(holder) as? View
                         val ctx = albumView?.context
+                            ?: HookUtils.systemUiApplicationContext()
                         var trackChanged = false
                         if (ctx != null && mediaData != null) {
                             trackChanged = AlbumArtResolver.refreshFromBind(ctx, mediaData, metadata)
@@ -126,21 +130,23 @@ class MediaAlbumClickHook {
                         val isNewSong = newSongUpdateField?.getBoolean(thisObj) ?: false
                         val needRefresh = isArtUpdate || isNewSong || trackChanged
 
-                        if (WallpaperController.isShowing() && needRefresh) {
+                        if (WallpaperController.isShowing() && needRefresh && ctx != null) {
                             logI(
                                 "media bind refresh: art=$isArtUpdate newSong=$isNewSong " +
                                     "trackChanged=$trackChanged"
                             )
-                            // 即时刷新：不依赖专辑 ImageView 动画；封面优先走 AlbumArtResolver
-                            albumView?.post {
+                            // AOD / 媒体未 attach 时 albumView.post 可能永不执行，改走主线程 Handler
+                            val appCtx = ctx.applicationContext
+                            mainHandler.post {
                                 try {
                                     refreshMusicLockscreenFromBind(
-                                        albumView.context,
+                                        appCtx,
                                         mediaData,
                                         holder,
                                         albumImageViewField,
                                         mediaMetadataField,
-                                        thisObj
+                                        thisObj,
+                                        trackChanged
                                     )
                                 } catch (e: Throwable) {
                                     logE("instant wallpaper update error", e)
@@ -170,7 +176,8 @@ class MediaAlbumClickHook {
         holder: Any,
         albumImageViewField: java.lang.reflect.Field,
         mediaMetadataField: java.lang.reflect.Field?,
-        controller: Any
+        controller: Any,
+        trackChanged: Boolean
     ) {
         val pkg = HookUtils.packageFromMediaData(mediaData)
             ?: HookUtils.currentMediaPackage(ctx)
@@ -182,15 +189,20 @@ class MediaAlbumClickHook {
             return
         }
 
-        val albumImageView = albumImageViewField.get(holder) as? ImageView
+        val albumImageView = try {
+            albumImageViewField.get(holder) as? ImageView
+        } catch (_: Throwable) {
+            null
+        }
         val drawable = albumImageView?.drawable
         val bindMeta = mediaMetadataField?.get(controller) as? android.media.MediaMetadata
 
-        // 先推 overlay / 歌词，壁纸异步构建时画面已切到新歌
-        if (drawable != null) {
-            MusicLockscreenManager.updateAlbumArt(drawable)
-        } else {
-            AlbumArtResolver.getCached()?.let { MusicLockscreenManager.updateAlbumBitmap(it) }
+        // 优先用已解析封面；切歌空窗期勿推 ImageView（常仍是上一首）
+        val cached = AlbumArtResolver.getCached()
+        when {
+            cached != null -> MusicLockscreenManager.updateAlbumBitmap(cached)
+            !trackChanged && drawable != null -> MusicLockscreenManager.updateAlbumArt(drawable)
+            trackChanged -> logI("track changed, album art pending — skip stale ImageView")
         }
         (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onTrackMayHaveChanged()
 
@@ -200,7 +212,45 @@ class MediaAlbumClickHook {
             return
         }
 
-        WallpaperController.setMusicWallpaper(ctx, drawable, true, bindMeta)
+        val artDrawable = if (trackChanged) null else drawable
+        // 一律尝试写壁纸；无封面时依赖 metadata/远程与重试，避免「等下次 bind」永久卡住
+        WallpaperController.setMusicWallpaper(ctx, artDrawable, true, bindMeta)
+        if (trackChanged && cached == null) {
+            logI("silent wallpaper: track art pending, schedule retries")
+            scheduleArtRetry(ctx, bindMeta)
+        }
+    }
+
+    private fun scheduleArtRetry(ctx: android.content.Context, bindMeta: android.media.MediaMetadata?) {
+        val appCtx = ctx.applicationContext
+        val delays = longArrayOf(350L, 900L, 2000L, 4000L)
+        for (delay in delays) {
+            mainHandler.postDelayed({
+                try {
+                    if (!WallpaperController.isShowing()) return@postDelayed
+                    if (!HookUtils.canApplyLockWallpaper(appCtx)) {
+                        WallpaperController.markWallpaperStale()
+                        return@postDelayed
+                    }
+                    val key = AlbumArtResolver.getCachedTrackKey()
+                    if (key != null && key == WallpaperController.currentWallpaperTrackKey()) {
+                        return@postDelayed
+                    }
+                    val meta = bindMeta
+                        ?: AlbumArtResolver.getBindMetadata()
+                        ?: WallpaperController.peekSessionMetadata(appCtx)
+                    AlbumArtResolver.refreshFromSessionMetadata(appCtx, meta)
+                    val art = AlbumArtResolver.getCached()
+                    if (art != null) {
+                        MusicLockscreenManager.updateAlbumBitmap(art)
+                    }
+                    WallpaperController.setMusicWallpaper(appCtx, null, true, meta)
+                    logI("art retry refresh done delay=${delay}ms hasArt=${art != null} key=$key")
+                } catch (e: Throwable) {
+                    logE("art retry error", e)
+                }
+            }, delay)
+        }
     }
 
     private fun logI(msg: String) {

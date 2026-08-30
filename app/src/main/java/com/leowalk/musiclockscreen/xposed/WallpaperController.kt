@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.media.MediaMetadata
+import android.media.session.MediaController
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
@@ -39,15 +41,36 @@ object WallpaperController {
     private var lastBakedImmersiveAlbum: Boolean? = null
     /** 取消过期的 restore / apply setBitmap，避免关→开竞态把音乐壁纸盖掉 */
     private var wallpaperApplyGeneration: Long = 0L
+    /** 取消过期的静默切歌构建（后发起的覆盖先生效） */
+    private var silentBuildGeneration: Long = 0L
+    /**
+     * 已成功 setBitmap 到锁屏的曲目。
+     * 仅 apply 成功后写入；构建完成时不得提前写入，否则失败后轮询会误判已刷新。
+     */
+    private var appliedWallpaperTrackKey: String? = null
+
+    /** 同曲双布局缓存：大专辑（仅模糊）与沉浸（烘焙封面）并行生成，互转时直接换 */
+    private var dualLargeWallpaper: Bitmap? = null
+    private var dualImmersiveWallpaper: Bitmap? = null
+    private var dualCacheTrackKey: String? = null
+    private var dualCacheCenterY: Float = Float.NaN
+    private var dualCacheBlurRadius: Float = Float.NaN
+    private var dualCacheDarkOverlay: Int = -1
 
     private fun bumpWallpaperGeneration(): Long = ++wallpaperApplyGeneration
+    private fun bumpSilentBuildGeneration(): Long = ++silentBuildGeneration
 
     private val sessionPollHandler = Handler(Looper.getMainLooper())
     private val mainHandler = Handler(Looper.getMainLooper())
     private var sessionPollRunnable: Runnable? = null
+    private var trackPollRunnable: Runnable? = null
     private var sessionWatchContext: Context? = null
+    private var trackedMediaController: MediaController? = null
+    private var mediaMetadataCallback: MediaController.Callback? = null
 
     private const val SESSION_POLL_INTERVAL_MS = 2000L
+    /** AOD / 锁屏切歌：MediaSession 轮询兜底（Callback 为主） */
+    private const val TRACK_POLL_INTERVAL_MS = 1200L
 
     /** setBitmap 提交后到开始淡出的停留时长，覆盖系统壁纸刷新/交叉渐变，避免淡出与画面切换重合而闪烁。 */
     private const val MASK_SETTLE_MS = 240L
@@ -57,6 +80,12 @@ object WallpaperController {
 
     /** 遮罩淡出时长 */
     private const val MASK_FADE_MS = 220L
+
+    /**
+     * 大专辑↔沉浸布局切换：setBitmap 返回后仍需等待系统壁纸交叉渐变结束，
+     * 期间继续用方形 overlay 挡住，再淡出/显示。
+     */
+    private const val LAYOUT_OVERLAY_SETTLE_MS = 520L
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
@@ -237,7 +266,8 @@ object WallpaperController {
             return false
         }
         if (isMusicWallpaperSet && !force) return true
-        if (isAnimating) {
+        // 切歌强制刷新不得被进场动画挡住，否则概率性整曲不更新
+        if (isAnimating && !force) {
             logI("animation in progress, skip setMusicWallpaper")
             return false
         }
@@ -414,35 +444,76 @@ object WallpaperController {
             lastNetworkAlbumTrackKey = null
             lastNetworkAlbumBitmap = null
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
-            val wallpaperResult = buildBlurredBitmap(
-                context,
-                albumDrawable,
-                metadata ?: readBestMetadata(context),
-                ignoreCache
-            )
-            if (wallpaperResult == null) {
-                logE("silent update: build failed (keep lyric pending until next art bind)")
-                return false
-            }
-            // 切歌：壁纸写入前先用系统封面推歌词取色 / 雾状背景，避免等 setBitmap settle
-            notifyAlbumVisualsImmediate(wallpaperResult)
-            // 切歌不走全屏 overlay / 过渡遮罩，直接换壁纸；歌词 fog 已在 pending 中隐藏
-            val albumForNetwork = wallpaperResult.systemAlbum.copy(
-                wallpaperResult.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
-                false
-            )
-            val trackForNetwork = wallpaperResult.trackKey
-            applyLockBitmapAsync(
-                context,
-                wallpaperResult,
-                maskBuilder = null,
-                onSettled = {
-                    scheduleNetworkAlbumEnhance(context, albumForNetwork, trackForNetwork)
-                },
-                notifyLyricOnSettle = false
-            )
-            MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
-            logI("silent wallpaper update ok (system first), track=$trackForNetwork")
+            val appCtx = context.applicationContext
+            val metaRef = metadata ?: readBestMetadata(context)
+            val drawableRef = albumDrawable
+            val ignoreRef = ignoreCache
+            val buildGen = bumpSilentBuildGeneration()
+            // 后台构建：本地失败时允许拉远程封面；用 generation 丢弃过期构建
+            Thread {
+                try {
+                    if (buildGen != silentBuildGeneration) {
+                        logI("silent build superseded before start gen=$buildGen")
+                        return@Thread
+                    }
+                    if (!HookUtils.canApplyLockWallpaper(appCtx)) {
+                        logI("silent update aborted: left keyguard before build")
+                        markWallpaperStale()
+                        return@Thread
+                    }
+                    // 先本地，失败再带远程重试，兼顾速度与「只有 URL 封面」的曲目
+                    var wallpaperResult = buildBlurredBitmap(
+                        appCtx,
+                        drawableRef,
+                        metaRef,
+                        ignoreRef,
+                        allowRemote = false
+                    )
+                    if (wallpaperResult == null && buildGen == silentBuildGeneration) {
+                        wallpaperResult = buildBlurredBitmap(
+                            appCtx,
+                            drawableRef,
+                            metaRef,
+                            ignoreRef,
+                            allowRemote = true
+                        )
+                    }
+                    if (buildGen != silentBuildGeneration) {
+                        logI("silent build superseded after build gen=$buildGen")
+                        return@Thread
+                    }
+                    if (wallpaperResult == null) {
+                        logE("silent update: build failed, keep lagging for poll/retry")
+                        wallpaperLayoutStale = true
+                        return@Thread
+                    }
+                    // 先推 overlay / 取色，但绝不提前 commit appliedWallpaperTrackKey
+                    mainHandler.post {
+                        if (buildGen != silentBuildGeneration) return@post
+                        notifyAlbumVisualsImmediate(wallpaperResult)
+                        MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
+                    }
+                    val albumForNetwork = wallpaperResult.systemAlbum.copy(
+                        wallpaperResult.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
+                        false
+                    )
+                    val trackForNetwork = wallpaperResult.trackKey
+                    applyLockBitmapAsync(
+                        appCtx,
+                        wallpaperResult,
+                        maskBuilder = null,
+                        onSettled = {
+                            if (buildGen != silentBuildGeneration) return@applyLockBitmapAsync
+                            scheduleNetworkAlbumEnhance(appCtx, albumForNetwork, trackForNetwork)
+                        },
+                        notifyLyricOnSettle = false
+                    )
+                    logI("silent wallpaper update ok (system first), track=$trackForNetwork gen=$buildGen")
+                } catch (e: Throwable) {
+                    logE("updateMusicWallpaperSilently async error", e)
+                    wallpaperLayoutStale = true
+                }
+            }.start()
             return true
         } catch (e: Throwable) {
             logE("updateMusicWallpaperSilently error", e)
@@ -456,20 +527,103 @@ object WallpaperController {
         val trackKey: String?
     )
 
-    private fun buildBlurredBitmap(
+    private data class DualWallpaperResult(
+        val large: Bitmap,
+        val immersive: Bitmap,
+        val systemAlbum: Bitmap,
+        val trackKey: String?,
+        val centerY: Float,
+        val blurRadius: Float,
+        val darkOverlay: Int
+    )
+
+    private fun clearDualWallpaperCache() {
+        val active = MusicLockscreenManager.blurredWallpaperBitmap
+        dualLargeWallpaper?.takeIf { it !== active && !it.isRecycled }?.recycle()
+        dualImmersiveWallpaper?.takeIf {
+            it !== active && it !== dualLargeWallpaper && !it.isRecycled
+        }?.recycle()
+        dualLargeWallpaper = null
+        dualImmersiveWallpaper = null
+        dualCacheTrackKey = null
+        dualCacheCenterY = Float.NaN
+        dualCacheBlurRadius = Float.NaN
+        dualCacheDarkOverlay = -1
+    }
+
+    private fun storeDualWallpaperCache(dual: DualWallpaperResult) {
+        val prevLarge = dualLargeWallpaper
+        val prevImmersive = dualImmersiveWallpaper
+        val active = MusicLockscreenManager.blurredWallpaperBitmap
+        dualLargeWallpaper = dual.large
+        dualImmersiveWallpaper = dual.immersive
+        dualCacheTrackKey = dual.trackKey
+        dualCacheCenterY = dual.centerY
+        dualCacheBlurRadius = dual.blurRadius
+        dualCacheDarkOverlay = dual.darkOverlay
+        if (prevLarge != null &&
+            prevLarge !== dual.large &&
+            prevLarge !== dual.immersive &&
+            prevLarge !== active &&
+            !prevLarge.isRecycled
+        ) {
+            prevLarge.recycle()
+        }
+        if (prevImmersive != null &&
+            prevImmersive !== dual.large &&
+            prevImmersive !== dual.immersive &&
+            prevImmersive !== active &&
+            !prevImmersive.isRecycled
+        ) {
+            prevImmersive.recycle()
+        }
+    }
+
+    /** 取目标布局的已缓存壁纸（曲目与模糊/沉浸参数一致时命中）。 */
+    private fun takeDualCachedWallpaper(
+        context: Context,
+        bakeImmersive: Boolean
+    ): BlurredWallpaperResult? {
+        val trackKey = AlbumArtResolver.getCachedTrackKey()
+        if (trackKey == null || trackKey != dualCacheTrackKey) return null
+        val blur = ConfigReader.blurRadius(context)
+        val dark = ConfigReader.darkOverlay(context)
+        if (blur != dualCacheBlurRadius || dark != dualCacheDarkOverlay) return null
+        if (bakeImmersive) {
+            val centerY = ConfigReader.immersiveAlbumCenterY(context)
+            if (centerY != dualCacheCenterY) return null
+            val bmp = dualImmersiveWallpaper?.takeIf { !it.isRecycled } ?: return null
+            val album = lastSystemAlbumBitmap?.takeIf { !it.isRecycled }
+                ?: AlbumArtResolver.getCached()
+                ?: return null
+            return BlurredWallpaperResult(bmp, album, trackKey)
+        }
+        val bmp = dualLargeWallpaper?.takeIf { !it.isRecycled } ?: return null
+        val album = lastSystemAlbumBitmap?.takeIf { !it.isRecycled }
+            ?: AlbumArtResolver.getCached()
+            ?: return null
+        return BlurredWallpaperResult(bmp, album, trackKey)
+    }
+
+    /**
+     * 同一张专辑并行生成「大专辑模糊底」与「沉浸烘焙」两套壁纸。
+     */
+    private fun buildDualWallpapers(
         context: Context,
         albumDrawable: Drawable?,
         metadata: android.media.MediaMetadata? = null,
-        ignoreCache: Boolean = false
-    ): BlurredWallpaperResult? {
+        ignoreCache: Boolean = false,
+        allowRemote: Boolean = true
+    ): DualWallpaperResult? {
         val (tw, th) = HookUtils.lockScreenWallpaperSize(context)
         val bestMeta = metadata ?: readBestMetadata(context)
         val systemAlbum = AlbumArtResolver.resolve(
             context,
             albumDrawable,
             bestMeta,
-            ignoreCache = true,
-            AlbumArtResolver.getBindMediaData()
+            ignoreCache = ignoreCache,
+            AlbumArtResolver.getBindMediaData(),
+            allowRemote = allowRemote
         ) ?: run {
             logE("failed to resolve album bitmap")
             return null
@@ -480,41 +634,100 @@ object WallpaperController {
         } else {
             null
         }
+        val radius = ConfigReader.blurRadius(context)
+        val dark = ConfigReader.darkOverlay(context)
+        val centerY = ConfigReader.immersiveAlbumCenterY(context)
+        val blurAlbum = sharpAlbum ?: systemAlbum
+        val immersiveSharp = sharpAlbum ?: systemAlbum
         logI(
-            "album system=${systemAlbum.width}x${systemAlbum.height}" +
+            "dual album system=${systemAlbum.width}x${systemAlbum.height}" +
                 (sharpAlbum?.let { " network=${it.width}x${it.height}" } ?: "") +
                 ", screen=${tw}x${th}, track=$trackKey"
         )
 
-        val wallpaper = if (ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)) {
-            BlurUtils.blurWithImmersiveAlbum(
-                blurSource = systemAlbum,
-                sharpAlbum = sharpAlbum ?: systemAlbum,
-                radius = ConfigReader.blurRadius(context),
-                darkOverlayAlpha = ConfigReader.darkOverlay(context),
-                targetWidth = tw,
-                targetHeight = th,
-                // 烘焙区域底边固定；竖直位置只跟沉浸专用中心点走，不共用大专辑底边
-                albumAnchorYPercent = 80f,
-                albumCenterYPercent = ConfigReader.immersiveAlbumCenterY(context),
-            )
-        } else {
-            val blurAlbum = sharpAlbum ?: systemAlbum
-            BlurUtils.blurWithBigAlbum(
-                blurSource = blurAlbum,
-                radius = ConfigReader.blurRadius(context),
-                darkOverlayAlpha = ConfigReader.darkOverlay(context),
-                showBigAlbum = false,
-                targetWidth = tw,
-                targetHeight = th,
-                albumSizePercent = ConfigReader.albumSize(context),
-                albumOffsetYDp = ConfigReader.albumOffsetY(context),
-                albumCornerDp = ConfigReader.albumCorner(context),
-                sharpAlbum = null
-            )
+        var largeBmp: Bitmap? = null
+        var immersiveBmp: Bitmap? = null
+        var largeError: Throwable? = null
+        var immersiveError: Throwable? = null
+        val largeThread = Thread {
+            try {
+                largeBmp = BlurUtils.blurWithBigAlbum(
+                    blurSource = blurAlbum,
+                    radius = radius,
+                    darkOverlayAlpha = dark,
+                    showBigAlbum = false,
+                    targetWidth = tw,
+                    targetHeight = th,
+                    albumSizePercent = ConfigReader.albumSize(context),
+                    albumOffsetYDp = ConfigReader.albumOffsetY(context),
+                    albumCornerDp = ConfigReader.albumCorner(context),
+                    sharpAlbum = null
+                )
+            } catch (e: Throwable) {
+                largeError = e
+            }
         }
-        if (!ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)) {
-            val overlayAlbum = sharpAlbum?.takeIf { !it.isRecycled } ?: systemAlbum
+        val immersiveThread = Thread {
+            try {
+                immersiveBmp = BlurUtils.blurWithImmersiveAlbum(
+                    blurSource = systemAlbum,
+                    sharpAlbum = immersiveSharp,
+                    radius = radius,
+                    darkOverlayAlpha = dark,
+                    targetWidth = tw,
+                    targetHeight = th,
+                    albumAnchorYPercent = 80f,
+                    albumCenterYPercent = centerY,
+                )
+            } catch (e: Throwable) {
+                immersiveError = e
+            }
+        }
+        largeThread.start()
+        immersiveThread.start()
+        largeThread.join()
+        immersiveThread.join()
+        largeError?.let { logE("dual large build error", it) }
+        immersiveError?.let { logE("dual immersive build error", it) }
+        val large = largeBmp
+        val immersive = immersiveBmp
+        if (large == null || immersive == null) {
+            large?.takeIf { !it.isRecycled }?.recycle()
+            immersive?.takeIf { !it.isRecycled }?.recycle()
+            return null
+        }
+        return DualWallpaperResult(
+            large = large,
+            immersive = immersive,
+            systemAlbum = systemAlbum,
+            trackKey = trackKey,
+            centerY = centerY,
+            blurRadius = radius,
+            darkOverlay = dark
+        )
+    }
+
+    private fun buildBlurredBitmap(
+        context: Context,
+        albumDrawable: Drawable?,
+        metadata: android.media.MediaMetadata? = null,
+        ignoreCache: Boolean = false,
+        allowRemote: Boolean = true
+    ): BlurredWallpaperResult? {
+        val dual = buildDualWallpapers(
+            context,
+            albumDrawable,
+            metadata,
+            ignoreCache,
+            allowRemote
+        ) ?: return null
+        storeDualWallpaperCache(dual)
+        val bake = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
+        val wallpaper = if (bake) dual.immersive else dual.large
+        if (!bake) {
+            val overlayAlbum = lastNetworkAlbumBitmap?.takeIf {
+                !it.isRecycled && dual.trackKey != null && dual.trackKey == lastNetworkAlbumTrackKey
+            } ?: dual.systemAlbum
             val overlayCopy = try {
                 overlayAlbum.copy(overlayAlbum.config ?: Bitmap.Config.ARGB_8888, false)
             } catch (_: Throwable) {
@@ -524,7 +737,7 @@ object WallpaperController {
                 mainHandler.post { MusicLockscreenManager.updateAlbumBitmap(overlayCopy) }
             }
         }
-        return BlurredWallpaperResult(wallpaper, systemAlbum, trackKey)
+        return BlurredWallpaperResult(wallpaper, dual.systemAlbum, dual.trackKey)
     }
 
     /**
@@ -547,7 +760,8 @@ object WallpaperController {
             if (!album.isRecycled) album.recycle()
             return
         }
-        if (trackKey != null && trackKey != lastWallpaperTrackKey &&
+        val appliedKey = appliedWallpaperTrackKey ?: lastWallpaperTrackKey
+        if (trackKey != null && trackKey != appliedKey &&
             trackKey != AlbumArtResolver.getCachedTrackKey()
         ) {
             logI("album network enhance skipped: track mismatch before fetch")
@@ -573,7 +787,9 @@ object WallpaperController {
                     logI("album network result discarded: stale generation")
                     return@Thread
                 }
-                if (trackKey != null && trackKey != lastWallpaperTrackKey) {
+                if (trackKey != null && trackKey != appliedWallpaperTrackKey &&
+                    trackKey != lastWallpaperTrackKey
+                ) {
                     if (!enhanced.isRecycled) enhanced.recycle()
                     logI("album network result discarded: wallpaper track changed")
                     return@Thread
@@ -581,7 +797,11 @@ object WallpaperController {
                 lastNetworkAlbumBitmap = enhanced
                 mainHandler.post {
                     if (gen != networkAlbumGeneration || !isMusicWallpaperSet) return@post
-                    if (trackKey != null && trackKey != lastWallpaperTrackKey) return@post
+                    if (trackKey != null && trackKey != appliedWallpaperTrackKey &&
+                        trackKey != lastWallpaperTrackKey
+                    ) {
+                        return@post
+                    }
                     lastNetworkAlbumTrackKey = trackKey
                     if (ConfigReader.shouldBakeImmersiveAlbumInWallpaper(appCtx)) {
                         rebuildWallpaperWithNetworkAlbum(appCtx, enhanced, trackKey)
@@ -672,7 +892,8 @@ object WallpaperController {
         result: BlurredWallpaperResult,
         maskBuilder: (() -> Bitmap?)? = null,
         onSettled: (() -> Unit)? = null,
-        notifyLyricOnSettle: Boolean = true
+        notifyLyricOnSettle: Boolean = true,
+        settleDelayMs: Long? = null
     ) {
         val appCtx = context.applicationContext
         val applyGen = bumpWallpaperGeneration()
@@ -705,15 +926,20 @@ object WallpaperController {
                 }
                 WallpaperManager.getInstance(appCtx)
                     .setBitmap(copy, null, true, WallpaperManager.FLAG_LOCK)
-                // 已写入锁屏：无论是否被后续 apply 顶掉，都记录本帧状态
                 applied = true
-                lastWallpaperAlbumBitmap = result.systemAlbum
-                lastSystemAlbumBitmap = result.systemAlbum
-                lastWallpaperTrackKey = trackKey
-                lastBakedImmersiveAlbum = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(appCtx)
-                wallpaperLayoutStale = false
-                if (applyGen != wallpaperApplyGeneration) {
-                    logI("applyLockBitmap written then superseded (next apply pending), track=$trackKey")
+                // 仅当仍是最新 apply 才 commit「已应用曲目」；否则后到的旧写入会污染状态，导致轮询永不再刷
+                if (applyGen == wallpaperApplyGeneration) {
+                    lastWallpaperAlbumBitmap = result.systemAlbum
+                    lastSystemAlbumBitmap = result.systemAlbum
+                    lastWallpaperTrackKey = trackKey
+                    appliedWallpaperTrackKey = trackKey
+                    lastBakedImmersiveAlbum =
+                        ConfigReader.shouldBakeImmersiveAlbumInWallpaper(appCtx)
+                    wallpaperLayoutStale = false
+                } else {
+                    logI(
+                        "applyLockBitmap written then superseded (not commit applied key), track=$trackKey"
+                    )
                 }
             } catch (e: Throwable) {
                 logE("applyLockBitmap error", e)
@@ -724,7 +950,7 @@ object WallpaperController {
                     hideTransitionMask()
                 }
                 if (!copy.isRecycled) copy.recycle()
-                val settleDelay = when {
+                val settleDelay = settleDelayMs ?: when {
                     hadMask -> MASK_SETTLE_MS + MASK_FADE_MS
                     notifyLyricOnSettle -> 0L
                     else -> 0L
@@ -760,7 +986,11 @@ object WallpaperController {
         }.start()
     }
 
-    /** 壁纸写入前立即刷新专辑 overlay 与歌词取色（切歌即时感）。 */
+    /**
+     * 壁纸写入前立即刷新专辑 overlay 与歌词取色（切歌即时感）。
+     * 注意：不得在此处 commit appliedWallpaperTrackKey / lastWallpaperTrackKey，
+     * 否则 setBitmap 失败或被取消时轮询会误判「已刷新」而永久卡住，直到重新进入音乐锁屏。
+     */
     private fun notifyAlbumVisualsImmediate(result: BlurredWallpaperResult) {
         val albumCopy = try {
             result.systemAlbum.copy(
@@ -770,10 +1000,8 @@ object WallpaperController {
         } catch (_: Throwable) {
             null
         } ?: return
-        // 记录曲目，避免 settle 前又被 ensureLyricFogReady 用旧图盖回去
         lastSystemAlbumBitmap = result.systemAlbum
         lastWallpaperAlbumBitmap = result.systemAlbum
-        lastWallpaperTrackKey = result.trackKey
         MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(albumCopy, result.trackKey)
     }
 
@@ -786,10 +1014,13 @@ object WallpaperController {
             isMusicWallpaperSet = false
             lastWallpaperAlbumBitmap = null
             lastWallpaperTrackKey = null
+            appliedWallpaperTrackKey = null
             lastSystemAlbumBitmap = null
             lastNetworkAlbumBitmap = null
             lastNetworkAlbumTrackKey = null
             networkAlbumGeneration++
+            silentBuildGeneration++
+            clearDualWallpaperCache()
             MusicLockscreenManager.updateBlurredBitmap(null)
             MusicLockscreenManager.setShowingState(false)
             MusicLockscreenManager.hideAlbumOverlay()
@@ -845,6 +1076,12 @@ object WallpaperController {
 
     fun isAnimating(): Boolean = isAnimating
 
+    /** 当前已成功应用到锁屏壁纸的曲目 key（供 bind 重试判断是否已追上）。 */
+    fun currentWallpaperTrackKey(): String? = appliedWallpaperTrackKey ?: lastWallpaperTrackKey
+
+    /** 读取活跃 MediaSession 的 metadata（AOD 下 bind 可能不来）。 */
+    fun peekSessionMetadata(context: Context): android.media.MediaMetadata? = readMediaMetadata(context)
+
     /**
      * 重新上锁进入音乐锁屏时调用：
      * 若期间切过歌，用最新缓存的专辑封面重建锁屏壁纸；
@@ -858,21 +1095,27 @@ object WallpaperController {
             ensureLyricFogReady()
             return false
         }
-        // 用当前会话 metadata 刷新解析缓存，避免解锁期间切歌后仍用旧 trackKey
+        // 用当前会话 metadata 刷新解析缓存，避免解锁 / AOD 期间切歌后仍用旧 trackKey
         try {
-            val meta = readBestMetadata(ctx)
-            AlbumArtResolver.resolve(ctx, null, meta, ignoreCache = false, AlbumArtResolver.getBindMediaData())
+            val meta = readMediaMetadata(ctx) ?: readBestMetadata(ctx)
+            AlbumArtResolver.refreshFromSessionMetadata(ctx, meta)
+            AlbumArtResolver.resolve(
+                ctx, null, meta, ignoreCache = false,
+                AlbumArtResolver.getBindMediaData(),
+                allowRemote = false
+            )
         } catch (_: Throwable) {
         }
         val trackKey = AlbumArtResolver.getCachedTrackKey()
         val bakeNow = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(ctx)
-        if (trackKey != null && trackKey == lastWallpaperTrackKey &&
+        val appliedKey = appliedWallpaperTrackKey ?: lastWallpaperTrackKey
+        if (trackKey != null && trackKey == appliedKey &&
             !wallpaperLayoutStale && bakeNow == lastBakedImmersiveAlbum
         ) {
             ensureLyricFogReady()
             return false
         }
-        if (trackKey != null && trackKey == lastWallpaperTrackKey) {
+        if (trackKey != null && trackKey == appliedKey) {
             logI("refresh music wallpaper layout bake=$bakeNow")
             return rebuildWallpaperForLayout(ctx)
         }
@@ -883,20 +1126,63 @@ object WallpaperController {
     /** 标记壁纸与当前曲目可能不一致，下次进锁屏强制刷新。 */
     fun markWallpaperStale() {
         lastWallpaperTrackKey = null
+        appliedWallpaperTrackKey = null
         lastNetworkAlbumTrackKey = null
         networkAlbumGeneration++
         wallpaperLayoutStale = true
+        clearDualWallpaperCache()
         logI("wallpaper marked stale")
     }
 
     /**
-     * 沉浸专辑/歌词显隐切换：按当前配置重建壁纸（保留网络高清缓存，不触发 restore）。
+     * 沉浸专辑/歌词显隐切换：优先用切歌时并行缓存的另一布局，命中则即时换壁纸。
      */
     fun refreshWallpaperForAlbumVisibility(context: Context): Boolean {
         if (!isMusicWallpaperSet) return false
         wallpaperLayoutStale = true
-        logI("refresh wallpaper for immersive album visibility")
+        val bakeNow = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
+        logI("refresh wallpaper for immersive album visibility bake=$bakeNow")
         val appCtx = context.applicationContext
+        if (bakeNow) {
+            // 大专辑（封面可见）→沉浸：hold 方形封面盖住切换
+            // 大专辑+沉浸歌词（封面已隐藏）→沉浸：保持隐藏，保留全屏模糊底，只换壁纸
+            val squareVisible = MusicLockscreenManager.isSquareAlbumOverlayVisible() ||
+                MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled
+            MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled = squareVisible
+            if (squareVisible) {
+                MusicLockscreenManager.showAlbumOverlay()
+            }
+        } else {
+            MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled = false
+            MusicLockscreenManager.showAlbumOverlay()
+        }
+        val onLayoutSettled: () -> Unit = {
+            mainHandler.post {
+                MusicLockscreenManager.finishLayoutSwitchOverlay(bakeNow)
+            }
+        }
+        // 双布局缓存命中：直接换，不再重算模糊
+        val cached = takeDualCachedWallpaper(appCtx, bakeNow)
+        if (cached != null) {
+            logI("layout switch from dual cache bake=$bakeNow track=${cached.trackKey}")
+            mainHandler.post {
+                MusicLockscreenManager.updateBlurredBitmap(cached.wallpaper)
+                if (!bakeNow) {
+                    MusicLockscreenManager.updateAlbumBitmap(cached.systemAlbum)
+                    MusicLockscreenManager.showAlbumOverlay()
+                }
+            }
+            applyLockBitmapAsync(
+                appCtx,
+                cached,
+                maskBuilder = null,
+                onSettled = onLayoutSettled,
+                notifyLyricOnSettle = false,
+                settleDelayMs = LAYOUT_OVERLAY_SETTLE_MS
+            )
+            wallpaperLayoutStale = false
+            return true
+        }
         Thread {
             rebuildWallpaperForLayout(appCtx)
         }.start()
@@ -912,13 +1198,30 @@ object WallpaperController {
             return false
         }
         try {
+            val bakeTarget = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
+            if (bakeTarget) {
+                mainHandler.post {
+                    val squareVisible = MusicLockscreenManager.isSquareAlbumOverlayVisible() ||
+                        MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled
+                    MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled = squareVisible
+                    if (squareVisible) {
+                        MusicLockscreenManager.showAlbumOverlay()
+                    }
+                }
+            }
             val wallpaperResult = buildBlurredBitmap(context, null, null, ignoreCache = false)
                 ?: run {
                     logE("layout rebuild: build failed")
+                    mainHandler.post {
+                        MusicLockscreenManager.finishLayoutSwitchOverlay(bakeTarget)
+                    }
                     return false
                 }
             mainHandler.post {
                 MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
+                if (!bakeTarget) {
+                    MusicLockscreenManager.showAlbumOverlay()
+                }
             }
             applyLockBitmapAsync(
                 context,
@@ -926,12 +1229,13 @@ object WallpaperController {
                 maskBuilder = null,
                 onSettled = {
                     mainHandler.post {
-                        MusicLockscreenManager.showAlbumOverlay()
-                        MediaFollowController.requestReflow()
+                        MusicLockscreenManager.finishLayoutSwitchOverlay(bakeTarget)
                     }
-                }
+                },
+                notifyLyricOnSettle = false,
+                settleDelayMs = LAYOUT_OVERLAY_SETTLE_MS
             )
-            logI("layout rebuild ok bake=${ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)}")
+            logI("layout rebuild ok bake=$bakeTarget")
             return true
         } catch (e: Throwable) {
             logE("rebuildWallpaperForLayout error", e)
@@ -958,7 +1262,9 @@ object WallpaperController {
     private fun startSessionWatch(context: Context) {
         stopSessionWatch()
         sessionWatchContext = context.applicationContext
-        val runnable = object : Runnable {
+        bindMediaMetadataCallback(context.applicationContext)
+
+        val sessionRunnable = object : Runnable {
             override fun run() {
                 if (!isMusicWallpaperSet) return
                 val ctx = sessionWatchContext ?: return
@@ -971,16 +1277,153 @@ object WallpaperController {
                     restoreOriginalWallpaper(ctx)
                     return
                 }
+                // 会话可能切换，定期重绑 Callback
+                rebindMediaMetadataCallbackIfNeeded(ctx)
                 sessionPollHandler.postDelayed(this, SESSION_POLL_INTERVAL_MS)
             }
         }
-        sessionPollRunnable = runnable
-        sessionPollHandler.postDelayed(runnable, SESSION_POLL_INTERVAL_MS)
+        sessionPollRunnable = sessionRunnable
+        sessionPollHandler.postDelayed(sessionRunnable, SESSION_POLL_INTERVAL_MS)
+
+        val trackRunnable = object : Runnable {
+            override fun run() {
+                if (!isMusicWallpaperSet) return
+                val ctx = sessionWatchContext ?: return
+                try {
+                    pollTrackChangeAndRefresh(ctx)
+                } catch (e: Throwable) {
+                    logE("track poll error", e)
+                }
+                sessionPollHandler.postDelayed(this, TRACK_POLL_INTERVAL_MS)
+            }
+        }
+        trackPollRunnable = trackRunnable
+        sessionPollHandler.postDelayed(trackRunnable, TRACK_POLL_INTERVAL_MS)
+    }
+
+    private fun bindMediaMetadataCallback(context: Context) {
+        unbindMediaMetadataCallback()
+        val controller = preferredMediaController(context) ?: return
+        trackedMediaController = controller
+        val cb = object : MediaController.Callback() {
+            override fun onMetadataChanged(metadata: MediaMetadata?) {
+                val ctx = sessionWatchContext ?: return
+                sessionPollHandler.post {
+                    try {
+                        if (!isMusicWallpaperSet) return@post
+                        onSessionMetadataChanged(ctx, metadata)
+                    } catch (e: Throwable) {
+                        logE("onMetadataChanged refresh error", e)
+                    }
+                }
+            }
+        }
+        mediaMetadataCallback = cb
+        try {
+            controller.registerCallback(cb, sessionPollHandler)
+            logI("media metadata callback registered pkg=${controller.packageName}")
+            // 立刻对齐当前曲目
+            onSessionMetadataChanged(context, controller.metadata)
+        } catch (e: Throwable) {
+            logE("register media callback failed", e)
+            mediaMetadataCallback = null
+            trackedMediaController = null
+        }
+    }
+
+    private fun rebindMediaMetadataCallbackIfNeeded(context: Context) {
+        val current = preferredMediaController(context) ?: return
+        val tracked = trackedMediaController
+        if (tracked != null && tracked === current) return
+        if (tracked != null && tracked.packageName == current.packageName &&
+            tracked.sessionToken == current.sessionToken
+        ) {
+            return
+        }
+        logI("media session changed, rebind callback")
+        bindMediaMetadataCallback(context)
+    }
+
+    private fun unbindMediaMetadataCallback() {
+        val ctrl = trackedMediaController
+        val cb = mediaMetadataCallback
+        if (ctrl != null && cb != null) {
+            try {
+                ctrl.unregisterCallback(cb)
+            } catch (_: Throwable) {
+            }
+        }
+        trackedMediaController = null
+        mediaMetadataCallback = null
+    }
+
+    private fun preferredMediaController(context: Context): MediaController? {
+        return try {
+            val mgr = context.getSystemService(Context.MEDIA_SESSION_SERVICE)
+                as? android.media.session.MediaSessionManager ?: return null
+            mgr.getActiveSessions(null).firstOrNull { controller ->
+                ConfigReader.isAllowedMusicApp(context, controller.packageName)
+            } ?: mgr.getActiveSessions(null).firstOrNull()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun onSessionMetadataChanged(context: Context, metadata: MediaMetadata?) {
+        if (!isMusicWallpaperSet) return
+        if (!HookUtils.isOnKeyguard(context)) {
+            markWallpaperStale()
+            return
+        }
+        if (!HookUtils.isAllowedMusicApp(context)) return
+        val trackChanged = AlbumArtResolver.refreshFromSessionMetadata(context, metadata)
+        val cachedKey = AlbumArtResolver.getCachedTrackKey()
+        val lagging = cachedKey != null && cachedKey != appliedWallpaperTrackKey
+        if (!trackChanged && !lagging && !wallpaperLayoutStale) return
+        logI(
+            "session metadata refresh: changed=$trackChanged lagging=$lagging " +
+                "stale=$wallpaperLayoutStale key=$cachedKey applied=$appliedWallpaperTrackKey"
+        )
+        AlbumArtResolver.getCached()?.let { MusicLockscreenManager.updateAlbumBitmap(it) }
+        (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onTrackMayHaveChanged()
+        if (!HookUtils.canApplyLockWallpaper(context)) {
+            markWallpaperStale()
+            return
+        }
+        updateMusicWallpaperSilently(context, null, metadata, ignoreCache = true)
+    }
+
+    /**
+     * 锁屏 / AOD 下用 MediaSession 检测切歌并刷新专辑与模糊壁纸（Callback 的兜底）。
+     */
+    private fun pollTrackChangeAndRefresh(context: Context) {
+        if (!HookUtils.isOnKeyguard(context)) return
+        if (!HookUtils.isAllowedMusicApp(context)) return
+        val meta = readMediaMetadata(context) ?: return
+        val trackChanged = AlbumArtResolver.refreshFromSessionMetadata(context, meta)
+        val cachedKey = AlbumArtResolver.getCachedTrackKey()
+        val wallpaperLagging = cachedKey != null && cachedKey != appliedWallpaperTrackKey
+        if (!trackChanged && !wallpaperLagging && !wallpaperLayoutStale) return
+        if (!HookUtils.canApplyLockWallpaper(context)) {
+            markWallpaperStale()
+            (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onTrackMayHaveChanged()
+            return
+        }
+        logI(
+            "track poll refresh: changed=$trackChanged lagging=$wallpaperLagging " +
+                "stale=$wallpaperLayoutStale key=$cachedKey applied=$appliedWallpaperTrackKey"
+        )
+        AlbumArtResolver.getCached()?.let { MusicLockscreenManager.updateAlbumBitmap(it) }
+        (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onTrackMayHaveChanged()
+        updateMusicWallpaperSilently(context, null, meta, ignoreCache = true)
     }
 
     private fun stopSessionWatch() {
+        unbindMediaMetadataCallback()
         sessionPollRunnable?.let { sessionPollHandler.removeCallbacks(it) }
         sessionPollRunnable = null
+        trackPollRunnable?.let { sessionPollHandler.removeCallbacks(it) }
+        trackPollRunnable = null
         sessionWatchContext = null
     }
 

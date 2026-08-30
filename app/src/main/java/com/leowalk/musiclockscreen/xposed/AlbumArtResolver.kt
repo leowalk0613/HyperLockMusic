@@ -149,7 +149,9 @@ object AlbumArtResolver {
             drawable = null,
             metadata = meta,
             mediaData = data,
-            includeCache = !trackChanged
+            includeCache = !trackChanged,
+            // bind 路径只采本地源，避免主线程卡在 http 导致切歌不刷新
+            allowRemote = false
         )
         if (best != null) {
             updateCache(best, trackKey)
@@ -164,46 +166,90 @@ object AlbumArtResolver {
     }
 
     /**
+     * AOD / bind 不来时：用 MediaSession metadata 同步曲目与封面缓存。
+     * @return 是否切歌
+     */
+    fun refreshFromSessionMetadata(context: Context, metadata: MediaMetadata?): Boolean {
+        if (metadata == null) return false
+        lastBindMetadata = metadata
+        val trackKey = computeTrackKey(context, metadata, lastBindMediaData)
+        val trackChanged = trackKey != null && trackKey != cachedTrackKey
+        if (trackChanged) {
+            logI("track changed on session: $cachedTrackKey -> $trackKey")
+        }
+        val best = collectBest(
+            context = context,
+            drawable = null,
+            metadata = metadata,
+            mediaData = lastBindMediaData,
+            includeCache = !trackChanged,
+            allowRemote = false
+        )
+        if (best != null) {
+            updateCache(best, trackKey)
+        } else if (trackChanged) {
+            cachedBitmap = null
+            cachedTrackKey = trackKey
+            logI("session refresh empty on track change, cleared stale album cache")
+        }
+        return trackChanged
+    }
+
+    /** 当前曲目已解析到可用封面（非切歌后空窗期）。 */
+    fun hasResolvedArt(): Boolean {
+        val b = cachedBitmap
+        return b != null && !b.isRecycled
+    }
+
+    /**
      * 解析专辑图。重新进入音乐锁屏或切歌时应设 [ignoreCache]=true。
+     * [allowRemote] 为 false 时跳过 http(s)，只用来自 metadata / mediaData / 本地 URI 的图，保证切歌即时。
      */
     fun resolve(
         context: Context,
         drawable: Drawable?,
         metadata: MediaMetadata? = null,
         ignoreCache: Boolean = false,
-        mediaData: Any? = null
+        mediaData: Any? = null,
+        allowRemote: Boolean = true
     ): Bitmap? {
         val meta = metadata ?: lastBindMetadata
         val data = mediaData ?: lastBindMediaData
         val trackKey = computeTrackKey(context, meta, data)
         val trackChanged = trackKey != null && trackKey != cachedTrackKey
-        val includeCache = !ignoreCache && !trackChanged
+        // refreshFromBind 切歌后会先写入新 trackKey 并清空 bitmap。
+        // 此空窗期内若误用「仍显示旧曲」的 ImageView，会把旧图挂到新曲上且长期不刷新。
+        // 仅在 trackKey 已变时丢弃 drawable；同曲 artPending 时 drawable 往往是迟到的新封面。
+        val artPending = trackKey != null &&
+            trackKey == cachedTrackKey &&
+            (cachedBitmap == null || cachedBitmap!!.isRecycled)
+        val includeCache = !ignoreCache && !trackChanged && !artPending
+        val safeDrawable = if (trackChanged) null else drawable
 
         val best = collectBest(
             context = context,
-            drawable = drawable,
+            drawable = safeDrawable,
             metadata = meta,
             mediaData = data,
-            includeCache = includeCache
+            includeCache = includeCache,
+            allowRemote = allowRemote
         )
         if (best != null) {
             updateCache(best, trackKey)
-            logI("resolved: ${best.width}x${best.height}, ignoreCache=$ignoreCache")
+            logI(
+                "resolved: ${best.width}x${best.height}, ignoreCache=$ignoreCache " +
+                    "remote=$allowRemote pending=$artPending"
+            )
             return best
         }
-        // 切歌时 bind 可能早于封面就绪，回退缓存/ drawable 避免空白
-        if (trackChanged) {
-            extractFromDrawable(drawable)?.let { fallback ->
-                logI("resolved fallback drawable ${fallback.width}x${fallback.height}")
-                updateCache(fallback, trackKey)
-                return fallback
-            }
+        // 同曲已有缓存时可回退；切歌空窗期 / artPending 绝不回退旧缓存冒充新图
+        if (!trackChanged && !artPending) {
             getCached()?.let { cached ->
                 logI("resolved fallback cache ${cached.width}x${cached.height}")
                 return cached
             }
         }
-        logE("resolve failed: no bitmap source")
+        logE("resolve failed: no bitmap source (trackChanged=$trackChanged artPending=$artPending)")
         return null
     }
 
@@ -221,7 +267,8 @@ object AlbumArtResolver {
         drawable: Drawable?,
         metadata: MediaMetadata?,
         mediaData: Any?,
-        includeCache: Boolean
+        includeCache: Boolean,
+        allowRemote: Boolean = true
     ): Bitmap? {
         val candidates = mutableListOf<Bitmap>()
         if (includeCache) {
@@ -234,7 +281,9 @@ object AlbumArtResolver {
             extractIconBitmap(context, mediaData)?.let { candidates.add(it) }
         }
         for (url in collectArtUrlStrings(metadata, mediaData, context)) {
-            loadBitmapFromUri(context, normalizeArtUrl(url))?.let { candidates.add(it) }
+            val normalized = normalizeArtUrl(url) ?: continue
+            if (!allowRemote && isRemoteUrl(normalized)) continue
+            loadBitmapFromUri(context, normalized)?.let { candidates.add(it) }
         }
         extractFromDrawable(drawable)?.let { candidates.add(it) }
 
@@ -244,6 +293,11 @@ object AlbumArtResolver {
             logI("candidates=[$sizes] -> best=${best?.width}x${best?.height}")
         }
         return best
+    }
+
+    private fun isRemoteUrl(url: String): Boolean {
+        val scheme = Uri.parse(url).scheme?.lowercase()
+        return scheme == "http" || scheme == "https"
     }
 
     /** 取最大候选；有 songId 时大图与当前曲一致即可，否则走 URL/视觉校验 */

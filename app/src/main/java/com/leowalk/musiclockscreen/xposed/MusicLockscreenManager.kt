@@ -27,11 +27,65 @@ object MusicLockscreenManager {
     /** 壁纸切换过渡用的黑遮罩（挂在 keyguard 背景层之上，纯黑铺满盖住壁纸切换过程） */
     var transitionMaskView: View? = null
 
+    /**
+     * 大专辑 → 沉浸：壁纸尚未烘焙完成前，强制保持方形 overlay 可见，
+     * 避免提前按 shouldShowSquareAlbum=false 隐藏后露出系统/桌面壁纸。
+     */
+    @Volatile
+    var holdSquareAlbumUntilWallpaperSettled: Boolean = false
+
     // 当前模糊壁纸 bitmap（用于歌词毛玻璃条同源背景）
     var blurredWallpaperBitmap: Bitmap? = null
         private set
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
+
+    /**
+     * 布局切换（尤其大专辑→沉浸）在 setBitmap 完成后调用：
+     * 若切换前方形封面本就可见，则等壁纸稳定后淡出；若本就因沉浸歌词隐藏，则保持隐藏，勿误盖模糊背景。
+     */
+    fun finishLayoutSwitchOverlay(bakeImmersive: Boolean) {
+        holdSquareAlbumUntilWallpaperSettled = false
+        val album = bigAlbumView ?: return
+        try {
+            if (bakeImmersive || !ConfigReader.shouldShowSquareAlbum(album.context)) {
+                album.animate().cancel()
+                // 本就不可见（沉浸歌词占位）：直接保持 GONE，避免又闪出方形盖住模糊底
+                if (album.visibility != View.VISIBLE) {
+                    album.visibility = View.GONE
+                    album.alpha = 1f
+                    MediaFollowController.requestReflow()
+                    return
+                }
+                album.animate()
+                    .alpha(0f)
+                    .setDuration(220L)
+                    .withEndAction {
+                        try {
+                            album.visibility = View.GONE
+                            album.alpha = 1f
+                            MediaFollowController.requestReflow()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    .start()
+            } else {
+                album.animate().cancel()
+                album.alpha = 1f
+                showAlbumOverlay()
+                MediaFollowController.requestReflow()
+            }
+        } catch (e: Throwable) {
+            logE("finishLayoutSwitchOverlay error", e)
+            showAlbumOverlay()
+        }
+    }
+
+    /** 方形大专辑 overlay 当前是否可见（用于布局切换时决定要不要 hold）。 */
+    fun isSquareAlbumOverlayVisible(): Boolean {
+        val album = bigAlbumView ?: return false
+        return album.visibility == View.VISIBLE && album.alpha > 0.01f
+    }
 
     fun toggle() {
         if (isShowing) hide() else show()
@@ -54,6 +108,7 @@ object MusicLockscreenManager {
      */
     fun hide() {
         isShowing = false
+        holdSquareAlbumUntilWallpaperSettled = false
         MediaFollowController.onMusicLockscreenHidden()
         hideAlbumOverlay()
         (lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
@@ -70,6 +125,7 @@ object MusicLockscreenManager {
             showAlbumOverlay()
             MediaFollowController.onMusicLockscreenShown()
         } else {
+            holdSquareAlbumUntilWallpaperSettled = false
             MediaFollowController.onMusicLockscreenHidden()
             hideAlbumOverlay()
         }

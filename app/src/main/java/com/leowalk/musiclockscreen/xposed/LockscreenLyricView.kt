@@ -762,6 +762,9 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun applyLyricConfig() {
         try {
+            // 与 BigAlbum 共用 ConfigReader：先失效，避免 showAlbumOverlay 读到旧的
+            // immersive_album / immersive_lyric，在「沉浸歌词大专辑→沉浸专辑」时误把方形封面又画出来盖住模糊底。
+            ConfigReader.invalidate()
             val uri = Uri.parse(CONFIG_URI)
             val cursor = context.contentResolver.query(uri, null, null, null, null)
             if (cursor != null && cursor.moveToFirst()) {

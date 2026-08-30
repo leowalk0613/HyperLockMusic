@@ -169,7 +169,8 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             visibility = GONE
             return
         }
-        if (!ConfigReader.shouldShowSquareAlbum(context)) {
+        val hold = MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled
+        if (!ConfigReader.shouldShowSquareAlbum(context) && !hold) {
             visibility = GONE
             return
         }
@@ -268,6 +269,16 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
                         val layoutChanged = bakeBefore != bakeAfter || centerBefore != centerAfter
                         if (layoutChanged) {
                             if (bakeAfter) {
+                                // 仅当方形封面当前可见时才 hold；沉浸歌词占位时封面已隐藏，
+                                // 强行 show 会盖住全屏模糊背景。
+                                val squareVisible = MusicLockscreenManager.isSquareAlbumOverlayVisible()
+                                MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled =
+                                    squareVisible
+                                if (squareVisible) {
+                                    MusicLockscreenManager.showAlbumOverlay()
+                                }
+                            } else {
+                                MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled = false
                                 MusicLockscreenManager.showAlbumOverlay()
                             }
                             WallpaperController.refreshWallpaperForAlbumVisibility(context)
