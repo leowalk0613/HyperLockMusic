@@ -32,16 +32,25 @@ object ConfigReader {
     private var cachedKeepLockScreenOn: Boolean = false
     private var cachedImmersiveAlbum: Boolean = false
     private var cachedImmersiveAlbumCenterY: Float = 38f
+    private var cachedMinimalClock: Boolean = true
+    private var cachedMinimalClockSize: Float = 30f
+    private var cachedMinimalClockTopY: Float = 10f
     private var cachedTitleBracketMode: String = "default"
     private var cachedAodFullMedia: Boolean = true
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
+    private var cachedMediaListenerReady: Boolean = false
+    private var cachedMediaPlaybackActive: Boolean = false
     private var lastReadTime: Long = 0
     private const val CACHE_DURATION = 1000 // 缓存 1 秒
+    /** 播放状态信号缓存更短，便于杀 App 后尽快退出音乐锁屏 */
+    private const val MEDIA_CACHE_DURATION = 400
+    private var lastMediaReadTime: Long = 0
 
     /** 强制下次读取走 ContentProvider（配置变更后调用） */
     fun invalidate() {
         lastReadTime = 0
+        lastMediaReadTime = 0
     }
 
     private const val KEY_WALLPAPER_ACTIVE = "music_lockscreen_wallpaper_active"
@@ -161,6 +170,24 @@ object ConfigReader {
         return cachedImmersiveAlbum
     }
 
+    /** 音乐锁屏简洁时钟：隐藏系统大时钟，顶部显示一行时间日期 */
+    fun minimalClock(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedMinimalClock
+    }
+
+    /** 简洁时钟字号（sp） */
+    fun minimalClockSize(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return cachedMinimalClockSize.coerceIn(16f, 48f)
+    }
+
+    /** 简洁时钟顶边占屏高百分比 */
+    fun minimalClockTopY(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return cachedMinimalClockTopY.coerceIn(2f, 25f)
+    }
+
     /** 方形专辑 overlay 是否应显示 */
     fun shouldShowSquareAlbum(context: Context): Boolean {
         refreshConfigIfNeeded(context)
@@ -212,6 +239,21 @@ object ConfigReader {
         return cachedWhitelist
     }
 
+    /**
+     * 通知使用权 Listener 是否已连接并上报过状态。
+     * 未就绪时不应把「无上报」当成「无播放」。
+     */
+    fun mediaListenerReady(context: Context): Boolean {
+        refreshMediaPlaybackIfNeeded(context)
+        return cachedMediaListenerReady
+    }
+
+    /** Listener 判定：是否仍有音乐相关活跃会话（含暂停）。 */
+    fun mediaPlaybackActive(context: Context): Boolean {
+        refreshMediaPlaybackIfNeeded(context)
+        return cachedMediaPlaybackActive
+    }
+
     /** 白名单关闭时一律允许；开启时仅白名单内包名允许。 */
     fun isAllowedMusicApp(context: Context, packageName: String?): Boolean {
         if (packageName.isNullOrEmpty()) return !musicWhitelistEnabled(context)
@@ -258,10 +300,15 @@ object ConfigReader {
                 val keepLockScreenOnIdx = cursor.getColumnIndex("keep_lockscreen_on")
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val immersiveAlbumCenterYIdx = cursor.getColumnIndex("immersive_album_center_y")
+                val minimalClockIdx = cursor.getColumnIndex("minimal_clock")
+                val minimalClockSizeIdx = cursor.getColumnIndex("minimal_clock_size")
+                val minimalClockTopYIdx = cursor.getColumnIndex("minimal_clock_top_y")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
+                val mediaListenerReadyIdx = cursor.getColumnIndex("media_listener_ready")
+                val mediaPlaybackActiveIdx = cursor.getColumnIndex("media_playback_active")
 
                 if (showBigAlbumIdx >= 0) {
                     cachedShowBigAlbum = cursor.getInt(showBigAlbumIdx) == 1
@@ -314,6 +361,15 @@ object ConfigReader {
                 if (immersiveAlbumCenterYIdx >= 0) {
                     cachedImmersiveAlbumCenterY = cursor.getFloat(immersiveAlbumCenterYIdx)
                 }
+                if (minimalClockIdx >= 0) {
+                    cachedMinimalClock = cursor.getInt(minimalClockIdx) == 1
+                }
+                if (minimalClockSizeIdx >= 0) {
+                    cachedMinimalClockSize = cursor.getFloat(minimalClockSizeIdx)
+                }
+                if (minimalClockTopYIdx >= 0) {
+                    cachedMinimalClockTopY = cursor.getFloat(minimalClockTopYIdx)
+                }
                 if (titleBracketModeIdx >= 0) {
                     cachedTitleBracketMode = cursor.getString(titleBracketModeIdx) ?: "default"
                 }
@@ -326,12 +382,27 @@ object ConfigReader {
                 if (whitelistIdx >= 0) {
                     cachedWhitelist = cursor.getString(whitelistIdx) ?: ""
                 }
+                if (mediaListenerReadyIdx >= 0) {
+                    cachedMediaListenerReady = cursor.getInt(mediaListenerReadyIdx) == 1
+                }
+                if (mediaPlaybackActiveIdx >= 0) {
+                    cachedMediaPlaybackActive = cursor.getInt(mediaPlaybackActiveIdx) == 1
+                }
                 cursor.close()
                 lastReadTime = now
+                lastMediaReadTime = now
             }
             // 读失败不刷新 lastReadTime，下次继续重试（避免重启后首帧锁死默认值）
         } catch (e: Throwable) {
             // 读取失败，用默认值并允许马上重试
         }
+    }
+
+    private fun refreshMediaPlaybackIfNeeded(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastMediaReadTime < MEDIA_CACHE_DURATION && lastMediaReadTime > 0) return
+        // 复用全量刷新；媒体字段与其它配置同 cursor
+        lastReadTime = 0
+        refreshConfigIfNeeded(context)
     }
 }

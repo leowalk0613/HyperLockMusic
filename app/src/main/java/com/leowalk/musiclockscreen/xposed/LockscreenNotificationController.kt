@@ -30,6 +30,8 @@ object LockscreenNotificationController {
         }
     }
 
+    fun isNotificationShadeOpen(): Boolean = notificationShadeOpen
+
     /** 音乐锁屏激活且仍在锁屏界面时才过滤普通通知（OS4：锁屏=通知中心，不区分 shade） */
     fun shouldFilterNotifications(): Boolean {
         return WallpaperController.isShowing() && isOnKeyguard()
@@ -85,6 +87,7 @@ object LockscreenNotificationController {
             MusicLockscreenManager.pauseAlbumOverlay()
         }
         (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.refreshVisibility()
+        LockscreenClockController.sync()
     }
 
     fun setNotificationStackView(view: ViewGroup?) {

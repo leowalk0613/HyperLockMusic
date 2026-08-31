@@ -154,7 +154,7 @@ object MediaExitHook {
     private fun tryExitMusicLockscreen(context: Context?) {
         if (context == null) return
         if (!WallpaperController.isShowing()) return
-        if (!HookUtils.isOnKeyguard(context)) return
+        // 不要求当前在锁屏：直接关音乐 App 时也应退出音乐锁屏
         WallpaperController.restoreOriginalWallpaper(context.applicationContext)
     }
 

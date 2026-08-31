@@ -12,6 +12,7 @@ import android.widget.LinearLayout
 class MainActivity : BaseScrollingActivity() {
 
     private var manageWhitelistRow: View? = null
+    private var notificationAccessRow: View? = null
 
     override fun titleText() = "HyperLockMusic"
 
@@ -20,10 +21,27 @@ class MainActivity : BaseScrollingActivity() {
     override fun buildToolbarAction(ctx: Context): View? =
         SystemUiRestart.buildAction(ctx) { confirmRestart() }
 
+    override fun onResume() {
+        super.onResume()
+        refreshNotificationAccessRow()
+    }
+
     override fun buildContent(list: LinearLayout) {
         list.addView(M3.card(this, M3.tipContent(this,
             "基于 LSPosed 的 HyperLockMusic 模块，为锁屏重绘专辑壁纸与歌词。" +
                 "调整后可点右上角\"重启界面\"让改动立即生效。")))
+
+        val accessCard = M3.cardContent(this)
+        accessCard.addView(M3.title(this, "权限"))
+        notificationAccessRow = M3.clickRow(
+            this,
+            "通知使用权",
+            notificationAccessDesc()
+        ) {
+            MediaSessionAccess.openNotificationAccessSettings(this)
+        }
+        accessCard.addView(notificationAccessRow)
+        list.addView(M3.card(this, accessCard))
 
         val whitelistCard = M3.cardContent(this)
         whitelistCard.addView(M3.title(this, "音乐应用白名单"))
@@ -63,6 +81,21 @@ class MainActivity : BaseScrollingActivity() {
         list.addView(M3.clickRow(this, "关于", "版本号与使用说明") {
             startActivity(Intent(this, AboutActivity::class.java))
         })
+    }
+
+    private fun notificationAccessDesc(): String {
+        return if (MediaSessionAccess.isNotificationAccessEnabled(this)) {
+            "已开启：可更准确检测播放/退出，关闭音乐软件会自动退出音乐锁屏"
+        } else {
+            "未开启：点此到系统设置打开 HyperLockMusic 通知使用权"
+        }
+    }
+
+    private fun refreshNotificationAccessRow() {
+        val row = notificationAccessRow as? LinearLayout ?: return
+        val textCol = row.getChildAt(0) as? LinearLayout ?: return
+        val desc = textCol.getChildAt(1) as? android.widget.TextView ?: return
+        desc.text = notificationAccessDesc()
     }
 
     private fun updateManageRowEnabled(enabled: Boolean) {

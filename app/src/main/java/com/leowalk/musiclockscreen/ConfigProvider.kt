@@ -37,10 +37,16 @@ class ConfigProvider : ContentProvider() {
         const val KEY_LYRIC_ALIGN = "lyric_align"
         const val KEY_IMMERSIVE_ALBUM = "immersive_album"
         const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
+        const val KEY_MINIMAL_CLOCK = "minimal_clock"
+        const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
+        const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
         const val KEY_AOD_FULL_MEDIA = "aod_full_media"
         const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
+        const val KEY_MEDIA_LISTENER_READY = "media_listener_ready"
+        const val KEY_MEDIA_PLAYBACK_ACTIVE = "media_playback_active"
+        const val KEY_MEDIA_PLAYBACK_PACKAGE = "media_playback_package"
         const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
         const val KEY_MUSIC_WHITELIST = "music_whitelist"
 
@@ -93,10 +99,16 @@ class ConfigProvider : ContentProvider() {
                 KEY_LYRIC_ALIGN,
                 KEY_IMMERSIVE_ALBUM,
                 KEY_IMMERSIVE_ALBUM_CENTER_Y,
+                KEY_MINIMAL_CLOCK,
+                KEY_MINIMAL_CLOCK_SIZE,
+                KEY_MINIMAL_CLOCK_TOP_Y,
                 KEY_AOD_FULL_MEDIA,
                 KEY_KEEP_LOCKSCREEN_ON,
                 KEY_TITLE_BRACKET_MODE,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
+                KEY_MEDIA_LISTENER_READY,
+                KEY_MEDIA_PLAYBACK_ACTIVE,
+                KEY_MEDIA_PLAYBACK_PACKAGE,
                 KEY_MUSIC_WHITELIST_ENABLED,
                 KEY_MUSIC_WHITELIST
             )
@@ -122,11 +134,17 @@ class ConfigProvider : ContentProvider() {
                     ?: ModuleConfig.LYRIC_ALIGN_LEFT,
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) 1 else 0,
                 prefs.getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, 38f),
+                if (prefs.getBoolean(KEY_MINIMAL_CLOCK, true)) 1 else 0,
+                prefs.getFloat(KEY_MINIMAL_CLOCK_SIZE, 30f),
+                prefs.getFloat(KEY_MINIMAL_CLOCK_TOP_Y, 10f),
                 if (prefs.getBoolean(KEY_AOD_FULL_MEDIA, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_KEEP_LOCKSCREEN_ON, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
                 if (prefs.getBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, false)) 1 else 0,
+                if (prefs.getBoolean(KEY_MEDIA_LISTENER_READY, false)) 1 else 0,
+                if (prefs.getBoolean(KEY_MEDIA_PLAYBACK_ACTIVE, false)) 1 else 0,
+                prefs.getString(KEY_MEDIA_PLAYBACK_PACKAGE, "") ?: "",
                 if (prefs.getBoolean(KEY_MUSIC_WHITELIST_ENABLED, false)) 1 else 0,
                 prefs.getString(KEY_MUSIC_WHITELIST, "") ?: ""
             )
@@ -211,6 +229,15 @@ class ConfigProvider : ContentProvider() {
                         values.getAsFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y)
                     )
                 }
+                if (values.containsKey(KEY_MINIMAL_CLOCK)) {
+                    editor.putBoolean(KEY_MINIMAL_CLOCK, values.getAsInteger(KEY_MINIMAL_CLOCK) == 1)
+                }
+                if (values.containsKey(KEY_MINIMAL_CLOCK_SIZE)) {
+                    editor.putFloat(KEY_MINIMAL_CLOCK_SIZE, values.getAsFloat(KEY_MINIMAL_CLOCK_SIZE))
+                }
+                if (values.containsKey(KEY_MINIMAL_CLOCK_TOP_Y)) {
+                    editor.putFloat(KEY_MINIMAL_CLOCK_TOP_Y, values.getAsFloat(KEY_MINIMAL_CLOCK_TOP_Y))
+                }
                 if (values.containsKey(KEY_AOD_FULL_MEDIA)) {
                     editor.putBoolean(KEY_AOD_FULL_MEDIA, values.getAsInteger(KEY_AOD_FULL_MEDIA) == 1)
                 }
@@ -222,6 +249,24 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_MEDIA_WALLPAPER_ACTIVE)) {
                     editor.putBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, values.getAsInteger(KEY_MEDIA_WALLPAPER_ACTIVE) == 1)
+                }
+                if (values.containsKey(KEY_MEDIA_LISTENER_READY)) {
+                    editor.putBoolean(
+                        KEY_MEDIA_LISTENER_READY,
+                        values.getAsInteger(KEY_MEDIA_LISTENER_READY) == 1
+                    )
+                }
+                if (values.containsKey(KEY_MEDIA_PLAYBACK_ACTIVE)) {
+                    editor.putBoolean(
+                        KEY_MEDIA_PLAYBACK_ACTIVE,
+                        values.getAsInteger(KEY_MEDIA_PLAYBACK_ACTIVE) == 1
+                    )
+                }
+                if (values.containsKey(KEY_MEDIA_PLAYBACK_PACKAGE)) {
+                    editor.putString(
+                        KEY_MEDIA_PLAYBACK_PACKAGE,
+                        values.getAsString(KEY_MEDIA_PLAYBACK_PACKAGE) ?: ""
+                    )
                 }
                 if (values.containsKey(KEY_MUSIC_WHITELIST_ENABLED)) {
                     editor.putBoolean(

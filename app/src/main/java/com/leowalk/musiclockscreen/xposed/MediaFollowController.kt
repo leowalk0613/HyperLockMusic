@@ -121,11 +121,15 @@ object MediaFollowController {
             ?: return
         if (bg.width <= 0 || bg.height <= 0) return
 
-        if (isBouncerShowing(bg)) {
+        if (HookUtils.isBouncerShowing(bg)) {
             MusicLockscreenManager.bigAlbumView?.takeIf { it.visibility == View.VISIBLE }
                 ?.visibility = View.INVISIBLE
             MusicLockscreenManager.lyricView?.takeIf { it.visibility == View.VISIBLE }
                 ?.visibility = View.INVISIBLE
+            LockscreenClockController.getMinimalClockView()
+                ?.takeIf { it.visibility == View.VISIBLE }
+                ?.visibility = View.INVISIBLE
+            LockscreenClockController.syncMinimalClockVisibility()
             resetTransforms()
             return
         }
@@ -134,6 +138,7 @@ object MediaFollowController {
         layoutLyric(bg)
         resetTransforms()
         ensureLyricOnTop()
+        LockscreenClockController.syncMinimalClockVisibility()
     }
 
     private fun layoutAlbum(bg: View) {
@@ -364,42 +369,20 @@ object MediaFollowController {
         if (target.scaleY != 1f) target.scaleY = 1f
     }
 
-    private fun isBouncerShowing(anchor: View): Boolean {
-        return try {
-            val root = anchor.rootView ?: return false
-            val pkg = anchor.context.packageName
-            val res = root.resources
-            val names = arrayOf(
-                "keyguard_bouncer_container",
-                "keyguard_security_container",
-                "miui_keyguard_bouncer_container",
-                "security_container"
-            )
-            for (name in names) {
-                val id = res.getIdentifier(name, "id", pkg)
-                if (id == 0) continue
-                val v = root.findViewById<View>(id) ?: continue
-                if (v.visibility == View.VISIBLE && v.isShown && v.height > 0) return true
-            }
-            false
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
     private fun ensureLyricOnTop() {
         val lyric = MusicLockscreenManager.lyricView ?: return
         if (lyric.visibility == View.GONE) return
         val d = lyric.resources.displayMetrics.density
         try {
             MusicLockscreenManager.bigAlbumView?.let { album ->
+                // 专辑 overlay 必须低于歌词（含 hold 过渡期）
                 album.elevation = 2f * d
                 album.translationZ = 0f
             }
-            // 歌词保持模块内最高（高于专辑）；过渡遮罩仅在可见时临时压过
             lyric.elevation = 48f * d
             lyric.translationZ = 48f * d
             lyric.bringToFront()
+            LockscreenClockController.getMinimalClockView()?.bringToFront()
             val mask = MusicLockscreenManager.transitionMaskView
             if (mask != null && mask.visibility == View.VISIBLE && mask.alpha > 0.01f) {
                 mask.elevation = 64f * d

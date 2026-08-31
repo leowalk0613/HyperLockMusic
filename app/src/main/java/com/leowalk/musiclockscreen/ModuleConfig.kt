@@ -32,6 +32,9 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     /** 沉浸封面竖直中心占屏高百分比（与大专辑底边 [KEY_ALBUM_OFFSET_Y] 互不共用） */
     private const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
+    private const val KEY_MINIMAL_CLOCK = "minimal_clock"
+    private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
+    private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
     private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
@@ -80,6 +83,9 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_IMMERSIVE_ALBUM_CENTER_Y = 38f
+    private const val DEFAULT_MINIMAL_CLOCK = true
+    private const val DEFAULT_MINIMAL_CLOCK_SIZE = 30f
+    private const val DEFAULT_MINIMAL_CLOCK_TOP_Y = 10f
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_AOD_FULL_MEDIA = false
     private const val DEFAULT_KEEP_LOCKSCREEN_ON = false
@@ -177,6 +183,21 @@ object ModuleConfig {
         get() = getPrefs().getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, DEFAULT_IMMERSIVE_ALBUM_CENTER_Y)
         set(value) = getPrefs().edit().putFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, value).apply()
 
+    /** 音乐锁屏简洁时钟：隐藏系统大时钟，顶部显示一行时间日期 */
+    var minimalClock: Boolean
+        get() = getPrefs().getBoolean(KEY_MINIMAL_CLOCK, DEFAULT_MINIMAL_CLOCK)
+        set(value) = getPrefs().edit().putBoolean(KEY_MINIMAL_CLOCK, value).apply()
+
+    /** 简洁时钟字号（sp） */
+    var minimalClockSize: Float
+        get() = getPrefs().getFloat(KEY_MINIMAL_CLOCK_SIZE, DEFAULT_MINIMAL_CLOCK_SIZE)
+        set(value) = getPrefs().edit().putFloat(KEY_MINIMAL_CLOCK_SIZE, value).apply()
+
+    /** 简洁时钟顶边占屏高百分比 */
+    var minimalClockTopY: Float
+        get() = getPrefs().getFloat(KEY_MINIMAL_CLOCK_TOP_Y, DEFAULT_MINIMAL_CLOCK_TOP_Y)
+        set(value) = getPrefs().edit().putFloat(KEY_MINIMAL_CLOCK_TOP_Y, value).apply()
+
     /**
      * 专辑样式 ↔ 歌词样式绑定：
      * - 沉浸封面 → 普通歌词 + 无背景
@@ -242,6 +263,14 @@ object ModuleConfig {
         }
     }
 
+    /** 白名单关闭则一律允许；开启则仅白名单内包名。 */
+    fun isPackageAllowed(packageName: String?): Boolean {
+        if (!musicWhitelistEnabled) return true
+        if (packageName.isNullOrEmpty()) return false
+        val list = getWhitelist().ifEmpty { DEFAULT_WHITELIST }
+        return list.any { it.equals(packageName, ignoreCase = true) }
+    }
+
     /** 变更后推送全部配置到 SystemUI 进程（经 ConfigProvider）。 */
     fun push(context: Context) {
         try {
@@ -265,6 +294,9 @@ object ModuleConfig {
                 put("lyric_align", lyricAlign)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("immersive_album_center_y", immersiveAlbumCenterY)
+                put("minimal_clock", if (minimalClock) 1 else 0)
+                put("minimal_clock_size", minimalClockSize)
+                put("minimal_clock_top_y", minimalClockTopY)
                 put("aod_full_media", if (aodFullMedia) 1 else 0)
                 put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)

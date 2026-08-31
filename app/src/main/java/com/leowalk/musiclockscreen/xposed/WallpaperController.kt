@@ -2,6 +2,7 @@ package com.leowalk.musiclockscreen.xposed
 
 import android.app.WallpaperManager
 import android.content.Context
+import android.database.ContentObserver
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
@@ -9,6 +10,7 @@ import android.graphics.drawable.Drawable
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.PlaybackState
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -81,6 +83,7 @@ object WallpaperController {
     private var sessionWatchContext: Context? = null
     private var trackedMediaController: MediaController? = null
     private var mediaMetadataCallback: MediaController.Callback? = null
+    private var mediaStateObserver: ContentObserver? = null
 
     private const val SESSION_POLL_INTERVAL_MS = 2000L
     /** AOD / 锁屏切歌：MediaSession 轮询兜底（Callback 为主） */
@@ -1326,22 +1329,21 @@ object WallpaperController {
         stopSessionWatch()
         sessionWatchContext = context.applicationContext
         bindMediaMetadataCallback(context.applicationContext)
+        startMediaStateObserver(context.applicationContext)
 
         val sessionRunnable = object : Runnable {
             override fun run() {
                 if (!isMusicWallpaperSet) return
                 val ctx = sessionWatchContext ?: return
-                if (!HookUtils.isOnKeyguard(ctx)) {
-                    sessionPollHandler.postDelayed(this, SESSION_POLL_INTERVAL_MS)
-                    return
-                }
                 if (!hasActiveMediaSession(ctx)) {
                     logI("no active media session, exiting music lockscreen")
                     restoreOriginalWallpaper(ctx)
                     return
                 }
-                // 会话可能切换，定期重绑 Callback
-                rebindMediaMetadataCallbackIfNeeded(ctx)
+                if (HookUtils.isOnKeyguard(ctx)) {
+                    // 会话可能切换，定期重绑 Callback
+                    rebindMediaMetadataCallbackIfNeeded(ctx)
+                }
                 sessionPollHandler.postDelayed(this, SESSION_POLL_INTERVAL_MS)
             }
         }
@@ -1422,11 +1424,10 @@ object WallpaperController {
 
     private fun preferredMediaController(context: Context): MediaController? {
         return try {
-            val mgr = context.getSystemService(Context.MEDIA_SESSION_SERVICE)
-                as? android.media.session.MediaSessionManager ?: return null
-            mgr.getActiveSessions(null).firstOrNull { controller ->
+            val controllers = com.leowalk.musiclockscreen.MediaSessionAccess.getActiveControllers(context)
+            controllers.firstOrNull { controller ->
                 ConfigReader.isAllowedMusicApp(context, controller.packageName)
-            } ?: mgr.getActiveSessions(null).firstOrNull()
+            } ?: controllers.firstOrNull()
         } catch (_: Throwable) {
             null
         }
@@ -1502,6 +1503,7 @@ object WallpaperController {
 
     private fun stopSessionWatch() {
         unbindMediaMetadataCallback()
+        stopMediaStateObserver()
         sessionPollRunnable?.let { sessionPollHandler.removeCallbacks(it) }
         sessionPollRunnable = null
         trackPollRunnable?.let { sessionPollHandler.removeCallbacks(it) }
@@ -1509,11 +1511,51 @@ object WallpaperController {
         sessionWatchContext = null
     }
 
+    private fun startMediaStateObserver(context: Context) {
+        stopMediaStateObserver()
+        val uri = Uri.parse("content://com.leowalk.musiclockscreen.config/config")
+        val observer = object : ContentObserver(sessionPollHandler) {
+            override fun onChange(selfChange: Boolean) {
+                if (!isMusicWallpaperSet) return
+                val ctx = sessionWatchContext ?: return
+                try {
+                    ConfigReader.invalidate()
+                    if (ConfigReader.mediaListenerReady(ctx) &&
+                        !ConfigReader.mediaPlaybackActive(ctx)
+                    ) {
+                        logI("listener: media inactive, exiting music lockscreen")
+                        restoreOriginalWallpaper(ctx)
+                    }
+                } catch (e: Throwable) {
+                    logE("mediaStateObserver error", e)
+                }
+            }
+        }
+        mediaStateObserver = observer
+        try {
+            context.contentResolver.registerContentObserver(uri, true, observer)
+        } catch (e: Throwable) {
+            logE("register mediaStateObserver failed", e)
+            mediaStateObserver = null
+        }
+    }
+
+    private fun stopMediaStateObserver() {
+        val obs = mediaStateObserver ?: return
+        mediaStateObserver = null
+        try {
+            sessionWatchContext?.contentResolver?.unregisterContentObserver(obs)
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun hasActiveMediaSession(context: Context): Boolean {
         return try {
-            val mgr = context.getSystemService(Context.MEDIA_SESSION_SERVICE)
-                as? android.media.session.MediaSessionManager ?: return true
-            val controllers = mgr.getActiveSessions(null)
+            // 通知使用权 Listener 已连接时，以其上报为准（杀 App 后更及时）
+            if (ConfigReader.mediaListenerReady(context)) {
+                return ConfigReader.mediaPlaybackActive(context)
+            }
+            val controllers = com.leowalk.musiclockscreen.MediaSessionAccess.getActiveControllers(context)
             controllers.any { controller ->
                 if (!ConfigReader.isAllowedMusicApp(context, controller.packageName)) {
                     return@any false
@@ -1521,11 +1563,13 @@ object WallpaperController {
                 val state = controller.playbackState?.state ?: return@any true
                 state == PlaybackState.STATE_PLAYING ||
                     state == PlaybackState.STATE_PAUSED ||
-                    state == PlaybackState.STATE_BUFFERING
+                    state == PlaybackState.STATE_BUFFERING ||
+                    state == PlaybackState.STATE_CONNECTING
             }
         } catch (e: Throwable) {
             logE("hasActiveMediaSession error", e)
-            true
+            // 读失败不要硬撑着不退出：保守返回 false 以便恢复原壁纸
+            false
         }
     }
 

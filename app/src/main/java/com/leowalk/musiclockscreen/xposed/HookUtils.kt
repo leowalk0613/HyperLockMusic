@@ -182,9 +182,9 @@ object HookUtils {
     /** 当前活跃媒体会话的包名（取第一个活跃会话） */
     fun currentMediaPackage(context: Context): String? {
         return try {
-            val mgr = context.getSystemService(Context.MEDIA_SESSION_SERVICE)
-                as? android.media.session.MediaSessionManager ?: return null
-            mgr.getActiveSessions(null).firstOrNull()?.packageName
+            com.leowalk.musiclockscreen.MediaSessionAccess
+                .getActiveControllers(context)
+                .firstOrNull()?.packageName
         } catch (_: Throwable) {
             null
         }
@@ -193,6 +193,31 @@ object HookUtils {
     /** 白名单关闭时一律允许；开启时仅白名单内应用允许。 */
     fun isAllowedMusicApp(context: Context, packageName: String? = currentMediaPackage(context)): Boolean {
         return ConfigReader.isAllowedMusicApp(context, packageName)
+    }
+
+    /** 锁屏密码 / 图案输入界面是否正在显示（与专辑、歌词隐藏条件一致）。 */
+    fun isBouncerShowing(anchor: View?): Boolean {
+        if (anchor == null) return false
+        return try {
+            val root = anchor.rootView ?: return false
+            val pkg = anchor.context.packageName
+            val res = root.resources
+            val names = arrayOf(
+                "keyguard_bouncer_container",
+                "keyguard_security_container",
+                "miui_keyguard_bouncer_container",
+                "security_container"
+            )
+            for (name in names) {
+                val id = res.getIdentifier(name, "id", pkg)
+                if (id == 0) continue
+                val v = root.findViewById<View>(id) ?: continue
+                if (v.visibility == View.VISIBLE && v.isShown && v.height > 0) return true
+            }
+            false
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     /** SystemUI 进程 Application 上下文（隐藏 API，反射获取）。 */

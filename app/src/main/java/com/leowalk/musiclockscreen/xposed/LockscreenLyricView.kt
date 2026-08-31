@@ -6,7 +6,6 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.database.ContentObserver
 import android.graphics.*
-import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Handler
@@ -658,6 +657,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                         return@post
                     }
                     fogTintColor = tintColor
+                    LockscreenClockController.onAlbumTint(tintColor)
                     if (cfgImmersiveLyric) {
                         showFogBackground = false
                     } else {
@@ -902,6 +902,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 updateVisibilityState()
                 MusicLockscreenManager.showAlbumOverlay()
                 KeepScreenController.sync()
+                LockscreenClockController.sync()
             }
         } catch (e: Throwable) {
             logE("applyLyricConfig error", e)
@@ -1932,27 +1933,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    /** AOD 下 NotificationListener 组件可能拿不到会话，回退 getActiveSessions(null) */
+    /** AOD / 锁屏：优先经通知使用权组件取会话，失败再回退 null */
     private fun getMediaControllers(): List<android.media.session.MediaController> {
         return try {
-            val msm = context.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-            val component = android.content.ComponentName(
-                context, "com.leowalk.musiclockscreen.NotificationListenerServiceKt"
-            )
-            val withComponent = try {
-                msm.getActiveSessions(component)
-            } catch (_: Throwable) {
-                emptyList()
-            }
-            if (withComponent.isNotEmpty()) {
-                withComponent
-            } else {
-                try {
-                    msm.getActiveSessions(null)
-                } catch (_: Throwable) {
-                    emptyList()
-                }
-            }
+            com.leowalk.musiclockscreen.MediaSessionAccess.getActiveControllers(context)
         } catch (_: Throwable) {
             emptyList()
         }
@@ -2034,17 +2018,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun isBouncerShowing(): Boolean {
-        return try {
-            val root = rootView
-            if (root == null) return false
-            val res = context.resources
-            val id = res.getIdentifier("keyguard_bouncer_container", "id", context.packageName)
-            if (id == 0) return false
-            val v = root.findViewById<View>(id)
-            v != null && v.visibility == View.VISIBLE && v.isShown
-        } catch (e: Throwable) {
-            false
-        }
+        return HookUtils.isBouncerShowing(this)
     }
 
     private fun logI(msg: String) {

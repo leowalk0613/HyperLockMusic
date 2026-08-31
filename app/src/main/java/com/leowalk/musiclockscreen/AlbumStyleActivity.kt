@@ -11,6 +11,7 @@ class AlbumStyleActivity : BaseScrollingActivity() {
     private var bigAlbumOnlyBlock: LinearLayout? = null
     private var immersiveOnlyBlock: LinearLayout? = null
     private var networkHdRow: LinearLayout? = null
+    private var clockOptionsBlock: LinearLayout? = null
     private var modeHint: TextView? = null
 
     override fun titleText() = "专辑封面"
@@ -102,6 +103,35 @@ class AlbumStyleActivity : BaseScrollingActivity() {
         }
         card.addView(networkHdRow)
 
+        card.addView(M3.switchRow(
+            this, "简洁时钟",
+            "隐藏系统大时钟，顶部显示一行时间日期",
+            ModuleConfig.minimalClock
+        ) { checked ->
+            ModuleConfig.minimalClock = checked
+            ModuleConfig.push(this)
+            refreshModeUi()
+        })
+
+        clockOptionsBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        clockOptionsBlock!!.addView(M3.sliderRow(
+            this, "时钟字号", 16f, 48f,
+            ModuleConfig.minimalClockSize.coerceIn(16f, 48f),
+            { "${it.toInt()} sp" }
+        ) { v ->
+            ModuleConfig.minimalClockSize = v
+            ModuleConfig.push(this)
+        })
+        clockOptionsBlock!!.addView(M3.sliderRow(
+            this, "时钟高度", 2f, 25f,
+            ModuleConfig.minimalClockTopY.coerceIn(2f, 25f),
+            { "顶边 ${it.toInt()}% 屏高" }
+        ) { v ->
+            ModuleConfig.minimalClockTopY = v
+            ModuleConfig.push(this)
+        })
+        card.addView(clockOptionsBlock)
+
         list.addView(M3.card(this, card))
         list.addView(M3.card(this, M3.tipContent(this,
             "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
@@ -117,6 +147,7 @@ class AlbumStyleActivity : BaseScrollingActivity() {
         M3.setControlsEnabled(networkHdRow, show)
         M3.setControlsEnabled(bigAlbumOnlyBlock, show && !immersive)
         M3.setControlsEnabled(immersiveOnlyBlock, show && immersive)
+        M3.setControlsEnabled(clockOptionsBlock, ModuleConfig.minimalClock)
         modeHint?.text = when {
             !show -> "封面已关闭，样式设置暂不生效。"
             immersive -> "当前：沉浸封面。用「专辑位置」调竖直中心；大小/圆角/底边仅大专辑可用。"

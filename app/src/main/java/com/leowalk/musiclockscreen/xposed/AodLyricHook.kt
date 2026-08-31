@@ -348,13 +348,7 @@ class AodLyricHook {
 
     private fun readCurrentMediaTitle(ctx: Context): String {
         return try {
-            val msm = ctx.getSystemService(Context.MEDIA_SESSION_SERVICE)
-                as? android.media.session.MediaSessionManager ?: return ""
-            val sessions = try {
-                msm.getActiveSessions(null)
-            } catch (_: Throwable) {
-                emptyList()
-            }
+            val sessions = com.leowalk.musiclockscreen.MediaSessionAccess.getActiveControllers(ctx)
             for (controller in sessions) {
                 val title = controller.metadata?.getString(
                     android.media.MediaMetadata.METADATA_KEY_TITLE

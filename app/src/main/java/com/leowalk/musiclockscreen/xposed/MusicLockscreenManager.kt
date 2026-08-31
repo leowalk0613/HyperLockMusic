@@ -101,6 +101,7 @@ object MusicLockscreenManager {
         lyricView?.refreshVisibility()
         MediaFollowController.onMusicLockscreenShown()
         KeepScreenController.sync()
+        LockscreenClockController.sync()
         logI("music lockscreen shown")
     }
 
@@ -114,6 +115,7 @@ object MusicLockscreenManager {
         hideAlbumOverlay()
         (lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
         KeepScreenController.sync()
+        LockscreenClockController.sync()
         logI("music lockscreen hidden")
     }
 
@@ -132,6 +134,7 @@ object MusicLockscreenManager {
             hideAlbumOverlay()
         }
         KeepScreenController.sync()
+        LockscreenClockController.sync()
         logI("showing state updated: $showing")
     }
 
@@ -188,6 +191,7 @@ object MusicLockscreenManager {
     fun updateBlurredBitmap(bitmap: Bitmap?) {
         blurredWallpaperBitmap = bitmap
         (lyricView as? LockscreenLyricView)?.onBlurredWallpaperUpdated()
+        LockscreenClockController.onWallpaperUpdated()
     }
 
     /** 锁屏壁纸 setBitmap 已提交且画面稳定后调用，触发歌词雾状背景渲染。 */

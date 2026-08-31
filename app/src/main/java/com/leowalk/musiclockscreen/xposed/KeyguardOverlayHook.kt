@@ -69,6 +69,7 @@ class KeyguardOverlayHook {
                             // 子 View 顺序：遮罩(底) → 专辑 → 歌词(顶)；过渡时再把遮罩临时抬起
                             addTransitionMask(bgLayer)
                             addBigAlbumOverlay(bgLayer)
+                            addMinimalClockOverlay(bgLayer)
                             addLyricOverlay(bgLayer)
                             MusicLockscreenManager.lyricView?.let { lyric ->
                                 val d = lyric.resources.displayMetrics.density
@@ -76,8 +77,10 @@ class KeyguardOverlayHook {
                                 lyric.translationZ = 48f * d
                                 lyric.bringToFront()
                             }
+                            LockscreenClockController.getMinimalClockView()?.bringToFront()
                             MediaFollowController.bindBackgroundLayer(bgLayer)
                             KeepScreenController.bindLayer(bgLayer)
+                            LockscreenClockController.sync()
                         }
                     } else {
                         logE("keyguardBackgroundLayer is null")
@@ -92,7 +95,6 @@ class KeyguardOverlayHook {
                             if (rootView is ViewGroup) {
                                 findNotificationView(rootView)
                                 findClockView(rootView)
-                                findDateView(rootView)
                                 NumStateViewController.bindKeyguardRoot(rootView)
                             }
                         }
@@ -188,6 +190,27 @@ class KeyguardOverlayHook {
             logI("transition mask added")
         } catch (e: Throwable) {
             logE("addTransitionMask error", e)
+        }
+    }
+
+    private fun addMinimalClockOverlay(bgLayer: ViewGroup) {
+        try {
+            val existing = bgLayer.findViewWithTag<View>(MusicMinimalClockView.TAG_VIEW)
+            if (existing is MusicMinimalClockView) {
+                LockscreenClockController.setMinimalClockView(existing)
+                logI("minimal clock overlay already exists")
+                return
+            }
+            val overlay = MusicMinimalClockView(bgLayer.context).apply {
+                tag = MusicMinimalClockView.TAG_VIEW
+                visibility = View.GONE
+            }
+            overlay.layoutParams = overlay.attachLayoutParams()
+            bgLayer.addView(overlay)
+            LockscreenClockController.setMinimalClockView(overlay)
+            logI("minimal clock overlay added at 20% top")
+        } catch (e: Throwable) {
+            logE("addMinimalClockOverlay error", e)
         }
     }
 
@@ -308,42 +331,6 @@ class KeyguardOverlayHook {
         } catch (e: Throwable) {
             logE("dumpClockIds error", e)
         }
-    }
-
-    /**
-     * 查找日期 View（从根视图遍历，因为日期可能不在时钟容器里）
-     */
-    private fun findDateView(root: ViewGroup) {
-        try {
-            val dateView = findDateTextViewByTraversal(root)
-            if (dateView != null) {
-                logI("Found date view from root: \"${dateView.text}\"")
-                logI("  parent: ${dateView.parent?.javaClass?.simpleName}")
-                logI("  grandparent: ${dateView.parent?.parent?.javaClass?.simpleName}")
-                LockscreenClockController.setDateView(dateView)
-            } else {
-                logI("date view not found from root traversal")
-            }
-        } catch (e: Throwable) {
-            logE("findDateView error", e)
-        }
-    }
-
-    private fun findDateTextViewByTraversal(root: ViewGroup): android.widget.TextView? {
-        for (i in 0 until root.childCount) {
-            val child = root.getChildAt(i)
-            if (child is android.widget.TextView) {
-                val text = child.text?.toString() ?: ""
-                if (text.contains("月") && text.contains("日") && text.length < 20) {
-                    return child
-                }
-            }
-            if (child is ViewGroup) {
-                val found = findDateTextViewByTraversal(child)
-                if (found != null) return found
-            }
-        }
-        return null
     }
 
     private fun logI(msg: String) {
