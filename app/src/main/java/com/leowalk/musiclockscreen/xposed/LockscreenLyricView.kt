@@ -125,6 +125,12 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var fogShaderTint: Int = 0
     private val fogPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
+    /** 沉浸歌词是否已接上系统 MiBlur 透壁纸染色 */
+    private var immersiveMiBlurActive = false
+    private var immersiveMiBlurBlendKey: Int = 0
+    /** 当前壁纸区域偏亮时改用深色透色，保证浅底可读 */
+    private var immersiveMiBlurOnLightBg = false
+
     // ============================================================
     // 配置
     // ============================================================
@@ -159,6 +165,10 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cachedCtx: org.json.JSONObject? = null
     private var lastSongTitle: String = ""
     private var lastKnownTrackKey: String? = null
+    /** 切歌瞬间快照的 provider 版本；在版本递增前拒绝重新应用同一份旧歌词。 */
+    private var lyricVersionsAtTrackSwitch: Int = -1
+    private var lyricFdVersionsAtTrackSwitch: Int = -1
+    private var awaitingFreshLyricsAfterTrackSwitch: Boolean = false
 
     private var dataDirty = false
     private var lastVersionsCheck: Long = 0
@@ -278,8 +288,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         val h = height.toFloat()
         if (w <= 0 || h <= 0) return
 
-        // 1. 渐变遮罩（非沉浸模式；沉浸歌词直接叠在壁纸上）
-        if (!cfgImmersiveLyric) {
+        // 1. 渐变遮罩（普通模式且未接 MiBlur；MiBlur 生效时只留字形透色）
+        if (!cfgImmersiveLyric && !immersiveMiBlurActive) {
             drawFogBackground(canvas, w, h)
         }
 
@@ -544,25 +554,83 @@ class LockscreenLyricView(context: Context) : View(context) {
         fogBuildGeneration++
         showFogBackground = false
         clearFogCaches()
-        onTrackMayHaveChanged()
+        // 只清 fog，绝不走切歌门闩：首次开音乐锁屏 / 静默换壁纸时
+        // LyricFocus 版本往往未变（或已经是新歌），再 snapshot 会把当前歌词挡到下一跳。
         if (visibility == VISIBLE) {
             invalidate()
         }
     }
 
+    /**
+     * 首次进入音乐锁屏或同曲重开：拉取 provider 现有歌词（允许同 version）。
+     * 与 [onTrackMayHaveChanged] 不同，不设「等 version 再涨」门闩。
+     */
+    fun ensureLyricsLoaded() {
+        dataDirty = true
+        lastVersionsCheck = 0
+        awaitingFreshLyricsAfterTrackSwitch = false
+        val mediaTitle = readCurrentMediaTitle()
+        if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
+        val trackKey = AlbumArtResolver.getCachedTrackKey()
+        if (trackKey != null) lastKnownTrackKey = trackKey
+        if (isMusicLockscreenActive() && isKeyguardLocked()) {
+            startPolling()
+            handler.post { readAndUpdate() }
+        }
+    }
+
     /** 切歌时强制重拉歌词（AOD 下 observer 可能不触发）。 */
     fun onTrackMayHaveChanged() {
+        cancelImmersiveLineFade()
         dataDirty = true
         cachedLines = null
         cachedCtx = null
         lastVersionsCheck = 0
         lastLyricVersion = -1
         lastLyricFdVersion = -1
-        lastKnownTrackKey = null
+        lastLyricJson = "{}"
+        // 同步到当前曲目身份，勿置 null：否则紧随其后的 readAndUpdate
+        // 无法靠 trackKey 判定切歌，还会把上一首 provider 内容重新画上去。
+        val mediaTitle = readCurrentMediaTitle()
+        if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
+        lastKnownTrackKey = AlbumArtResolver.getCachedTrackKey()
+        snapshotLyricVersionsAtTrackSwitch()
+        hasLyric = false
+        clearLyricDisplay()
+        updateVisibilityState()
         if (isMusicLockscreenActive() && isKeyguardLocked()) {
             startPolling()
             handler.post { readAndUpdate() }
+        } else {
+            invalidate()
         }
+    }
+
+    private fun snapshotLyricVersionsAtTrackSwitch() {
+        awaitingFreshLyricsAfterTrackSwitch = true
+        lyricVersionsAtTrackSwitch = -1
+        lyricFdVersionsAtTrackSwitch = -1
+        try {
+            val uri = Uri.parse(PROVIDER_URI)
+            val vb = context.contentResolver.call(uri, "versions", null, null)
+            if (vb != null) {
+                lyricVersionsAtTrackSwitch = vb.getInt("lyric", -1)
+                lyricFdVersionsAtTrackSwitch = vb.getInt("lyricfd", -1)
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** 模糊壁纸 bitmap 已更新：按歌词背后取样重算 MiBlur / 字色对比度。 */
+    fun onBlurredWallpaperUpdated() {
+        if (!isMusicLockscreenActive() || !HookUtils.isOnKeyguard(context)) return
+        if (fogTintColor == null && sampleWallpaperBehindLyrics() == null) return
+        immersiveMiBlurBlendKey = 0
+        syncImmersiveMiBlur()
+        if (!immersiveMiBlurActive) {
+            applyImmersiveTextColors()
+        }
+        invalidate()
     }
 
     /** 壁纸专辑已应用到锁屏：后台取下半主色并生成渐变遮罩。 */
@@ -592,9 +660,14 @@ class LockscreenLyricView(context: Context) : View(context) {
                     fogTintColor = tintColor
                     if (cfgImmersiveLyric) {
                         showFogBackground = false
-                        applyImmersiveTextColors()
                     } else {
                         showFogBackground = true
+                    }
+                    // 沉浸 / 普通歌词共用 MiBlur 透色；失败则走混色回退
+                    immersiveMiBlurBlendKey = 0
+                    syncImmersiveMiBlur()
+                    if (!immersiveMiBlurActive) {
+                        applyImmersiveTextColors()
                     }
                     invalidate()
                     if (ownsAlbumCopy && !album.isRecycled) album.recycle()
@@ -622,6 +695,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 关闭音乐锁屏时彻底清理歌词状态 */
     fun resetForMusicLockscreenOff() {
         cancelImmersiveLineFade()
+        clearImmersiveMiBlur()
         fogBuildGeneration++
         showFogBackground = false
         clearFogCaches()
@@ -631,6 +705,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         lastLyricVersion = -1
         lastLyricFdVersion = -1
         lastSongTitle = ""
+        lastKnownTrackKey = null
+        awaitingFreshLyricsAfterTrackSwitch = false
+        lyricVersionsAtTrackSwitch = -1
+        lyricFdVersionsAtTrackSwitch = -1
         hasLyric = false
         clearLyricDisplay()
         alpha = 0f
@@ -641,6 +719,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 解锁离开锁屏：仅隐藏，保留数据供再次锁屏恢复 */
     fun onLeftKeyguard() {
         cancelImmersiveLineFade()
+        clearImmersiveMiBlur()
         animate().cancel()
         translationY = 0f
         scaleX = 1f
@@ -691,6 +770,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 lastVersionsCheck = 0
                 startPolling()
                 refreshNow()
+                syncImmersiveMiBlur()
             }
             GONE -> {
                 // 音乐锁屏 + 锁屏/AOD 时保持轮询，否则切歌后歌词不会刷新
@@ -698,6 +778,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                     stopPolling()
                 }
                 alpha = 0f
+                clearImmersiveMiBlur()
             }
             // INVISIBLE：等 MediaFollow 定位，保持轮询以便 AOD 切歌仍能刷新
             else -> Unit
@@ -836,7 +917,6 @@ class LockscreenLyricView(context: Context) : View(context) {
             mainPaint.textSize = immersiveLyricSizeSp * density
             secondPaint.textSize = immersiveLyricSizeSp * immersiveSecondSizeRatio * density
             applyImmersiveTypeface()
-            applyImmersiveTextColors()
         } else {
             mainPaint.textSize = cfgLyricSize * density
             secondPaint.textSize = cfgLyricSize * 0.8f * density
@@ -844,12 +924,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             mainPaint.isFakeBoldText = false
             secondPaint.typeface = Typeface.DEFAULT
             secondPaint.isFakeBoldText = false
-            mainPaint.color = Color.WHITE
-            secondPaint.color = Color.argb(140, 255, 255, 255)
         }
-
-        mainPaint.setShadowLayer(10f, 0f, 3f, Color.argb(230, 0, 0, 0))
-        secondPaint.setShadowLayer(7f, 1f, 3f, Color.argb(210, 0, 0, 0))
+        // 沉浸 / 普通歌词共用系统 MiBlur 白中透色
+        applyImmersiveTextColors()
+        syncImmersiveMiBlur()
 
         val lp = layoutParams as? FrameLayout.LayoutParams
         if (lp != null) {
@@ -871,17 +949,211 @@ class LockscreenLyricView(context: Context) : View(context) {
         invalidate()
     }
 
-    /** 沉浸歌词：白字混入专辑主色；翻译同步略染色 */
+    /**
+     * 歌词文字染色：优先系统 MiBlur（白中透色 / 近白底深色）；失败则专辑色混字。
+     * 沉浸与普通模式共用。
+     */
     private fun applyImmersiveTextColors() {
-        val tint = boostAlbumTint(fogTintColor ?: Color.WHITE)
-        val mainColor = blendTextColor(Color.WHITE, tint, immersiveTintWeight)
+        val bgRef = contrastBackgroundColor()
+        if (immersiveMiBlurActive) {
+            if (immersiveMiBlurOnLightBg) {
+                val ink = Color.rgb(28, 28, 30)
+                mainPaint.color = ink
+                secondPaint.color = ink
+                mainPaint.alpha = 255
+                secondPaint.alpha = 255
+                mainPaint.setShadowLayer(10f, 0f, 2f, Color.argb(90, 255, 255, 255))
+                secondPaint.setShadowLayer(8f, 0f, 2f, Color.argb(70, 255, 255, 255))
+            } else {
+                mainPaint.color = Color.WHITE
+                secondPaint.color = Color.WHITE
+                mainPaint.alpha = 255
+                secondPaint.alpha = 255
+                mainPaint.setShadowLayer(14f, 0f, 5f, Color.argb(220, 0, 0, 0))
+                secondPaint.setShadowLayer(10f, 0f, 3f, Color.argb(190, 0, 0, 0))
+            }
+            return
+        }
+        val tint = boostAlbumTint(fogTintColor ?: bgRef)
+        val mainColor = if (isNearWhiteBackground(bgRef)) {
+            blendTextColor(Color.rgb(32, 32, 34), tint, 0.28f)
+        } else {
+            blendTextColor(Color.WHITE, tint, immersiveTintWeight)
+        }
         mainPaint.color = mainColor
         secondPaint.color = Color.argb(
-            160,
+            if (isNearWhiteBackground(bgRef)) 200 else 160,
             Color.red(mainColor),
             Color.green(mainColor),
             Color.blue(mainColor)
         )
+        if (isNearWhiteBackground(bgRef)) {
+            mainPaint.setShadowLayer(10f, 0f, 2f, Color.argb(100, 255, 255, 255))
+            secondPaint.setShadowLayer(8f, 0f, 2f, Color.argb(80, 255, 255, 255))
+        } else {
+            mainPaint.setShadowLayer(10f, 0f, 3f, Color.argb(230, 0, 0, 0))
+            secondPaint.setShadowLayer(7f, 1f, 3f, Color.argb(210, 0, 0, 0))
+        }
+    }
+
+    private fun syncImmersiveMiBlur() {
+        if (!isMusicLockscreenActive() ||
+            visibility == GONE || !HyperMiBlurHelper.isSupported(context)
+        ) {
+            clearImmersiveMiBlur()
+            return
+        }
+        // 对比度看「歌词背后的壁纸」，透色仍可用专辑色
+        val bgRef = contrastBackgroundColor()
+        val tint = boostAlbumTint(fogTintColor ?: bgRef)
+        val bgLum = colorLuminance(bgRef)
+        // 仅近白壁纸转深色（用壁纸取样，避免沉浸专辑 Monet 浅底却按深色专辑误判）
+        val onLight = isNearWhiteBackground(bgRef)
+        val blend: Int
+        val primary: Int
+        val over: Int
+        val blendAlpha: Int
+        val labAlpha: Int
+        if (onLight) {
+            blend = blendTextColor(Color.rgb(24, 24, 26), tint, 0.40f)
+            primary = Color.rgb(22, 22, 24)
+            over = Color.argb(160, 0, 0, 0)
+            blendAlpha = 200
+            labAlpha = 230
+        } else {
+            blend = blendTextColor(Color.WHITE, tint, 0.42f)
+            primary = Color.WHITE
+            over = Color.argb(130, 255, 255, 255)
+            blendAlpha = 180
+            labAlpha = 170
+        }
+        val modeBit = if (cfgImmersiveLyric) 0x10 else 0x20
+        val blendKey = blend xor bgRef xor (if (onLight) 0x91 else 0x92) xor modeBit xor
+            (if (visibility == VISIBLE) 1 else 0)
+        if (immersiveMiBlurActive &&
+            blendKey == immersiveMiBlurBlendKey &&
+            onLight == immersiveMiBlurOnLightBg
+        ) {
+            return
+        }
+
+        val ok = HyperMiBlurHelper.applyTextBlend(
+            view = this,
+            blendColor = blend,
+            primaryColor = primary,
+            colorDark = onLight,
+            enablePassBlurOnSelf = true,
+            passBlurRadius = (45f * resources.displayMetrics.density).toInt().coerceIn(28, 90),
+            blendAlpha = blendAlpha,
+            labAlpha = labAlpha,
+            overColor = over
+        )
+        if (ok) {
+            immersiveMiBlurActive = true
+            immersiveMiBlurOnLightBg = onLight
+            immersiveMiBlurBlendKey = blendKey
+            if (!cfgImmersiveLyric) {
+                showFogBackground = false
+            }
+            applyImmersiveTextColors()
+            logI(
+                "lyric MiBlur applied immersive=$cfgImmersiveLyric nearWhite=$onLight " +
+                    "bgLum=${"%.2f".format(bgLum)} bg=#${Integer.toHexString(bgRef)} " +
+                    "blend=#${Integer.toHexString(blend)}"
+            )
+        } else {
+            clearImmersiveMiBlur()
+            if (!cfgImmersiveLyric) {
+                showFogBackground = fogTintColor != null && !cfgLyricHideBackground
+            }
+            applyImmersiveTextColors()
+            logI("lyric MiBlur unavailable, fallback album tint")
+        }
+    }
+
+    private fun clearImmersiveMiBlur() {
+        if (immersiveMiBlurActive || immersiveMiBlurBlendKey != 0) {
+            HyperMiBlurHelper.clearTextBlend(this)
+        }
+        immersiveMiBlurActive = false
+        immersiveMiBlurOnLightBg = false
+        immersiveMiBlurBlendKey = 0
+    }
+
+    private fun colorLuminance(color: Int): Float {
+        return (0.2126f * Color.red(color) +
+            0.7152f * Color.green(color) +
+            0.0722f * Color.blue(color)) / 255f
+    }
+
+    /** 仅接近纯白/浅灰白才切深色字；浅彩底不算。 */
+    private fun isNearWhiteBackground(color: Int): Boolean {
+        val lum = colorLuminance(color)
+        if (lum < 0.88f) return false
+        val hsv = FloatArray(3)
+        Color.colorToHSV(color, hsv)
+        return hsv[1] < 0.18f
+    }
+
+    /**
+     * 歌词区域背后的壁纸代表色（对比度判断用）。
+     * 沉浸专辑时 Monet 浅色底与专辑主色常不一致，不能只看 fogTint。
+     */
+    private fun contrastBackgroundColor(): Int {
+        sampleWallpaperBehindLyrics()?.let { return it }
+        return fogTintColor ?: Color.WHITE
+    }
+
+    private fun sampleWallpaperBehindLyrics(): Int? {
+        val bmp = MusicLockscreenManager.blurredWallpaperBitmap
+        if (bmp == null || bmp.isRecycled || bmp.width <= 0 || bmp.height <= 0) return null
+        return try {
+            val screenH = resources.displayMetrics.heightPixels.coerceAtLeast(1)
+            val screenW = resources.displayMetrics.widthPixels.coerceAtLeast(1)
+            val loc = IntArray(2)
+            getLocationOnScreen(loc)
+            val centerY = if (height > 0) {
+                (loc[1] + height / 2).coerceIn(0, screenH - 1)
+            } else {
+                ((cfgLyricBgAnchorY / 100f) * screenH).toInt().coerceIn(0, screenH - 1)
+            }
+            val centerX = if (width > 0) {
+                (loc[0] + width / 2).coerceIn(0, screenW - 1)
+            } else {
+                screenW / 2
+            }
+            val y = ((centerY.toFloat() / screenH) * bmp.height).toInt()
+                .coerceIn(0, bmp.height - 1)
+            val x = ((centerX.toFloat() / screenW) * bmp.width).toInt()
+                .coerceIn(0, bmp.width - 1)
+            val band = (bmp.height / 36).coerceAtLeast(2)
+            val y0 = (y - band).coerceAtLeast(0)
+            val y1 = (y + band).coerceAtMost(bmp.height - 1)
+            val x0 = (x - bmp.width / 8).coerceAtLeast(0)
+            val x1 = (x + bmp.width / 8).coerceAtMost(bmp.width - 1)
+            val stepX = ((x1 - x0) / 12).coerceAtLeast(1)
+            val stepY = ((y1 - y0) / 6).coerceAtLeast(1)
+            var rSum = 0L
+            var gSum = 0L
+            var bSum = 0L
+            var n = 0
+            var yy = y0
+            while (yy <= y1) {
+                var xx = x0
+                while (xx <= x1) {
+                    val p = bmp.getPixel(xx, yy)
+                    rSum += Color.red(p)
+                    gSum += Color.green(p)
+                    bSum += Color.blue(p)
+                    n++
+                    xx += stepX
+                }
+                yy += stepY
+            }
+            if (n == 0) null else Color.rgb((rSum / n).toInt(), (gSum / n).toInt(), (bSum / n).toInt())
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun applyImmersiveTypeface() {
@@ -1004,6 +1276,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
                 invalidate()
+                syncImmersiveMiBlur()
             }
             try {
                 bringToFront()
@@ -1082,6 +1355,10 @@ class LockscreenLyricView(context: Context) : View(context) {
 
             val versionsChanged = newVLyric != lastLyricVersion || newVLyricFd != lastLyricFdVersion
             if (!dataDirty && !versionsChanged) {
+                if (awaitingFreshLyricsAfterTrackSwitch) {
+                    // 切歌后仍停在旧 version：继续等 LyricFocus，勿用旧缓存行刷新
+                    return
+                }
                 refreshCurrentLineFromCache()
                 return
             }
@@ -1098,6 +1375,18 @@ class LockscreenLyricView(context: Context) : View(context) {
         val oldVLyric = lastLyricVersion
         val oldVLyricFd = lastLyricFdVersion
         try {
+            // 切歌后 provider 版本尚未递增：丢掉同版本旧载荷，保持清空并继续等待
+            if (awaitingFreshLyricsAfterTrackSwitch &&
+                !hasLyricVersionBumpedSinceTrackSwitch(newVLyric, newVLyricFd)
+            ) {
+                lastLyricJson = "{}"
+                cachedLines = null
+                cachedCtx = null
+                dataDirty = true
+                applyLyricFromJson()
+                return
+            }
+
             lastLyricVersion = newVLyric
             lastLyricFdVersion = newVLyricFd
 
@@ -1105,7 +1394,9 @@ class LockscreenLyricView(context: Context) : View(context) {
 
             // 1. FD 版本变化 → 读全量
             var fdRead = false
-            if (oldVLyricFd != newVLyricFd) {
+            if (oldVLyricFd != newVLyricFd ||
+                (awaitingFreshLyricsAfterTrackSwitch && newVLyricFd != lyricFdVersionsAtTrackSwitch)
+            ) {
                 try {
                     val fb = context.contentResolver.call(uri, "lyric_fd", null, null)
                     val pfd = fb?.getParcelable("fd") as? android.os.ParcelFileDescriptor
@@ -1121,15 +1412,24 @@ class LockscreenLyricView(context: Context) : View(context) {
                         }
                         fis.close()
                         pfd.close()
-                        lastLyricJson = String(bos.toByteArray(), Charsets.UTF_8)
+                        lastLyricJson = String(bos.toByteArray(), Charsets.UTF_8).ifBlank { "{}" }
                         fdRead = true
                         try {
                             val jo = JSONObject(lastLyricJson)
                             val t = jo.optString("title", "")
-                            if (t.isNotBlank()) lastSongTitle = t
-                            if (!hasValidLyricLines(jo)) {
+                            if (isProviderLyricStale(jo)) {
+                                // 切歌空窗：LyricFocus 仍是上一首，勿写回 lastSongTitle / 勿上屏
+                                lastLyricJson = "{}"
                                 cachedCtx = null
                                 cachedLines = null
+                                fdRead = false
+                                dataDirty = true
+                            } else {
+                                if (t.isNotBlank()) lastSongTitle = t
+                                if (!hasValidLyricLines(jo)) {
+                                    cachedCtx = null
+                                    cachedLines = null
+                                }
                             }
                         } catch (_: Throwable) {}
                     }
@@ -1141,7 +1441,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             // 2. 轻量版本变化 → 合并 ctx
             // 当 fd 版本未变化，或 fd 已被清空（切到纯音乐/无歌词）时，也必须处理轻量歌词，
             // 否则旧歌词 JSON 会残留、锁屏继续显示上一首歌的歌词。
-            if (oldVLyric != newVLyric && (oldVLyricFd == newVLyricFd || !fdRead)) {
+            if ((oldVLyric != newVLyric ||
+                    (awaitingFreshLyricsAfterTrackSwitch && newVLyric != lyricVersionsAtTrackSwitch)) &&
+                (oldVLyricFd == newVLyricFd || !fdRead)
+            ) {
                 try {
                     val lb = context.contentResolver.call(uri, "lyric", null, null)
                     val j = lb?.getString("n")
@@ -1149,33 +1452,40 @@ class LockscreenLyricView(context: Context) : View(context) {
                         try {
                             val old = JSONObject(lastLyricJson)
                             val neu = JSONObject(j)
-                            val emptyPush = !neu.has("l") && !neu.has("s")
-                                    && !neu.has("title") && !neu.has("ctx")
-                            if (emptyPush) {
+                            if (isProviderLyricStale(neu)) {
                                 lastLyricJson = "{}"
                                 cachedCtx = null
                                 cachedLines = null
-                                lastSongTitle = ""
+                                dataDirty = true
                             } else {
-                                val newTitle = neu.optString("title", "")
-                                val lightEmpty = neu.optString("l", "").trim().isEmpty() &&
-                                    neu.optString("s", "").trim().isEmpty() &&
-                                    !neu.has("ctx")
-                                val songChanged = newTitle.isNotBlank() &&
-                                    lastSongTitle.isNotBlank() &&
-                                    newTitle != lastSongTitle
-
-                                if (songChanged || lightEmpty) {
+                                val emptyPush = !neu.has("l") && !neu.has("s")
+                                        && !neu.has("title") && !neu.has("ctx")
+                                if (emptyPush) {
+                                    lastLyricJson = "{}"
                                     cachedCtx = null
                                     cachedLines = null
-                                    if (newTitle.isNotBlank()) lastSongTitle = newTitle
-                                    lastLyricJson = neu.toString()
-                                } else if (!neu.has("ctx") && old.has("ctx")) {
-                                    neu.put("ctx", old.get("ctx"))
-                                    lastLyricJson = neu.toString()
+                                    // 保留 media 期望曲名，勿清空 lastSongTitle
                                 } else {
-                                    lastLyricJson = neu.toString()
-                                    if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                    val newTitle = neu.optString("title", "")
+                                    val lightEmpty = neu.optString("l", "").trim().isEmpty() &&
+                                        neu.optString("s", "").trim().isEmpty() &&
+                                        !neu.has("ctx")
+                                    val songChanged = newTitle.isNotBlank() &&
+                                        lastSongTitle.isNotBlank() &&
+                                        newTitle != lastSongTitle
+
+                                    if (songChanged || lightEmpty) {
+                                        cachedCtx = null
+                                        cachedLines = null
+                                        if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                        lastLyricJson = neu.toString()
+                                    } else if (!neu.has("ctx") && old.has("ctx")) {
+                                        neu.put("ctx", old.get("ctx"))
+                                        lastLyricJson = neu.toString()
+                                    } else {
+                                        lastLyricJson = neu.toString()
+                                        if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                    }
                                 }
                             }
                         } catch (_: Throwable) {
@@ -1197,7 +1507,26 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun applyLyricFromJson() {
         try {
-            val lo = JSONObject(lastLyricJson)
+            val raw = lastLyricJson.trim().ifEmpty { "{}" }
+            if (raw != lastLyricJson) lastLyricJson = raw
+            val lo = JSONObject(raw)
+            if (isProviderLyricStale(lo)) {
+                // 仍是上一首歌的歌词：保持清空，等 LyricFocus 推送新曲
+                lastLyricJson = "{}"
+                cachedLines = null
+                cachedCtx = null
+                dataDirty = true
+                if (hasLyric) {
+                    hasLyric = false
+                    clearLyricDisplay()
+                    updateVisibilityState()
+                    requestLayout()
+                }
+                return
+            }
+            if (awaitingFreshLyricsAfterTrackSwitch && hasValidLyricLines(lo)) {
+                awaitingFreshLyricsAfterTrackSwitch = false
+            }
             val l = lo.optString("l", "") ?: ""
             val s = lo.optString("s", "") ?: ""
             val ctx = lo.optJSONObject("ctx")
@@ -1650,10 +1979,36 @@ class LockscreenLyricView(context: Context) : View(context) {
             immersiveSecondStaticLayout = null
             lastLyricVersion = -1
             lastLyricFdVersion = -1
+            hasLyric = false
+            snapshotLyricVersionsAtTrackSwitch()
+            clearLyricDisplay()
+            updateVisibilityState()
         }
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         if (trackKey != null) lastKnownTrackKey = trackKey
         return changed
+    }
+
+    /**
+     * LyricFocus 推送常滞后于 MediaSession：切歌后 provider 仍是上一首时不得上屏。
+     * 标题格式常不一致（括号/翻译），用包含关系而非全等，避免误杀新歌歌词。
+     */
+    private fun isProviderLyricStale(json: JSONObject): Boolean {
+        val providerTitle = json.optString("title", "").trim()
+        if (providerTitle.isBlank()) return false
+        val mediaTitle = readCurrentMediaTitle().trim().ifBlank { lastSongTitle.trim() }
+        if (mediaTitle.isBlank()) return false
+        if (providerTitle == mediaTitle) return false
+        // 任一方包含另一方（去空白后）视为同一曲
+        val p = providerTitle.replace(" ", "")
+        val m = mediaTitle.replace(" ", "")
+        if (p.contains(m) || m.contains(p)) return false
+        return true
+    }
+
+    private fun hasLyricVersionBumpedSinceTrackSwitch(vLyric: Int, vFd: Int): Boolean {
+        if (!awaitingFreshLyricsAfterTrackSwitch) return true
+        return vLyric > lyricVersionsAtTrackSwitch || vFd > lyricFdVersionsAtTrackSwitch
     }
 
     private fun hasValidLyricLines(json: JSONObject): Boolean {

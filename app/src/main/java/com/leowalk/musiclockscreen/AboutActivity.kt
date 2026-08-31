@@ -57,7 +57,8 @@ class AboutActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, M3.tipContent(this,
             "基于 LSPosed 的 HyperLockMusic 模块，为重绘 HyperOS 锁屏界面的专辑背景与歌词而设计。\n\n" +
                 "开启方式：在 LSPosed 中启用本模块并勾选 SystemUI（与需要生效的应用），重启系统界面后生效。\n\n" +
-                "音乐锁屏开关位于锁屏媒体控件左侧自定义按钮，歌词开关在右侧。")))
+                "音乐锁屏开关位于锁屏媒体控件左侧自定义按钮，歌词开关在右侧。\n\n" +
+                "无需为本应用开启自启动或后台保活：钩子在 SystemUI 内运行，歌词已落盘，进程被杀后会自动恢复。")))
     }
 
     private fun onVersionTapped() {

@@ -29,6 +29,21 @@ object AlbumArtResolver {
     @Volatile
     private var cachedTrackKey: String? = null
 
+    /** 当前缓存封面对应的 art URI（切歌后 URI 未变则视为仍是旧图） */
+    @Volatile
+    private var cachedArtUri: String? = null
+
+    /**
+     * 切歌后仍指向上一首封面的 URI；在空窗期内禁止再采这个地址，
+     * 直到出现不同的 URI 或按 songId 拉到的远程图。
+     */
+    @Volatile
+    private var poisonArtUri: String? = null
+
+    /** 上一首封面采样指纹；空窗期 Icon 若相同则仍是旧图 */
+    @Volatile
+    private var poisonArtFingerprint: Long = 0L
+
     @Volatile
     private var lastBindMetadata: MediaMetadata? = null
 
@@ -43,7 +58,7 @@ object AlbumArtResolver {
 
     fun getCachedTrackKey(): String? = cachedTrackKey
 
-    fun updateCache(bitmap: Bitmap?, trackKey: String? = null) {
+    fun updateCache(bitmap: Bitmap?, trackKey: String? = null, artUri: String? = null) {
         if (bitmap == null || bitmap.isRecycled) return
         val key = trackKey ?: cachedTrackKey
         val current = cachedBitmap
@@ -57,7 +72,16 @@ object AlbumArtResolver {
         if (key != null) {
             cachedTrackKey = key
         }
-        logI("cache updated: ${bitmap.width}x${bitmap.height}, key=$cachedTrackKey")
+        if (artUri != null) {
+            cachedArtUri = artUri
+            if (poisonArtUri != null && !sameArtUri(artUri, poisonArtUri)) {
+                poisonArtUri = null
+            }
+        } else if (poisonArtUri != null) {
+            // 已采到非 poison 源封面（如按 songId 远程），解除空窗封锁
+            poisonArtUri = null
+        }
+        logI("cache updated: ${bitmap.width}x${bitmap.height}, key=$cachedTrackKey uri=$cachedArtUri")
     }
 
     fun getCached(): Bitmap? {
@@ -143,23 +167,31 @@ object AlbumArtResolver {
         val trackChanged = trackKey != null && trackKey != cachedTrackKey
         if (trackChanged) {
             logI("track changed on bind: $cachedTrackKey -> $trackKey")
+            rememberPoisonArt(primaryArtUri(meta, data, context))
+            cachedBitmap = null
+            cachedTrackKey = trackKey
         }
+        // 空窗：可用「本轮 bind」的 MediaData Icon（songId 对齐且指纹非旧图），禁用滞后的 metadata 嵌入图
+        val artPending = !trackChanged && !hasResolvedArt() && cachedTrackKey != null
         val best = collectBest(
             context = context,
             drawable = null,
             metadata = meta,
             mediaData = data,
-            includeCache = !trackChanged,
-            // bind 路径只采本地源，避免主线程卡在 http 导致切歌不刷新
-            allowRemote = false
+            includeCache = !trackChanged && !artPending,
+            allowRemote = false,
+            allowMetadataBitmaps = !trackChanged && !artPending,
+            allowMediaDataIcon = true
         )
         if (best != null) {
-            updateCache(best, trackKey)
+            updateCache(best, trackKey ?: cachedTrackKey, primaryArtUri(meta, data, context))
+            if (artPending || trackChanged) {
+                logI(
+                    "bind refresh art ${best.width}x${best.height} " +
+                        "changed=$trackChanged pending=$artPending"
+                )
+            }
         } else if (trackChanged) {
-            // 切歌时封面可能尚未就绪：更新 trackKey 并清空旧封面，避免新歌挂上旧图后
-            // 后续 resolve 误判「同曲」而一直复用上一首封面。
-            cachedBitmap = null
-            cachedTrackKey = trackKey
             logI("refresh empty on track change, cleared stale album cache")
         }
         return trackChanged
@@ -172,27 +204,66 @@ object AlbumArtResolver {
     fun refreshFromSessionMetadata(context: Context, metadata: MediaMetadata?): Boolean {
         if (metadata == null) return false
         lastBindMetadata = metadata
-        val trackKey = computeTrackKey(context, metadata, lastBindMediaData)
+        // 曲目 key 以 metadata 为准；切歌时空窗里 lastBindMediaData 常仍是上一首
+        val trackKey = computeTrackKey(context, metadata, null)
+            ?: computeTrackKey(context, metadata, lastBindMediaData)
         val trackChanged = trackKey != null && trackKey != cachedTrackKey
         if (trackChanged) {
             logI("track changed on session: $cachedTrackKey -> $trackKey")
+            lastBindMediaData = null
+            rememberPoisonArt(primaryArtUri(metadata, null, context))
+            cachedBitmap = null
+            cachedTrackKey = trackKey
+            val best = collectBest(
+                context = context,
+                drawable = null,
+                metadata = metadata,
+                mediaData = null,
+                includeCache = false,
+                allowRemote = false,
+                allowMetadataBitmaps = false,
+                allowMediaDataIcon = false
+            )
+            if (best != null) {
+                updateCache(best, trackKey, primaryArtUri(metadata, null, context))
+            } else {
+                logI("session refresh empty on track change, cleared stale album cache")
+            }
+            return true
         }
+        // 切歌后空窗：禁用 metadata 嵌入图；Icon 等 bind
+        if (!hasResolvedArt() && cachedTrackKey != null) {
+            val artUri = primaryArtUri(metadata, lastBindMediaData, context)
+            val best = collectBest(
+                context = context,
+                drawable = null,
+                metadata = metadata,
+                mediaData = lastBindMediaData,
+                includeCache = false,
+                allowRemote = false,
+                allowMetadataBitmaps = false,
+                allowMediaDataIcon = true
+            )
+            if (best != null) {
+                updateCache(best, cachedTrackKey, artUri)
+            }
+            return false
+        }
+        val artUri = primaryArtUri(metadata, lastBindMediaData, context)
         val best = collectBest(
             context = context,
             drawable = null,
             metadata = metadata,
             mediaData = lastBindMediaData,
-            includeCache = !trackChanged,
-            allowRemote = false
+            includeCache = true,
+            allowRemote = false,
+            allowMetadataBitmaps = true,
+            allowMediaDataIcon = true
         )
         if (best != null) {
-            updateCache(best, trackKey)
-        } else if (trackChanged) {
-            cachedBitmap = null
-            cachedTrackKey = trackKey
-            logI("session refresh empty on track change, cleared stale album cache")
+            updateCache(best, trackKey, artUri)
         }
-        return trackChanged
+        return false
     }
 
     /** 当前曲目已解析到可用封面（非切歌后空窗期）。 */
@@ -214,17 +285,24 @@ object AlbumArtResolver {
         allowRemote: Boolean = true
     ): Bitmap? {
         val meta = metadata ?: lastBindMetadata
-        val data = mediaData ?: lastBindMediaData
-        val trackKey = computeTrackKey(context, meta, data)
-        val trackChanged = trackKey != null && trackKey != cachedTrackKey
-        // refreshFromBind 切歌后会先写入新 trackKey 并清空 bitmap。
-        // 此空窗期内若误用「仍显示旧曲」的 ImageView，会把旧图挂到新曲上且长期不刷新。
-        // 仅在 trackKey 已变时丢弃 drawable；同曲 artPending 时 drawable 往往是迟到的新封面。
-        val artPending = trackKey != null &&
-            trackKey == cachedTrackKey &&
+        val trackKeyHint = computeTrackKey(context, meta, mediaData ?: lastBindMediaData)
+        val trackChanged = trackKeyHint != null && trackKeyHint != cachedTrackKey
+        // refreshFromBind / session 切歌后会先写入新 trackKey 并清空 bitmap。
+        // 此空窗期内若误用「仍显示旧曲」的 ImageView / 旧 MediaData，会把旧图挂到新曲上。
+        val artPending = trackKeyHint != null &&
+            trackKeyHint == cachedTrackKey &&
             (cachedBitmap == null || cachedBitmap!!.isRecycled)
+        val data = when {
+            mediaData != null -> mediaData
+            trackChanged || artPending -> null
+            else -> lastBindMediaData
+        }
+        val trackKey = computeTrackKey(context, meta, data) ?: trackKeyHint
         val includeCache = !ignoreCache && !trackChanged && !artPending
-        val safeDrawable = if (trackChanged) null else drawable
+        val safeDrawable = if (trackChanged || artPending) null else drawable
+        // 空窗：禁用 metadata 嵌入图；MediaData Icon 可采但会做指纹去旧
+        val allowMetaBmp = !trackChanged && !artPending
+        val allowIcon = !trackChanged
 
         val best = collectBest(
             context = context,
@@ -232,13 +310,15 @@ object AlbumArtResolver {
             metadata = meta,
             mediaData = data,
             includeCache = includeCache,
-            allowRemote = allowRemote
+            allowRemote = allowRemote,
+            allowMetadataBitmaps = allowMetaBmp,
+            allowMediaDataIcon = allowIcon
         )
         if (best != null) {
-            updateCache(best, trackKey)
+            updateCache(best, trackKey, primaryArtUri(meta, data, context))
             logI(
                 "resolved: ${best.width}x${best.height}, ignoreCache=$ignoreCache " +
-                    "remote=$allowRemote pending=$artPending"
+                    "remote=$allowRemote pending=$artPending metaBmp=$allowMetaBmp icon=$allowIcon"
             )
             return best
         }
@@ -262,37 +342,140 @@ object AlbumArtResolver {
         }
     }
 
+    private fun primaryArtUri(
+        metadata: MediaMetadata?,
+        mediaData: Any?,
+        context: Context?
+    ): String? {
+        for (url in collectArtUrlStrings(metadata, mediaData, context)) {
+            if (!isPoisonArtUri(url)) return url
+        }
+        return null
+    }
+
     private fun collectBest(
         context: Context,
         drawable: Drawable?,
         metadata: MediaMetadata?,
         mediaData: Any?,
         includeCache: Boolean,
-        allowRemote: Boolean = true
+        allowRemote: Boolean = true,
+        allowMetadataBitmaps: Boolean = true,
+        allowMediaDataIcon: Boolean = true
     ): Bitmap? {
         val candidates = mutableListOf<Bitmap>()
         if (includeCache) {
             getCached()?.let { candidates.add(it) }
         }
-        if (metadata != null) {
+        if (allowMetadataBitmaps && metadata != null) {
             addMetadataBitmaps(metadata, candidates)
         }
-        if (mediaData != null) {
-            extractIconBitmap(context, mediaData)?.let { candidates.add(it) }
+        if (allowMediaDataIcon && mediaData != null) {
+            extractIconBitmap(context, mediaData)?.let { icon ->
+                if (isPoisonArtBitmap(icon)) {
+                    logI("skip poison mediaData icon ${icon.width}x${icon.height}")
+                } else {
+                    candidates.add(icon)
+                }
+            }
         }
         for (url in collectArtUrlStrings(metadata, mediaData, context)) {
             val normalized = normalizeArtUrl(url) ?: continue
+            if (isPoisonArtUri(normalized) || isPoisonArtUri(url)) {
+                logI("skip poison art uri: $normalized")
+                continue
+            }
             if (!allowRemote && isRemoteUrl(normalized)) continue
-            loadBitmapFromUri(context, normalized)?.let { candidates.add(it) }
+            loadBitmapFromUri(context, normalized)?.let { bmp ->
+                if (isPoisonArtBitmap(bmp)) {
+                    logI("skip poison uri bitmap ${bmp.width}x${bmp.height}")
+                } else {
+                    candidates.add(bmp)
+                }
+            }
         }
-        extractFromDrawable(drawable)?.let { candidates.add(it) }
+        // 仅后台线程按 songId 拉官方封面（主线程会 NetworkOnMainThreadException）
+        if (allowRemote && candidates.isEmpty() && !isMainThread()) {
+            val songId = NetEaseSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)
+                ?: NetEaseSongIdResolver.parseSongIdFromTrackKey(cachedTrackKey)
+            if (songId != null) {
+                val pic = NetEaseSongIdResolver.fetchPicUrlBySongId(songId)
+                val normalized = normalizeArtUrl(pic)
+                if (normalized != null && !isPoisonArtUri(normalized)) {
+                    loadBitmapFromUri(context, normalized)?.let { candidates.add(it) }
+                }
+            }
+        }
+        extractFromDrawable(drawable)?.let { bmp ->
+            if (!isPoisonArtBitmap(bmp)) candidates.add(bmp)
+        }
 
         val best = pickLargestVerified(candidates, metadata, mediaData, context)
         if (candidates.isNotEmpty()) {
             val sizes = candidates.joinToString { "${it.width}x${it.height}" }
-            logI("candidates=[$sizes] -> best=${best?.width}x${best?.height}")
+            logI(
+                "candidates=[$sizes] -> best=${best?.width}x${best?.height} " +
+                    "metaBmp=$allowMetadataBitmaps icon=$allowMediaDataIcon remote=$allowRemote"
+            )
         }
         return best
+    }
+
+    private fun rememberPoisonArt(currentUri: String?) {
+        getCached()?.let { poisonArtFingerprint = artFingerprint(it) }
+        poisonArtUri = cachedArtUri ?: currentUri
+        cachedArtUri = null
+        logI("poison art remembered fp=$poisonArtFingerprint uri=$poisonArtUri")
+    }
+
+    private fun isPoisonArtBitmap(bitmap: Bitmap): Boolean {
+        val poison = poisonArtFingerprint
+        if (poison == 0L) return false
+        return artFingerprint(bitmap) == poison
+    }
+
+    private fun artFingerprint(bitmap: Bitmap): Long {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return 0L
+        return try {
+            val w = bitmap.width
+            val h = bitmap.height
+            var acc = w.toLong() * 31 + h
+            val pts = intArrayOf(
+                w / 4, h / 4,
+                w / 2, h / 2,
+                (w * 3) / 4, (h * 3) / 4,
+                w / 5, (h * 4) / 5,
+                (w * 4) / 5, h / 5
+            )
+            var i = 0
+            while (i + 1 < pts.size) {
+                acc = acc * 31 + (bitmap.getPixel(pts[i], pts[i + 1]).toLong() and 0xffffffffL)
+                i += 2
+            }
+            acc
+        } catch (_: Throwable) {
+            0L
+        }
+    }
+
+    private fun isMainThread(): Boolean {
+        return android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+    }
+
+    private fun isPoisonArtUri(url: String?): Boolean {
+        val poison = poisonArtUri ?: return false
+        return sameArtUri(url, poison)
+    }
+
+    private fun sameArtUri(a: String?, b: String?): Boolean {
+        if (a.isNullOrBlank() || b.isNullOrBlank()) return false
+        if (a == b) return true
+        val na = normalizeArtUrl(a) ?: a
+        val nb = normalizeArtUrl(b) ?: b
+        if (na == nb) return true
+        val ka = AlbumArtMatcher.netEaseImageKey(na)
+        val kb = AlbumArtMatcher.netEaseImageKey(nb)
+        return ka != null && ka == kb
     }
 
     private fun isRemoteUrl(url: String): Boolean {

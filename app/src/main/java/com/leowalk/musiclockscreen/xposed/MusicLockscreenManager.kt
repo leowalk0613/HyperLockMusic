@@ -97,6 +97,7 @@ object MusicLockscreenManager {
     fun show() {
         isShowing = true
         showAlbumOverlay()
+        (lyricView as? LockscreenLyricView)?.ensureLyricsLoaded()
         lyricView?.refreshVisibility()
         MediaFollowController.onMusicLockscreenShown()
         KeepScreenController.sync()
@@ -124,6 +125,7 @@ object MusicLockscreenManager {
         if (showing) {
             showAlbumOverlay()
             MediaFollowController.onMusicLockscreenShown()
+            (lyricView as? LockscreenLyricView)?.ensureLyricsLoaded()
         } else {
             holdSquareAlbumUntilWallpaperSettled = false
             MediaFollowController.onMusicLockscreenHidden()
@@ -181,9 +183,11 @@ object MusicLockscreenManager {
 
     /**
      * 更新模糊壁纸 bitmap（供其他模块引用）；歌词雾状背景在壁纸应用后再渲染。
+     * 壁纸就绪后立刻让歌词按「背后壁纸」重算对比度（避免仍用专辑色误判）。
      */
     fun updateBlurredBitmap(bitmap: Bitmap?) {
         blurredWallpaperBitmap = bitmap
+        (lyricView as? LockscreenLyricView)?.onBlurredWallpaperUpdated()
     }
 
     /** 锁屏壁纸 setBitmap 已提交且画面稳定后调用，触发歌词雾状背景渲染。 */
@@ -211,10 +215,19 @@ object MusicLockscreenManager {
         try {
             if (bitmap != null && !bitmap.isRecycled) {
                 bigAlbumView?.setAlbumBitmap(bitmap)
+                if (isShowing) showAlbumOverlay()
             }
-            if (isShowing) showAlbumOverlay()
         } catch (e: Throwable) {
             logE("updateAlbumBitmap error", e)
+        }
+    }
+
+    /** 切歌封面未就绪时清掉上一首 overlay，避免新旧封面错位。 */
+    fun clearAlbumArt() {
+        try {
+            bigAlbumView?.clearAlbum()
+        } catch (e: Throwable) {
+            logE("clearAlbumArt error", e)
         }
     }
 

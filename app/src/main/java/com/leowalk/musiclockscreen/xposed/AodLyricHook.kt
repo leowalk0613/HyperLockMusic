@@ -241,11 +241,17 @@ class AodLyricHook {
                 lastLyricJson = "{}"
                 lastVLyric = -1
                 lastVLyricFd = -1
+                sLyricContainer?.visibility = View.GONE
             }
 
             lastVLyric = vLyric
             lastVLyricFd = vFd
             if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
+
+            // 标题已变但 version 未涨：不要把上一首 FD 再画上去
+            if (titleChanged && !versionsChanged) {
+                return
+            }
 
             var fdRead = false
             if (oldVFd != vFd || titleChanged) {
@@ -304,9 +310,16 @@ class AodLyricHook {
     }
 
     private fun applyLyricToViews(jo: JSONObject) {
+        val title = jo.optString("title", "").trim()
+        val mediaTitle = readCurrentMediaTitle(sRoot?.context ?: return).trim()
+        if (title.isNotBlank() && mediaTitle.isNotBlank() && title != mediaTitle) {
+            // 切歌空窗：仍是上一首，先藏起来
+            sLyricContainer?.visibility = View.GONE
+            return
+        }
+
         var mainText = jo.optString("l", "").trim()
         var subText = jo.optString("s", "").trim()
-        val title = jo.optString("title", "").trim()
         if (title.isNotBlank()) lastSongTitle = title
 
         if (mainText.isEmpty() && title.isNotEmpty()) {

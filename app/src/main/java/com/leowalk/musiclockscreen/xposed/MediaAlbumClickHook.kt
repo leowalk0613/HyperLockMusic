@@ -197,12 +197,15 @@ class MediaAlbumClickHook {
         val drawable = albumImageView?.drawable
         val bindMeta = mediaMetadataField?.get(controller) as? android.media.MediaMetadata
 
-        // 优先用已解析封面；切歌空窗期勿推 ImageView（常仍是上一首）
+        // 优先用已解析封面；切歌空窗期勿推 ImageView（常仍是上一首），并清掉上一首 overlay
         val cached = AlbumArtResolver.getCached()
         when {
             cached != null -> MusicLockscreenManager.updateAlbumBitmap(cached)
             !trackChanged && drawable != null -> MusicLockscreenManager.updateAlbumArt(drawable)
-            trackChanged -> logI("track changed, album art pending — skip stale ImageView")
+            trackChanged -> {
+                MusicLockscreenManager.clearAlbumArt()
+                logI("track changed, album art pending — cleared stale overlay")
+            }
         }
         (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onTrackMayHaveChanged()
 
