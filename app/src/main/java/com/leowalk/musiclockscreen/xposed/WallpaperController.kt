@@ -14,11 +14,16 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import com.leowalk.musiclockscreen.xposed.wallpaper.SerialWallpaperApplier
+import com.leowalk.musiclockscreen.xposed.wallpaper.TrackWallpaperCoordinator
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * 壁纸管理器（HyperOS 4）
  *
  * 锁屏壁纸使用 WallpaperManager.setBitmap(FLAG_LOCK)，仅影响锁屏位。
+ * 切歌路径经 [TrackWallpaperCoordinator] + [SerialWallpaperApplier]：过期 job 在写入前取消。
  */
 object WallpaperController {
 
@@ -41,21 +46,17 @@ object WallpaperController {
     /** 沉浸专辑合成态与当前配置不一致，需重建壁纸布局（曲目可不变） */
     private var wallpaperLayoutStale = false
     private var lastBakedImmersiveAlbum: Boolean? = null
-    /** 取消过期的 restore / apply setBitmap，避免关→开竞态把音乐壁纸盖掉 */
-    private var wallpaperApplyGeneration: Long = 0L
-    /** 取消过期的静默切歌构建（后发起的覆盖先生效） */
-    private var silentBuildGeneration: Long = 0L
-    /** 正在静默构建的曲目；挡住 lagging 风暴，避免 generation 互顶 */
-    @Volatile
-    private var silentBuildTrackKey: String? = null
-    /** 正在 apply、尚未 commit 的曲目；首次开启时避免误判 lagging */
-    @Volatile
-    private var pendingApplyTrackKey: String? = null
-    /**
-     * 已成功 setBitmap 到锁屏的曲目。
-     * 仅 apply 成功后写入；构建完成时不得提前写入，否则失败后轮询会误判已刷新。
-     */
-    private var appliedWallpaperTrackKey: String? = null
+
+    private val pipelineGate = ReentrantLock()
+    private val pipeline = TrackWallpaperCoordinator()
+    private val wallpaperApplier = SerialWallpaperApplier(
+        shouldWrite = { jobId ->
+            pipelineGate.withLock {
+                if (jobId < 0L) pipeline.shouldWriteRestore(-jobId)
+                else pipeline.shouldWriteApply(jobId)
+            }
+        }
+    )
 
     /** 同曲双布局缓存：大专辑（仅模糊）与沉浸（烘焙封面）并行生成，互转时直接换 */
     private var dualLargeWallpaper: Bitmap? = null
@@ -65,16 +66,11 @@ object WallpaperController {
     private var dualCacheBlurRadius: Float = Float.NaN
     private var dualCacheDarkOverlay: Int = -1
 
-    private fun bumpWallpaperGeneration(): Long = ++wallpaperApplyGeneration
-    private fun bumpSilentBuildGeneration(): Long = ++silentBuildGeneration
+    private fun appliedWallpaperTrackKey(): String? =
+        pipelineGate.withLock { pipeline.appliedTrackKey() }
 
-    /** 该曲目是否已在飞（已应用 / 正在 apply / 正在静默构建）。 */
-    private fun isTrackWallpaperInFlight(trackKey: String?): Boolean {
-        if (trackKey.isNullOrBlank()) return false
-        return trackKey == appliedWallpaperTrackKey ||
-            trackKey == pendingApplyTrackKey ||
-            trackKey == silentBuildTrackKey
-    }
+    private fun isTrackWallpaperInFlight(trackKey: String?): Boolean =
+        pipelineGate.withLock { pipeline.isTrackInFlight(trackKey) }
 
     private val sessionPollHandler = Handler(Looper.getMainLooper())
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -103,6 +99,9 @@ object WallpaperController {
      * 期间继续用方形 overlay 挡住，再淡出/显示。
      */
     private const val LAYOUT_OVERLAY_SETTLE_MS = 520L
+
+    /** restore 任务使用负 jobId，避免与音乐 job 冲突 */
+    private fun restoreJobId(epoch: Long): Long = -epoch
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
@@ -295,10 +294,8 @@ object WallpaperController {
         }
 
         try {
-            bumpWallpaperGeneration()
             saveOriginalWallpaper(context)
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
-            // 同曲重开可复用缓存；解锁期间切过歌或壁纸已 stale 时强制重解析
             val trackKeyHint = try {
                 AlbumArtResolver.getCachedTrackKey()
             } catch (_: Throwable) {
@@ -315,7 +312,6 @@ object WallpaperController {
                 allowRemote = false
             )
             if (wallpaperResult == null) {
-                // 封面尚在空窗：先进入音乐锁屏，后台拉远程/等 bind 补壁纸
                 logI("setMusicWallpaper: local art pending, enter + silent async")
                 ConfigReader.setWallpaperActive(context, true)
                 isMusicWallpaperSet = true
@@ -332,7 +328,14 @@ object WallpaperController {
                 return true
             }
 
-            // 先写入壁纸 bitmap，再通知歌词取色，对比度才能采到 Monet/模糊底
+            val jobId = pipelineGate.withLock {
+                val job = pipeline.submitTrackIntent(wallpaperResult.trackKey).job
+                    ?: return@withLock null
+                pipeline.markBuilding(job.jobId)
+                pipeline.markPreviewed(job.jobId)
+                job.jobId
+            } ?: return false
+
             MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
             notifyAlbumVisualsImmediate(wallpaperResult)
 
@@ -341,20 +344,19 @@ object WallpaperController {
                 false
             )
             val trackForNetwork = wallpaperResult.trackKey
-            pendingApplyTrackKey = trackForNetwork
             applyLockBitmapAsync(
                 context,
                 wallpaperResult,
+                jobId = jobId,
                 maskBuilder = {
                     buildBackgroundOnly(context, albumDrawable, bestMeta, ignoreCache = true)
                 },
                 onSettled = {
-                    scheduleNetworkAlbumEnhance(context, albumForNetwork, trackForNetwork)
+                    scheduleNetworkAlbumEnhance(context, albumForNetwork, trackForNetwork, jobId)
                 },
                 notifyLyricOnSettle = false
             )
 
-            // 已写入音乐壁纸，此后锁屏壁纸即为音乐壁纸（激活态），标记持久化以便重启后识别残留
             ConfigReader.setWallpaperActive(context, true)
             isMusicWallpaperSet = true
             isAnimating = true
@@ -478,11 +480,15 @@ object WallpaperController {
             return false
         }
         val targetKey = AlbumArtResolver.getCachedTrackKey()
-        // 同曲已在飞：勿再开构建，否则 generation 互顶，applied 永远追不上
-        if (isTrackWallpaperInFlight(targetKey)) {
-            logI("silent update skipped: in-flight track=$targetKey applied=$appliedWallpaperTrackKey")
+        val submit = pipelineGate.withLock { pipeline.submitTrackIntent(targetKey) }
+        if (!submit.startBuild || submit.job == null) {
+            logI(
+                "silent update coalesced: in-flight track=$targetKey " +
+                    "applied=${appliedWallpaperTrackKey()}"
+            )
             return true
         }
+        val jobId = submit.job!!.jobId
         try {
             networkAlbumGeneration++
             lastNetworkAlbumTrackKey = null
@@ -492,24 +498,19 @@ object WallpaperController {
             val metaRef = metadata ?: readBestMetadata(context)
             val drawableRef = albumDrawable
             val ignoreRef = ignoreCache
-            silentBuildTrackKey = targetKey
-            pendingApplyTrackKey = targetKey
-            val buildGen = bumpSilentBuildGeneration()
-            // 后台构建：本地失败时允许拉远程封面；用 generation 丢弃过期构建
+            pipelineGate.withLock { pipeline.markBuilding(jobId) }
             Thread {
                 try {
-                    if (buildGen != silentBuildGeneration) {
-                        logI("silent build superseded before start gen=$buildGen")
+                    if (!pipelineGate.withLock { pipeline.isJobCurrent(jobId) }) {
+                        logI("silent build superseded before start job=$jobId")
                         return@Thread
                     }
                     if (!HookUtils.canApplyLockWallpaper(appCtx)) {
                         logI("silent update aborted: left keyguard before build")
                         markWallpaperStale()
-                        if (silentBuildTrackKey == targetKey) silentBuildTrackKey = null
-                        if (pendingApplyTrackKey == targetKey) pendingApplyTrackKey = null
+                        pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
                         return@Thread
                     }
-                    // 先本地，失败再带远程重试，兼顾速度与「只有 URL 封面」的曲目
                     var wallpaperResult = buildBlurredBitmap(
                         appCtx,
                         drawableRef,
@@ -517,7 +518,9 @@ object WallpaperController {
                         ignoreRef,
                         allowRemote = false
                     )
-                    if (wallpaperResult == null && buildGen == silentBuildGeneration) {
+                    if (wallpaperResult == null &&
+                        pipelineGate.withLock { pipeline.isJobCurrent(jobId) }
+                    ) {
                         wallpaperResult = buildBlurredBitmap(
                             appCtx,
                             drawableRef,
@@ -526,20 +529,19 @@ object WallpaperController {
                             allowRemote = true
                         )
                     }
-                    if (buildGen != silentBuildGeneration) {
-                        logI("silent build superseded after build gen=$buildGen")
+                    if (!pipelineGate.withLock { pipeline.isJobCurrent(jobId) }) {
+                        logI("silent build superseded after build job=$jobId")
                         return@Thread
                     }
                     if (wallpaperResult == null) {
                         logE("silent update: build failed, keep lagging for poll/retry")
                         wallpaperLayoutStale = true
-                        if (silentBuildTrackKey == targetKey) silentBuildTrackKey = null
-                        if (pendingApplyTrackKey == targetKey) pendingApplyTrackKey = null
+                        pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
                         return@Thread
                     }
-                    // 先推 overlay / 取色，但绝不提前 commit appliedWallpaperTrackKey
+                    pipelineGate.withLock { pipeline.markPreviewed(jobId) }
                     mainHandler.post {
-                        if (buildGen != silentBuildGeneration) return@post
+                        if (!pipelineGate.withLock { pipeline.isJobCurrent(jobId) }) return@post
                         MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
                         notifyAlbumVisualsImmediate(wallpaperResult)
                     }
@@ -548,31 +550,32 @@ object WallpaperController {
                         false
                     )
                     val trackForNetwork = wallpaperResult.trackKey
-                    if (silentBuildTrackKey == targetKey) {
-                        silentBuildTrackKey = trackForNetwork
-                    }
-                    pendingApplyTrackKey = trackForNetwork
                     applyLockBitmapAsync(
                         appCtx,
                         wallpaperResult,
+                        jobId = jobId,
                         maskBuilder = null,
                         onSettled = {
-                            if (buildGen != silentBuildGeneration) return@applyLockBitmapAsync
-                            scheduleNetworkAlbumEnhance(appCtx, albumForNetwork, trackForNetwork)
+                            scheduleNetworkAlbumEnhance(
+                                appCtx, albumForNetwork, trackForNetwork, jobId
+                            )
                         },
                         notifyLyricOnSettle = false
                     )
-                    logI("silent wallpaper update ok (system first), track=$trackForNetwork gen=$buildGen")
+                    logI(
+                        "silent wallpaper update ok (system first), " +
+                            "track=$trackForNetwork job=$jobId"
+                    )
                 } catch (e: Throwable) {
                     logE("updateMusicWallpaperSilently async error", e)
                     wallpaperLayoutStale = true
-                    if (silentBuildTrackKey == targetKey) silentBuildTrackKey = null
-                    if (pendingApplyTrackKey == targetKey) pendingApplyTrackKey = null
+                    pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
                 }
             }.start()
             return true
         } catch (e: Throwable) {
             logE("updateMusicWallpaperSilently error", e)
+            pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
             return false
         }
     }
@@ -799,8 +802,18 @@ object WallpaperController {
     /**
      * 系统封面已显示后：后台拉网易云高清，只替换前景大专辑；模糊背景仍用系统封面。
      */
-    private fun scheduleNetworkAlbumEnhance(context: Context, album: Bitmap, trackKey: String?) {
+    private fun scheduleNetworkAlbumEnhance(
+        context: Context,
+        album: Bitmap,
+        trackKey: String?,
+        jobId: Long
+    ) {
         if (!ConfigReader.albumNetworkHd(context) || !ConfigReader.showBigAlbum(context)) {
+            if (!album.isRecycled) album.recycle()
+            return
+        }
+        if (!pipelineGate.withLock { pipeline.shouldScheduleEnhance(jobId, trackKey) }) {
+            logI("album network enhance skipped: job not settled job=$jobId")
             if (!album.isRecycled) album.recycle()
             return
         }
@@ -816,11 +829,7 @@ object WallpaperController {
             if (!album.isRecycled) album.recycle()
             return
         }
-        val appliedKey = appliedWallpaperTrackKey ?: lastWallpaperTrackKey
-        if (trackKey != null && trackKey != appliedKey &&
-            trackKey != AlbumArtResolver.getCachedTrackKey()
-        ) {
-            logI("album network enhance skipped: track mismatch before fetch")
+        if (!pipelineGate.withLock { pipeline.beginEnhance(jobId) }) {
             if (!album.isRecycled) album.recycle()
             return
         }
@@ -836,31 +845,29 @@ object WallpaperController {
                 )
                 if (enhanced == null || enhanced.isRecycled) {
                     logI("album network enhance: no verified high-res")
+                    pipelineGate.withLock { pipeline.markEnhanceDone(jobId) }
                     return@Thread
                 }
-                if (gen != networkAlbumGeneration || !isMusicWallpaperSet) {
-                    if (!enhanced.isRecycled) enhanced.recycle()
-                    logI("album network result discarded: stale generation")
-                    return@Thread
-                }
-                if (trackKey != null && trackKey != appliedWallpaperTrackKey &&
-                    trackKey != lastWallpaperTrackKey
+                if (gen != networkAlbumGeneration || !isMusicWallpaperSet ||
+                    !pipelineGate.withLock { pipeline.shouldScheduleEnhance(jobId, trackKey) }
                 ) {
                     if (!enhanced.isRecycled) enhanced.recycle()
-                    logI("album network result discarded: wallpaper track changed")
+                    logI("album network result discarded: stale job/generation")
+                    pipelineGate.withLock { pipeline.markEnhanceDone(jobId) }
                     return@Thread
                 }
                 lastNetworkAlbumBitmap = enhanced
                 mainHandler.post {
                     if (gen != networkAlbumGeneration || !isMusicWallpaperSet) return@post
-                    if (trackKey != null && trackKey != appliedWallpaperTrackKey &&
-                        trackKey != lastWallpaperTrackKey
+                    if (!pipelineGate.withLock {
+                            pipeline.shouldScheduleEnhance(jobId, trackKey)
+                        }
                     ) {
                         return@post
                     }
                     lastNetworkAlbumTrackKey = trackKey
                     if (ConfigReader.shouldBakeImmersiveAlbumInWallpaper(appCtx)) {
-                        rebuildWallpaperWithNetworkAlbum(appCtx, enhanced, trackKey)
+                        rebuildWallpaperWithNetworkAlbum(appCtx, enhanced, trackKey, jobId)
                     } else {
                         MusicLockscreenManager.updateAlbumBitmap(enhanced)
                         MusicLockscreenManager.showAlbumOverlay()
@@ -868,10 +875,12 @@ object WallpaperController {
                             "album network overlay applied ${enhanced.width}x${enhanced.height}, " +
                                 "blur wallpaper unchanged, track=$trackKey"
                         )
+                        pipelineGate.withLock { pipeline.markEnhanceDone(jobId) }
                     }
                 }
             } catch (e: Throwable) {
                 logE("scheduleNetworkAlbumEnhance error", e)
+                pipelineGate.withLock { pipeline.markEnhanceDone(jobId) }
             } finally {
                 if (!album.isRecycled) album.recycle()
             }
@@ -879,16 +888,20 @@ object WallpaperController {
     }
 
     /**
-     * 网络高清就绪后重建壁纸（保留 [lastNetworkAlbumBitmap]，避免被 [updateMusicWallpaperSilently] 清掉）。
+     * 网络高清就绪后重建壁纸（保留 [lastNetworkAlbumBitmap]，避免被静默更新清掉）。
      */
     private fun rebuildWallpaperWithNetworkAlbum(
         context: Context,
         enhanced: Bitmap,
-        trackKey: String?
+        trackKey: String?,
+        parentJobId: Long
     ): Boolean {
         if (!isMusicWallpaperSet) return false
         if (!HookUtils.canApplyLockWallpaper(context)) {
             logI("network album rebuild skipped: screen off or not on keyguard")
+            return false
+        }
+        if (!pipelineGate.withLock { pipeline.shouldScheduleEnhance(parentJobId, trackKey) }) {
             return false
         }
         try {
@@ -897,9 +910,25 @@ object WallpaperController {
             val wallpaperResult = buildBlurredBitmap(context, null, null, ignoreCache = false)
                 ?: run {
                     logE("network album rebuild: build failed")
+                    pipelineGate.withLock { pipeline.markEnhanceDone(parentJobId) }
                     return false
                 }
-            applyLockBitmapAsync(context, wallpaperResult, maskBuilder = null, onSettled = null)
+            val layoutSubmit = pipelineGate.withLock {
+                pipeline.submitLayoutApply(trackKey)
+            }
+            val jobId = layoutSubmit.job?.jobId ?: run {
+                pipelineGate.withLock { pipeline.markEnhanceDone(parentJobId) }
+                return false
+            }
+            applyLockBitmapAsync(
+                context,
+                wallpaperResult,
+                jobId = jobId,
+                maskBuilder = null,
+                onSettled = {
+                    pipelineGate.withLock { pipeline.markEnhanceDone(parentJobId) }
+                }
+            )
             MusicLockscreenManager.updateBlurredBitmap(wallpaperResult.wallpaper)
             logI(
                 "album network enhance applied to wallpaper ${enhanced.width}x${enhanced.height}, " +
@@ -908,6 +937,7 @@ object WallpaperController {
             return true
         } catch (e: Throwable) {
             logE("rebuildWallpaperWithNetworkAlbum error", e)
+            pipelineGate.withLock { pipeline.markEnhanceDone(parentJobId) }
             return false
         }
     }
@@ -938,21 +968,18 @@ object WallpaperController {
     }
 
     /**
-     * 后台异步设置锁屏壁纸。
-     * 可选 [maskBuilder] 在 setBitmap 前构建过渡遮罩内容；
-     * [onSettled] 在壁纸写入并停留稳定后回调（用于再拉网络高清）。
-     * setBitmap 一旦成功就会记录 lastWallpaper*，避免被后续 apply 顶掉后出现「已写屏但状态丢弃」导致闪桌面。
+     * 串行异步设置锁屏壁纸。过期 job 在 setBitmap 前取消，禁止「写完再 supersede」。
      */
     private fun applyLockBitmapAsync(
         context: Context,
         result: BlurredWallpaperResult,
+        jobId: Long,
         maskBuilder: (() -> Bitmap?)? = null,
         onSettled: (() -> Unit)? = null,
         notifyLyricOnSettle: Boolean = true,
         settleDelayMs: Long? = null
     ) {
         val appCtx = context.applicationContext
-        val applyGen = bumpWallpaperGeneration()
         val copy = Bitmap.createBitmap(result.wallpaper)
         val albumForLyric = if (notifyLyricOnSettle) {
             result.systemAlbum.copy(
@@ -964,49 +991,47 @@ object WallpaperController {
         }
         val trackKey = result.trackKey
         val hadMask = maskBuilder != null
-        Thread {
-            var applied = false
-            try {
-                if (applyGen != wallpaperApplyGeneration) {
-                    logI("applyLockBitmap cancelled before write: superseded")
-                    return@Thread
+        pipelineGate.withLock { pipeline.markApplying(jobId) }
+
+        wallpaperApplier.enqueue(
+            jobId = jobId,
+            write = {
+                pipelineGate.withLock {
+                    if (!pipeline.shouldWriteApply(jobId)) {
+                        logI("applyLockBitmap cancelled before write: superseded job=$jobId")
+                        return@withLock false
+                    }
+                    if (!HookUtils.canApplyLockWallpaper(appCtx)) {
+                        logI("applyLockBitmap skipped: screen off or not on keyguard")
+                        // 释放锁后再 mark stale 会嵌套；此处只返回 false，外层处理
+                        return@withLock false
+                    }
+                    try {
+                        val maskBmp = maskBuilder?.invoke()
+                        if (maskBmp != null && !maskBmp.isRecycled) {
+                            setMaskImage(maskBmp)
+                        }
+                        WallpaperManager.getInstance(appCtx)
+                            .setBitmap(copy, null, true, WallpaperManager.FLAG_LOCK)
+                        if (!pipeline.markApplyCommitted(jobId, trackKey)) {
+                            logI("applyLockBitmap commit rejected after write job=$jobId")
+                            return@withLock false
+                        }
+                        lastWallpaperAlbumBitmap = result.systemAlbum
+                        lastSystemAlbumBitmap = result.systemAlbum
+                        lastWallpaperTrackKey = trackKey
+                        lastBakedImmersiveAlbum =
+                            ConfigReader.shouldBakeImmersiveAlbumInWallpaper(appCtx)
+                        wallpaperLayoutStale = false
+                        true
+                    } catch (e: Throwable) {
+                        logE("applyLockBitmap error", e)
+                        false
+                    }
                 }
-                if (!HookUtils.canApplyLockWallpaper(appCtx)) {
-                    logI("applyLockBitmap skipped: screen off or not on keyguard")
-                    markWallpaperStale()
-                    return@Thread
-                }
-                val maskBmp = maskBuilder?.invoke()
-                if (maskBmp != null && !maskBmp.isRecycled) {
-                    setMaskImage(maskBmp)
-                }
-                WallpaperManager.getInstance(appCtx)
-                    .setBitmap(copy, null, true, WallpaperManager.FLAG_LOCK)
-                applied = true
-                // 仅当仍是最新 apply 才 commit「已应用曲目」；否则后到的旧写入会污染状态，导致轮询永不再刷
-                if (applyGen == wallpaperApplyGeneration) {
-                    lastWallpaperAlbumBitmap = result.systemAlbum
-                    lastSystemAlbumBitmap = result.systemAlbum
-                    lastWallpaperTrackKey = trackKey
-                    appliedWallpaperTrackKey = trackKey
-                    if (pendingApplyTrackKey == trackKey) pendingApplyTrackKey = null
-                    if (silentBuildTrackKey == trackKey) silentBuildTrackKey = null
-                    lastBakedImmersiveAlbum =
-                        ConfigReader.shouldBakeImmersiveAlbumInWallpaper(appCtx)
-                    wallpaperLayoutStale = false
-                } else {
-                    logI(
-                        "applyLockBitmap written then superseded (not commit applied key), track=$trackKey"
-                    )
-                }
-            } catch (e: Throwable) {
-                logE("applyLockBitmap error", e)
-                markWallpaperStale()
-            } finally {
-                // 只有仍是最新 apply 才负责淡出遮罩；被顶掉的由新 apply 接管
-                if (applyGen == wallpaperApplyGeneration && hadMask) {
-                    hideTransitionMask()
-                }
+            },
+            onCommitted = {
+                if (hadMask) hideTransitionMask()
                 if (!copy.isRecycled) copy.recycle()
                 val settleDelay = settleDelayMs ?: when {
                     hadMask -> MASK_SETTLE_MS + MASK_FADE_MS
@@ -1014,13 +1039,12 @@ object WallpaperController {
                     else -> 0L
                 }
                 mainHandler.postDelayed({
-                    if (applyGen != wallpaperApplyGeneration) {
+                    if (!pipelineGate.withLock { pipeline.isJobCurrent(jobId) }) {
                         albumForLyric?.takeIf { !it.isRecycled }?.recycle()
-                        // 被顶掉时不触发 onSettled（避免旧曲网络替换）
                         return@postDelayed
                     }
-                    if (applied && (HookUtils.canApplyLockWallpaper(appCtx) ||
-                            (isMusicWallpaperSet && HookUtils.isOnKeyguard(appCtx)))
+                    if (HookUtils.canApplyLockWallpaper(appCtx) ||
+                        (isMusicWallpaperSet && HookUtils.isOnKeyguard(appCtx))
                     ) {
                         if (notifyLyricOnSettle && albumForLyric != null) {
                             MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(
@@ -1040,8 +1064,19 @@ object WallpaperController {
                         if (isMusicWallpaperSet) ensureLyricFogReady()
                     }
                 }, settleDelay)
+            },
+            onCancelled = {
+                if (!copy.isRecycled) copy.recycle()
+                albumForLyric?.takeIf { !it.isRecycled }?.recycle()
+                logI("applyLockBitmap cancelled job=$jobId track=$trackKey")
+            },
+            onError = { e ->
+                if (!copy.isRecycled) copy.recycle()
+                albumForLyric?.takeIf { !it.isRecycled }?.recycle()
+                logE("applyLockBitmap queue error", e)
+                markWallpaperStale()
             }
-        }.start()
+        )
     }
 
     /**
@@ -1066,20 +1101,17 @@ object WallpaperController {
     private fun restoreWallpaperImmediately(context: Context) {
         try {
             val original = originalLockWallpaper ?: return
-            val restoreGen = bumpWallpaperGeneration()
+            val restoreEpoch = pipelineGate.withLock { pipeline.beginRestore() }
+            val restoreId = restoreJobId(restoreEpoch)
 
             stopSessionWatch()
             isMusicWallpaperSet = false
             lastWallpaperAlbumBitmap = null
             lastWallpaperTrackKey = null
-            appliedWallpaperTrackKey = null
-            pendingApplyTrackKey = null
-            silentBuildTrackKey = null
             lastSystemAlbumBitmap = null
             lastNetworkAlbumBitmap = null
             lastNetworkAlbumTrackKey = null
             networkAlbumGeneration++
-            silentBuildGeneration++
             clearDualWallpaperCache()
             MusicLockscreenManager.updateBlurredBitmap(null)
             MusicLockscreenManager.setShowingState(false)
@@ -1100,33 +1132,39 @@ object WallpaperController {
 
             originalLockWallpaper = null
             LockWallpaperBackup.clear(context)
-            // 已恢复为用户自己的壁纸，清除激活标记，进入干净状态（此后可重新缓存用户壁纸）
             ConfigReader.setWallpaperActive(context, false)
 
             logI("Original wallpaper restored")
 
-            // setBitmap 是全量编码落盘 + 系统刷新，耗时几百 ms~1s，放到后台线程避免阻塞按钮响应
             val restoreBmp = original
             val appCtx = context.applicationContext
-            // 退出过渡：遮罩改用原锁屏壁纸作为过渡内容，与恢复后的壁纸匹配，淡出时不闪烁
             setMaskImage(restoreBmp)
-            Thread {
-                try {
-                    if (restoreGen != wallpaperApplyGeneration) {
-                        logI("restore setBitmap cancelled: superseded")
-                        return@Thread
+            wallpaperApplier.enqueue(
+                jobId = restoreId,
+                write = {
+                    pipelineGate.withLock {
+                        if (!pipeline.shouldWriteRestore(restoreEpoch)) {
+                            logI("restore setBitmap cancelled: superseded")
+                            return@withLock false
+                        }
+                        try {
+                            WallpaperManager.getInstance(appCtx)
+                                .setBitmap(restoreBmp, null, true, WallpaperManager.FLAG_LOCK)
+                            pipeline.markRestoreCommitted(restoreEpoch)
+                            true
+                        } catch (e: Throwable) {
+                            logE("restore setBitmap error", e)
+                            false
+                        }
                     }
-                    WallpaperManager.getInstance(appCtx)
-                        .setBitmap(restoreBmp, null, true, WallpaperManager.FLAG_LOCK)
-                } catch (e: Throwable) {
-                    logE("restore setBitmap error", e)
-                } finally {
-                    if (restoreGen == wallpaperApplyGeneration) {
-                        // setBitmap 返回即已提交系统刷新，退出恢复停留更久后再淡出，避免露出切换过程
-                        hideTransitionMask(MASK_SETTLE_EXIT_MS)
-                    }
+                },
+                onCommitted = {
+                    hideTransitionMask(MASK_SETTLE_EXIT_MS)
+                },
+                onCancelled = {
+                    logI("restore apply cancelled epoch=$restoreEpoch")
                 }
-            }.start()
+            )
         } catch (e: Throwable) {
             logE("restoreWallpaperImmediately error", e)
         }
@@ -1137,7 +1175,8 @@ object WallpaperController {
     fun isAnimating(): Boolean = isAnimating
 
     /** 当前已成功应用到锁屏壁纸的曲目 key（供 bind 重试判断是否已追上）。 */
-    fun currentWallpaperTrackKey(): String? = appliedWallpaperTrackKey ?: lastWallpaperTrackKey
+    fun currentWallpaperTrackKey(): String? =
+        appliedWallpaperTrackKey() ?: lastWallpaperTrackKey
 
     /** 读取活跃 MediaSession 的 metadata（AOD 下 bind 可能不来）。 */
     fun peekSessionMetadata(context: Context): android.media.MediaMetadata? = readMediaMetadata(context)
@@ -1168,7 +1207,7 @@ object WallpaperController {
         }
         val trackKey = AlbumArtResolver.getCachedTrackKey()
         val bakeNow = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(ctx)
-        val appliedKey = appliedWallpaperTrackKey ?: lastWallpaperTrackKey
+        val appliedKey = appliedWallpaperTrackKey() ?: lastWallpaperTrackKey
         if (trackKey != null && trackKey == appliedKey &&
             !wallpaperLayoutStale && bakeNow == lastBakedImmersiveAlbum
         ) {
@@ -1188,13 +1227,10 @@ object WallpaperController {
 
     /** 标记壁纸与当前曲目可能不一致，下次进锁屏强制刷新。 */
     fun markWallpaperStale() {
+        pipelineGate.withLock { pipeline.markStale() }
         lastWallpaperTrackKey = null
-        appliedWallpaperTrackKey = null
-        pendingApplyTrackKey = null
-        silentBuildTrackKey = null
         lastNetworkAlbumTrackKey = null
         networkAlbumGeneration++
-        silentBuildGeneration++
         wallpaperLayoutStale = true
         clearDualWallpaperCache()
         logI("wallpaper marked stale")
@@ -1238,9 +1274,13 @@ object WallpaperController {
                     MusicLockscreenManager.showAlbumOverlay()
                 }
             }
+            val layoutJobId = pipelineGate.withLock {
+                pipeline.submitLayoutApply(cached.trackKey).job?.jobId
+            } ?: return false
             applyLockBitmapAsync(
                 appCtx,
                 cached,
+                jobId = layoutJobId,
                 maskBuilder = null,
                 onSettled = onLayoutSettled,
                 notifyLyricOnSettle = false,
@@ -1289,9 +1329,13 @@ object WallpaperController {
                     MusicLockscreenManager.showAlbumOverlay()
                 }
             }
+            val layoutJobId = pipelineGate.withLock {
+                pipeline.submitLayoutApply(wallpaperResult.trackKey).job?.jobId
+            } ?: return false
             applyLockBitmapAsync(
                 context,
                 wallpaperResult,
+                jobId = layoutJobId,
                 maskBuilder = null,
                 onSettled = {
                     mainHandler.post {
@@ -1446,8 +1490,8 @@ object WallpaperController {
         if (!trackChanged && !lagging && !wallpaperLayoutStale) return
         logI(
             "session metadata refresh: changed=$trackChanged lagging=$lagging " +
-                "stale=$wallpaperLayoutStale key=$cachedKey applied=$appliedWallpaperTrackKey " +
-                "pending=$pendingApplyTrackKey building=$silentBuildTrackKey"
+                "stale=$wallpaperLayoutStale key=$cachedKey applied=${appliedWallpaperTrackKey()} " +
+                "phase=${pipelineGate.withLock { pipeline.activeJob()?.phase }}"
         )
         val cachedArt = AlbumArtResolver.getCached()
         if (cachedArt != null) {
@@ -1486,8 +1530,8 @@ object WallpaperController {
         }
         logI(
             "track poll refresh: changed=$trackChanged lagging=$wallpaperLagging " +
-                "stale=$wallpaperLayoutStale key=$cachedKey applied=$appliedWallpaperTrackKey " +
-                "pending=$pendingApplyTrackKey building=$silentBuildTrackKey"
+                "stale=$wallpaperLayoutStale key=$cachedKey applied=${appliedWallpaperTrackKey()} " +
+                "phase=${pipelineGate.withLock { pipeline.activeJob()?.phase }}"
         )
         val cachedArt = AlbumArtResolver.getCached()
         if (cachedArt != null) {

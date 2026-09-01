@@ -494,7 +494,11 @@ object AlbumArtResolver {
         if (valid.isEmpty()) return null
 
         val referenceKeys = AlbumArtMatcher.collectReferenceKeys(metadata, mediaData, context)
-        val visualRef = valid.minByOrNull { it.width * it.height } ?: return valid.maxByOrNull { it.width * it.height }
+        val trackKey = cachedTrackKey ?: computeTrackKey(context, metadata, mediaData)
+        val sourceHint = collectArtUrlStrings(metadata, mediaData, context)
+            .firstOrNull { AlbumArtMatcher.isNetEaseArtUrl(it) }
+        val visualRef = valid.minByOrNull { it.width * it.height }
+            ?: return valid.maxByOrNull { it.width * it.height }
 
         val sorted = valid.sortedByDescending { it.width * it.height }
         for (candidate in sorted) {
@@ -503,7 +507,10 @@ object AlbumArtResolver {
             ) {
                 return candidate
             }
-            if (AlbumArtMatcher.acceptsNetworkUpgrade(visualRef, candidate, null, referenceKeys)) {
+            if (AlbumArtMatcher.acceptsNetworkUpgrade(
+                    visualRef, candidate, sourceHint, referenceKeys, trackKey
+                )
+            ) {
                 return candidate
             }
             logI("skip unverified ${candidate.width}x${candidate.height}")

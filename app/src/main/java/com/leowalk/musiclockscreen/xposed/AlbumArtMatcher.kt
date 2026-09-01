@@ -50,6 +50,8 @@ object AlbumArtMatcher {
 
     /**
      * 网络图可用条件：分辨率更大，且 URL 同源或缩略图相似。
+     * 当 [trackKey] 为可信的 `netease:{id}` 且 candidate 来自同源网易云图时，放宽为接受更大图
+     * （避免空 referenceKeys 导致高清反复 skip unverified）。
      */
     fun acceptsNetworkUpgrade(
         reference: Bitmap,
@@ -64,6 +66,10 @@ object AlbumArtMatcher {
         val sourceKey = netEaseImageKey(sourceUrl)
         if (sourceKey != null && referenceKeys.contains(sourceKey)) return true
         if (sourceKey != null && trackKey != null && trackKey.contains(sourceKey)) return true
+        // 可信 netease trackKey + 网易云 CDN 图：同曲高清升级，不必强依赖 referenceKeys
+        if (sourceKey != null && trackKey != null && trackKey.startsWith("netease:")) {
+            return true
+        }
         return looksLikeSameCover(reference, candidate)
     }
 
