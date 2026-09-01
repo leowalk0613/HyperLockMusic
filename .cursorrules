@@ -25,3 +25,4 @@
 
 - Read `ANDROID_HOME` / `ANDROID_SDK_ROOT` from `.env` or the shell environment.
 - Keep builds reproducible via the wrapper; do not assume a global `gradle` install.
+- 本机绝对路径（SDK / ADB / 反编译工具 / 效果图等）只写在 gitignore 的 `.cursor/rules/`，勿写入本文件或推远程。

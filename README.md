@@ -1,10 +1,12 @@
 # HyperLockMusic
 
-基于 [LSPosed](https://github.com/LSPosed/LSPosed)（libxposed API 102）的 **HyperOS 4** 锁屏音乐模块：在锁屏与息屏（AOD）重绘专辑壁纸、大封面 / 沉浸封面与歌词，并扩展媒体控件与息屏行为。
+基于 LSPosed（libxposed API 102）的 **HyperOS 4** 锁屏音乐模块：在锁屏与息屏（AOD）重绘专辑壁纸、大封面 / 沉浸封面与歌词，并扩展媒体控件与息屏行为。
 
 > **English:** LSPosed module for **HyperOS 4** that redraws the lock screen & AOD with album-art wallpapers, large / immersive covers, synced lyrics, expanded AOD media controls, and a minimal clock. **MIUI and older HyperOS versions are not supported.**
 
 当前版本：**0.1.0**
+
+项目地址：`https://github.com/leowalk0613/HyperLockMusic`
 
 ## 功能
 
@@ -15,14 +17,15 @@
 - **AOD 歌词** — 息屏同步歌词；切歌时按版本 / 内容快照刷新，避免「只有亮屏才更新」或闪上一首
 - **AOD 媒体控件** — 可选息屏保持展开并实时进度条，减少压缩再展开的动画
 - **简洁时钟** — 音乐锁屏时隐藏系统大时钟，顶部显示可调字号 / 位置的时间日期
-- **通知过滤** — 音乐锁屏激活时隐藏无关通知，保留媒体控件与 LyricFocus
+- **通知过滤** — 音乐锁屏激活时隐藏无关通知，保留媒体控件与歌词数据源进程
 - **媒体退出** — 划掉媒体、杀播放器或无活跃会话时自动退出音乐锁屏（建议开启通知使用权）
 - **应用白名单** — 可选限定哪些音乐应用可触发音乐锁屏
-- **网易云 HD 封面** — 可选拉取更高分辨率专辑图（需勾选对应音乐应用作用域）
+- **网易云高清封面** — 仅在网易云音乐播放时，经媒体会话识别曲目后拉取官方高清图替换前景大专辑（无需 hook 网易云；其他播放器不匹配）；数据归平台所有，图像版权归原作者所有
 - **锁屏常亮** — 可选音乐锁屏时保持屏幕常亮
-- **歌名括号** — 媒体标题括号：原样 / 右侧缩小 / 隐藏
+- **禁用息屏壁纸缩放** — 音乐锁屏息屏时去掉 HyperOS 壁纸缩放动画，仅保留压暗
+- **歌名括号** — 媒体标题括号：原样 / 右侧缩小 / 隐藏 / 分行
 
-歌词数据依赖 [LyricFocus](https://github.com/leowalk0613)（`com.leowalk.LyricFocus`）经 ContentProvider 推送；本模块在 SystemUI / AOD 内消费并上屏。
+锁屏 / AOD 歌词数据由 **LyricFocus** 的外部渲染功能推送到本模块 ContentProvider；本模块在 SystemUI / AOD 内消费并上屏。
 
 ## 环境要求
 
@@ -32,7 +35,7 @@
 | Android | **Android 17**（开发机） |
 | 框架 | LSPosed（API **102+**，libxposed） |
 | Root | 需要（LSPosed；应用内「重启界面」亦需 `su`） |
-| 歌词 | 建议安装并启用 **LyricFocus** |
+| 歌词 | 建议安装并启用 **LyricFocus**（外部渲染） |
 
 **参考实机：** Xiaomi `23127PN0CC`，HyperOS 4 `4.0.0.14`，Android 17。
 
@@ -40,8 +43,8 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/leowalk0613/HyperLockMusic/releases) 下载 APK，或自行编译
-2. 安装 **LyricFocus**（锁屏 / AOD 歌词数据源）
+1. 从 Releases（`https://github.com/leowalk0613/HyperLockMusic/releases`）下载 APK，或自行编译
+2. 安装 **LyricFocus**，并开启其外部渲染，作为锁屏 / AOD 歌词数据源
 3. 在 LSPosed 中启用 **HyperLockMusic**
 4. 勾选作用域（见下表），**至少包含 `com.android.systemui`**
 5. 在应用内开启 **通知使用权**（更准确检测播放与自动退出）
@@ -54,9 +57,8 @@
 | `com.android.systemui` | 锁屏壁纸、歌词、大封面、媒体控件、时钟、通知栈（**必选**） |
 | `com.miui.aod` | 息屏 AOD 歌词 |
 | `miui.systemui.plugin` | SystemUI 插件层兼容 |
-| 各音乐应用包名 | 白名单 / 网易云 HD 等（按需，如 `com.netease.cloudmusic`） |
 
-模块声明作用域见 `app/src/main/resources/META-INF/xposed/scope.list`。
+模块声明作用域见 `app/src/main/resources/META-INF/xposed/scope.list`（无需勾选音乐应用包名）。
 
 ## 使用
 
@@ -70,12 +72,12 @@
 | 入口 | 内容 |
 |------|------|
 | **权限** | 通知使用权（播放检测 / 自动退出） |
-| **音乐应用白名单** | 启用后仅白名单应用可开音乐锁屏 |
-| **专辑封面** | 大封面 / 沉浸封面、大小位置圆角、网易云 HD、简洁时钟 |
-| **模糊背景** | 模糊半径、暗色遮罩 |
+| **专辑封面** | 大封面 / 沉浸封面（含效果图预览）、大小位置圆角、网易云高清封面 |
 | **媒体控件** | AOD 完整媒体控件、歌名括号样式 |
-| **歌词样式** | 显示开关、普通 / 沉浸歌词、毛玻璃、翻译互换、对齐、锁屏常亮 |
-| **关于** | 版本与说明 |
+| **歌词样式** | 显示开关、普通 / 沉浸歌词（含效果图预览）、毛玻璃、翻译互换 |
+| **其他设置** | 壁纸模糊、简洁时钟、禁用息屏壁纸缩放、锁屏常亮 |
+| **音乐应用白名单** | 启用后仅白名单应用可开音乐锁屏 |
+| **关于** | 版本、项目地址、开源致谢与说明 |
 
 ### 其他
 
@@ -111,6 +113,17 @@ adb logcat -s HyperLockMusic HyperLockMusic_Lyric HyperLockMusic_Wallpaper Hyper
 
 改动 SystemUI / AOD 钩子后，通常需重启 SystemUI；AOD 歌词异常时也可重启 `com.miui.aod`。
 
+## 致谢
+
+感谢以下开源项目：
+
+- **LSPosed / libxposed API** — 提供 Xposed 模块运行时与挂钩能力，本模块以此注入 SystemUI / AOD（https://github.com/LSPosed/LSPosed）
+- **Android Jetpack（AndroidX）** — 应用层基础组件（Core KTX、AppCompat 等）（https://developer.android.com/jetpack）
+- **Material Components for Android** — 设置页 Material 3 控件与主题（https://github.com/material-components/material-components-android）
+- **Material Color Utilities** — 沉浸封面等场景的 Monet / HCT 取色（https://github.com/material-foundation/material-color-utilities）
+- **StackBlur（Mario Klingemann）** — 专辑壁纸模糊所用的高效盒式模糊算法（http://www.quasimondo.com/StackBlurForCanvas/StackBlurDemo.html）
+- **HyperLyric** — AOD「完整媒体控件」参考其禁用媒体卡片折叠的实现思路（https://github.com/limczhh/HyperLyric）
+
 ## 免责声明
 
 - 本模块通过 Xposed 钩子修改 SystemUI / AOD 行为，**仅供学习与个人使用**
@@ -118,11 +131,12 @@ adb logcat -s HyperLockMusic HyperLockMusic_Lyric HyperLockMusic_Wallpaper Hyper
 - 与小米、HyperOS 及任何音乐应用官方无关
 - **仅面向 HyperOS 4；MIUI 不在支持范围内**
 - 「音乐锁屏」指本模块功能，不是系统自带能力
+- 「网易云高清封面」仅在网易云音乐播放时生效（无需 hook 网易云）：**相关数据归平台所有，图像版权归原作者所有**；仅供个人学习与本机显示，不会用其他播放器去匹配网易云封面
 
 ## 许可证
 
-[MIT License](LICENSE)。
+MIT License（见 `LICENSE`）。
 
 ## 作者
 
-[leowalk](https://github.com/leowalk0613)
+leowalk（`https://github.com/leowalk0613`）

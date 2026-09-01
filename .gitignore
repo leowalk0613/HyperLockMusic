@@ -54,3 +54,4 @@ tmp_layout/
 # Tooling / IDE caches
 .codegraph/
 .kotlin/
+.cursor/

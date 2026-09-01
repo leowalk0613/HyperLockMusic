@@ -30,6 +30,7 @@
 - 不要依赖 Android Studio 做编译、同步、安装或排错。
 - 常用：`assembleDebug`、`test`、`connectedAndroidTest`（若已配置）、`:app:installDebug`。
 - SDK 路径从 `.env` 或环境变量 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 读取。
+- 本机绝对路径（SDK / ADB / 反编译 / 效果图等）仅放在被 gitignore 的 `.cursor/rules/`，不要写进本文件或推远程。
 
 ## 本项目注意点
 

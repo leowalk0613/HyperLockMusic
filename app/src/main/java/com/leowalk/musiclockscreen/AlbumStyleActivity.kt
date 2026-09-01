@@ -100,8 +100,8 @@ class AlbumStyleActivity : BaseScrollingActivity() {
         card.addView(immersiveOnlyBlock)
 
         networkHdRow = M3.switchRow(
-            this, "让专辑图显示更清晰",
-            "后台拉网易云高清替换前景；沉浸封面取色仍用系统封面",
+            this, "网易云高清封面",
+            "仅在网易云音乐播放时生效：识别当前曲目后拉取官方高清图替换前景大专辑，无需 hook 网易云；其他播放器不匹配",
             ModuleConfig.albumNetworkHd
         ) { checked ->
             ModuleConfig.albumNetworkHd = checked
@@ -112,7 +112,10 @@ class AlbumStyleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, card))
         list.addView(M3.card(this, M3.tipContent(this,
             "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
-                "大专辑底边与沉浸封面位置互不共用。灰显项表示当前样式下不生效。")))
+                "大专辑底边与沉浸封面位置互不共用。灰显项表示当前样式下不生效。\n\n" +
+                "「网易云高清封面」仅在网易云音乐播放时生效：从媒体会话识别当前曲目后拉取官方高清图替换前景大专辑，" +
+                "无需 hook 网易云；其他播放器不会匹配网易云封面；沉浸封面取色仍用系统封面。\n" +
+                "相关数据归平台所有，图像版权归原作者所有；仅供个人学习与本机显示，与网易云音乐官方无关。")))
 
         refreshModeUi()
     }
