@@ -493,8 +493,16 @@ object AlbumArtResolver {
         val valid = candidates.filter { !it.isRecycled && it.width > 0 && it.height > 0 }
         if (valid.isEmpty()) return null
 
-        val referenceKeys = AlbumArtMatcher.collectReferenceKeys(metadata, mediaData, context)
         val trackKey = cachedTrackKey ?: computeTrackKey(context, metadata, mediaData)
+        // 可信 trackKey：候选已在 collectBest 做过 poison 过滤，直接取最大，
+        // 避免旧曲残留小图当 visualRef 把新封面 skip unverified 后「回退」成旧小图
+        if (trackKey != null &&
+            (trackKey.startsWith("netease:") || trackKey.startsWith("id:"))
+        ) {
+            return valid.maxByOrNull { it.width * it.height }
+        }
+
+        val referenceKeys = AlbumArtMatcher.collectReferenceKeys(metadata, mediaData, context)
         val sourceHint = collectArtUrlStrings(metadata, mediaData, context)
             .firstOrNull { AlbumArtMatcher.isNetEaseArtUrl(it) }
         val visualRef = valid.minByOrNull { it.width * it.height }

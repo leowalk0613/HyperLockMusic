@@ -493,6 +493,7 @@ object WallpaperController {
             networkAlbumGeneration++
             lastNetworkAlbumTrackKey = null
             lastNetworkAlbumBitmap = null
+            clearDualWallpaperCache()
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
             val appCtx = context.applicationContext
             val metaRef = metadata ?: readBestMetadata(context)
@@ -792,8 +793,16 @@ object WallpaperController {
             } catch (_: Throwable) {
                 null
             }
+            val overlayTrack = dual.trackKey
             if (overlayCopy != null) {
-                mainHandler.post { MusicLockscreenManager.updateAlbumBitmap(overlayCopy) }
+                mainHandler.post {
+                    val current = AlbumArtResolver.getCachedTrackKey()
+                    if (overlayTrack != null && current != null && overlayTrack != current) {
+                        if (!overlayCopy.isRecycled) overlayCopy.recycle()
+                        return@post
+                    }
+                    MusicLockscreenManager.updateAlbumBitmap(overlayCopy)
+                }
             }
         }
         return BlurredWallpaperResult(wallpaper, dual.systemAlbum, dual.trackKey)
@@ -1241,8 +1250,13 @@ object WallpaperController {
      */
     fun refreshWallpaperForAlbumVisibility(context: Context): Boolean {
         if (!isMusicWallpaperSet) return false
-        wallpaperLayoutStale = true
         val bakeNow = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
+        // 烘焙态未变且已有对应壁纸：勿再 submitLayoutApply（会冲掉切歌 job / 反复 setBitmap）
+        if (!wallpaperLayoutStale && bakeNow == lastBakedImmersiveAlbum) {
+            logI("layout refresh skipped: bake unchanged=$bakeNow")
+            return false
+        }
+        wallpaperLayoutStale = true
         logI("refresh wallpaper for immersive album visibility bake=$bakeNow")
         val appCtx = context.applicationContext
         if (bakeNow) {

@@ -266,7 +266,9 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
                     val centerAfter =
                         if (bakeAfter) ConfigReader.immersiveAlbumCenterY(context) else Float.NaN
                     if (MusicLockscreenManager.isShowing) {
-                        val layoutChanged = bakeBefore != bakeAfter || centerBefore != centerAfter
+                        val layoutChanged = immersiveAlbumLayoutChanged(
+                            bakeBefore, bakeAfter, centerBefore, centerAfter
+                        )
                         if (layoutChanged) {
                             if (bakeAfter) {
                                 // 仅当方形封面当前可见时才 hold；沉浸歌词占位时封面已隐藏，
