@@ -37,6 +37,7 @@ object ModuleConfig {
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
+    private const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
     private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -88,6 +89,7 @@ object ModuleConfig {
     private const val DEFAULT_MINIMAL_CLOCK_TOP_Y = 10f
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_AOD_FULL_MEDIA = false
+    private const val DEFAULT_DISABLE_WALLPAPER_SCALE = true
     private const val DEFAULT_KEEP_LOCKSCREEN_ON = false
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
 
@@ -218,6 +220,11 @@ object ModuleConfig {
         get() = getPrefs().getBoolean(KEY_AOD_FULL_MEDIA, DEFAULT_AOD_FULL_MEDIA)
         set(value) = getPrefs().edit().putBoolean(KEY_AOD_FULL_MEDIA, value).apply()
 
+    /** 音乐锁屏息屏时禁用 HyperOS 壁纸缩放动画（保留压暗） */
+    var disableWallpaperScale: Boolean
+        get() = getPrefs().getBoolean(KEY_DISABLE_WALLPAPER_SCALE, DEFAULT_DISABLE_WALLPAPER_SCALE)
+        set(value) = getPrefs().edit().putBoolean(KEY_DISABLE_WALLPAPER_SCALE, value).apply()
+
     /** 音乐锁屏时保持常亮 */
     var keepLockScreenOn: Boolean
         get() = getPrefs().getBoolean(KEY_KEEP_LOCKSCREEN_ON, DEFAULT_KEEP_LOCKSCREEN_ON)
@@ -298,6 +305,7 @@ object ModuleConfig {
                 put("minimal_clock_size", minimalClockSize)
                 put("minimal_clock_top_y", minimalClockTopY)
                 put("aod_full_media", if (aodFullMedia) 1 else 0)
+                put("disable_wallpaper_scale", if (disableWallpaperScale) 1 else 0)
                 put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)

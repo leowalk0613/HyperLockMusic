@@ -3,7 +3,8 @@ package com.leowalk.musiclockscreen.xposed
 import io.github.libxposed.api.XposedModule
 
 /**
- * 音乐锁屏大专辑息屏：拦截 KeyguardPanelViewController 的壁纸缩放，只让 wallpaperBlack 压暗动画运行。
+ * 音乐锁屏息屏：按开关拦截 KeyguardPanelViewController 的壁纸缩放，只让 wallpaperBlack 压暗动画运行。
+ * 适用于整个音乐锁屏（大专辑 / 沉浸 / 仅歌词）。
  */
 object KeyguardWallpaperScaleHook {
 
@@ -47,7 +48,7 @@ object KeyguardWallpaperScaleHook {
                 } else if (ctx != null && ConfigReader.aodFullMedia(ctx)) {
                     KeyguardSleepTransition.onStartedGoingToSleep()
                 }
-                if (ctx != null && KeyguardWallpaperScalePolicy.isMusicSquareAlbumActive(ctx)) {
+                if (ctx != null && KeyguardWallpaperScalePolicy.shouldHandleSleepTransition(ctx)) {
                     KeyguardWallpaperScalePolicy.onGoingToSleep()
                 }
             }
@@ -96,7 +97,7 @@ object KeyguardWallpaperScaleHook {
         module.deoptimize(method)
         module.hook(method).intercept { chain ->
             val ctx = HookUtils.systemUiApplicationContext()
-            if (ctx != null && KeyguardWallpaperScalePolicy.isMusicSquareAlbumActive(ctx)) {
+            if (ctx != null && KeyguardWallpaperScalePolicy.shouldHandleSleepTransition(ctx)) {
                 KeyguardWallpaperScalePolicy.onGoingToSleep()
             }
             chain.proceed()

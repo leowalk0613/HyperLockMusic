@@ -37,6 +37,7 @@ object ConfigReader {
     private var cachedMinimalClockTopY: Float = 10f
     private var cachedTitleBracketMode: String = "default"
     private var cachedAodFullMedia: Boolean = true
+    private var cachedDisableWallpaperScale: Boolean = true
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
     private var cachedMediaListenerReady: Boolean = false
@@ -225,6 +226,12 @@ object ConfigReader {
         return cachedAodFullMedia
     }
 
+    /** 音乐锁屏息屏时禁用壁纸缩放动画 */
+    fun disableWallpaperScale(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedDisableWallpaperScale
+    }
+
     fun musicWhitelistEnabled(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         return cachedWhitelistEnabled
@@ -301,6 +308,7 @@ object ConfigReader {
                 val minimalClockTopYIdx = cursor.getColumnIndex("minimal_clock_top_y")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
+                val disableWallpaperScaleIdx = cursor.getColumnIndex("disable_wallpaper_scale")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
                 val mediaListenerReadyIdx = cursor.getColumnIndex("media_listener_ready")
@@ -371,6 +379,9 @@ object ConfigReader {
                 }
                 if (aodFullMediaIdx >= 0) {
                     cachedAodFullMedia = cursor.getInt(aodFullMediaIdx) == 1
+                }
+                if (disableWallpaperScaleIdx >= 0) {
+                    cachedDisableWallpaperScale = cursor.getInt(disableWallpaperScaleIdx) == 1
                 }
                 if (whitelistEnabledIdx >= 0) {
                     cachedWhitelistEnabled = cursor.getInt(whitelistEnabledIdx) == 1

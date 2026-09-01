@@ -7,14 +7,16 @@ import android.content.IntentFilter
 import android.os.SystemClock
 
 /**
- * 大专辑音乐锁屏息屏策略：禁用 HyperOS 壁纸 [wallpaperScale] 缩放，仅保留 [wallpaperBlack] 压暗。
+ * 音乐锁屏息屏策略：按开关禁用 HyperOS 壁纸 [wallpaperScale] 缩放，仅保留 [wallpaperBlack] 压暗。
  *
  * 依据反编译 `KeyguardPanelViewController`：
- * - `linkageViewAnim` / Folme `WallpaperParam.wallpaperScale` → [setWallpaperScale] / [doDeductedImageScaleAnim]
+ * - `linkageViewAnim` / Folme `WallpaperParam.wallpaperScale` → setWallpaperScale / doDeductedImageScaleAnim
  * - `doWallpaperBlackAnim` / Folme `wallpaperBlack` → enableWallPaperAnim + setWallPaperAnimProcess（压暗，保留）
  *
  * 时序：`onStartedGoingToSleep` 里先 `interactive=false` 再跑 linkage 动画，此时 PowerManager 仍可能 interactive=true，
  * 必须靠 [goingToSleep] 提前打开抑制窗口。
+ *
+ * 适用范围：开关开启且音乐锁屏激活（大专辑 / 沉浸 / 仅歌词均生效）。
  */
 internal object KeyguardWallpaperScalePolicy {
 
@@ -27,16 +29,45 @@ internal object KeyguardWallpaperScalePolicy {
     private var screenReceiver: BroadcastReceiver? = null
     private var registeredContext: Context? = null
 
-    fun isMusicSquareAlbumActive(context: Context): Boolean {
-        if (!ConfigReader.shouldShowSquareAlbum(context)) return false
+    fun isMusicLockscreenActive(): Boolean {
         return WallpaperController.isShowing() || MusicLockscreenManager.isShowing
+    }
+
+    /** 息屏过渡时是否应取消 Folme scale / 打开抑制窗口。 */
+    fun shouldHandleSleepTransition(context: Context): Boolean {
+        return shouldHandleSleepTransition(
+            disableWallpaperScale = ConfigReader.disableWallpaperScale(context),
+            musicLockscreenActive = isMusicLockscreenActive(),
+        )
     }
 
     fun shouldSuppress(context: Context?): Boolean {
         if (context == null) return false
-        if (!isMusicSquareAlbumActive(context)) return false
-        if (KeyguardSleepTransition.isInLinkageAnimWindow()) return true
-        return !HookUtils.isScreenInteractive(context)
+        return shouldSuppressScale(
+            disableWallpaperScale = ConfigReader.disableWallpaperScale(context),
+            musicLockscreenActive = isMusicLockscreenActive(),
+            inLinkageAnimWindow = KeyguardSleepTransition.isInLinkageAnimWindow() || goingToSleep,
+            screenInteractive = HookUtils.isScreenInteractive(context),
+        )
+    }
+
+    /** 纯决策：开关 + 音乐锁屏时，息屏过渡或整段 AOD 抑制壁纸缩放。 */
+    fun shouldSuppressScale(
+        disableWallpaperScale: Boolean,
+        musicLockscreenActive: Boolean,
+        inLinkageAnimWindow: Boolean,
+        screenInteractive: Boolean,
+    ): Boolean {
+        if (!disableWallpaperScale || !musicLockscreenActive) return false
+        if (inLinkageAnimWindow) return true
+        return !screenInteractive
+    }
+
+    fun shouldHandleSleepTransition(
+        disableWallpaperScale: Boolean,
+        musicLockscreenActive: Boolean,
+    ): Boolean {
+        return disableWallpaperScale && musicLockscreenActive
     }
 
     /** WakefulnessLifecycle.onStartedGoingToSleep — 早于 linkageViewAnim / Folme wallpaperScale。 */

@@ -72,7 +72,7 @@ class MainActivity : BaseScrollingActivity() {
         list.addView(M3.clickRow(this, "模糊背景", "壁纸模糊强度/暗色遮罩浓度") {
             startActivity(Intent(this, BlurBackgroundActivity::class.java))
         })
-        list.addView(M3.clickRow(this, "媒体控件", "AOD 展开/进度条与歌名括号样式") {
+        list.addView(M3.clickRow(this, "媒体控件", "AOD 展开/壁纸缩放与歌名括号样式") {
             startActivity(Intent(this, MediaTitleActivity::class.java))
         })
         list.addView(M3.clickRow(this, "歌词样式", "歌词/毛玻璃条/翻译互换/颜色与位置") {

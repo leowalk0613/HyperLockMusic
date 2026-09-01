@@ -19,6 +19,15 @@ class MediaTitleActivity : BaseScrollingActivity() {
             ModuleConfig.aodFullMedia = checked
             ModuleConfig.push(this)
         })
+        aodCard.addView(M3.switchRow(
+            this,
+            "禁用息屏壁纸缩放",
+            "音乐锁屏息屏时去掉 HyperOS 壁纸缩放动画，仅保留压暗（大专辑/沉浸/歌词均生效）",
+            ModuleConfig.disableWallpaperScale
+        ) { checked ->
+            ModuleConfig.disableWallpaperScale = checked
+            ModuleConfig.push(this)
+        })
         list.addView(M3.card(this, aodCard))
 
         val card = M3.cardContent(this)
@@ -39,7 +48,9 @@ class MediaTitleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, card))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "AOD / 迷你播放器选项需重启系统界面后生效。\n\n" +
+            "AOD / 迷你播放器 / 壁纸缩放选项需重启系统界面后生效。\n\n" +
+                "禁用息屏壁纸缩放：音乐锁屏息屏时拦截 HyperOS wallpaperScale，仅保留压暗；" +
+                "大专辑、沉浸封面与仅歌词模式均适用。\n\n" +
                 "默认：原样显示括号内容。缩小：括号内容缩小并置于标题右侧。隐藏：去除括号内容。" +
                 "分行：括号副标题叠在标题下方；主标题固定字号，显示不全用省略号。")))
     }
