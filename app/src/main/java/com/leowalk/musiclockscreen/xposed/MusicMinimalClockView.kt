@@ -33,7 +33,6 @@ class MusicMinimalClockView @JvmOverloads constructor(
         const val TAG_VIEW = "music_minimal_clock_overlay"
         private const val DEFAULT_TEXT_SP = 30f
         private const val DEFAULT_TOP_PERCENT = 10f
-        private const val TINT_WEIGHT = 0.28f
         private const val GAP = "  "
     }
 
@@ -52,7 +51,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
     private var miBlurOnLight = false
     private var miBlurBlendKey = 0
 
-    private var cachedMiSansMedium: Typeface? = null
+    private var cachedMiSansBold: Typeface? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private val tickRunnable = object : Runnable {
@@ -259,6 +258,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
 
     private fun applyTypeface() {
         textPaint.typeface = resolveMiSans()
+        textPaint.isFakeBoldText = false
     }
 
     private fun syncMiBlur() {
@@ -270,23 +270,17 @@ class MusicMinimalClockView @JvmOverloads constructor(
         val bgRef = contrastBackgroundColor()
         val tint = boostAlbumTint(albumTint ?: bgRef)
         val onLight = isNearWhiteBackground(bgRef)
-        val blend: Int
-        val primary: Int
-        val over: Int
-        val blendAlpha: Int
-        val labAlpha: Int
-        if (onLight) {
-            blend = blendTextColor(Color.rgb(24, 24, 26), tint, 0.40f)
-            primary = Color.rgb(22, 22, 24)
-            over = Color.argb(160, 0, 0, 0)
-            blendAlpha = 200
-            labAlpha = 230
+        val blurAlphas = MinimalClockTextStylePolicy.miBlurAlphas(onLight)
+        val blend = MinimalClockTextStylePolicy.miBlurBlendRgb(onLight, tint)
+        val primary = if (onLight) {
+            MinimalClockTextStylePolicy.rgb(22, 22, 24)
         } else {
-            blend = blendTextColor(Color.WHITE, tint, 0.42f)
-            primary = Color.WHITE
-            over = Color.argb(130, 255, 255, 255)
-            blendAlpha = 180
-            labAlpha = 170
+            MinimalClockTextStylePolicy.rgb(255, 255, 255)
+        }
+        val over = if (onLight) {
+            MinimalClockTextStylePolicy.argb(140, 0, 0, 0)
+        } else {
+            MinimalClockTextStylePolicy.argb(110, 255, 255, 255)
         }
         val blendKey = blend xor bgRef xor (if (onLight) 0xA1 else 0xA2)
         if (miBlurActive && blendKey == miBlurBlendKey && onLight == miBlurOnLight) {
@@ -300,8 +294,8 @@ class MusicMinimalClockView @JvmOverloads constructor(
             colorDark = onLight,
             enablePassBlurOnSelf = true,
             passBlurRadius = (40f * resources.displayMetrics.density).toInt().coerceIn(24, 80),
-            blendAlpha = blendAlpha,
-            labAlpha = labAlpha,
+            blendAlpha = blurAlphas.blendAlpha,
+            labAlpha = blurAlphas.labAlpha,
             overColor = over
         )
         if (ok) {
@@ -325,31 +319,22 @@ class MusicMinimalClockView @JvmOverloads constructor(
 
     private fun applyTextColors() {
         val bgRef = contrastBackgroundColor()
+        val onLight = isNearWhiteBackground(bgRef)
+        val textAlpha = MinimalClockTextStylePolicy.CLOCK_TEXT_ALPHA
+        val shadow = MinimalClockTextStylePolicy.shadowLayer(onLight)
         if (miBlurActive) {
-            if (miBlurOnLight) {
-                textPaint.color = Color.rgb(28, 28, 30)
-                textPaint.alpha = 255
-                textPaint.setShadowLayer(10f, 0f, 2f, Color.argb(90, 255, 255, 255))
-            } else {
-                textPaint.color = Color.WHITE
-                textPaint.alpha = 255
-                textPaint.setShadowLayer(14f, 0f, 5f, Color.argb(220, 0, 0, 0))
-            }
+            textPaint.color = MinimalClockTextStylePolicy.readableTextRgb(
+                onLight,
+                boostAlbumTint(albumTint ?: bgRef),
+            )
+            textPaint.alpha = textAlpha
+            textPaint.setShadowLayer(shadow.radius, 0f, shadow.dy, shadow.colorArgb)
             return
         }
         val tint = boostAlbumTint(albumTint ?: bgRef)
-        val mainColor = if (isNearWhiteBackground(bgRef)) {
-            blendTextColor(Color.rgb(32, 32, 34), tint, 0.28f)
-        } else {
-            blendTextColor(Color.WHITE, tint, TINT_WEIGHT)
-        }
-        textPaint.color = mainColor
-        textPaint.alpha = 255
-        if (isNearWhiteBackground(bgRef)) {
-            textPaint.setShadowLayer(10f, 0f, 2f, Color.argb(100, 255, 255, 255))
-        } else {
-            textPaint.setShadowLayer(10f, 0f, 3f, Color.argb(230, 0, 0, 0))
-        }
+        textPaint.color = MinimalClockTextStylePolicy.readableTextRgb(onLight, tint)
+        textPaint.alpha = textAlpha
+        textPaint.setShadowLayer(shadow.radius, 0f, shadow.dy, shadow.colorArgb)
     }
 
     private fun contrastBackgroundColor(): Int {
@@ -426,35 +411,24 @@ class MusicMinimalClockView @JvmOverloads constructor(
         return Color.HSVToColor(hsv)
     }
 
-    private fun blendTextColor(base: Int, tint: Int, weight: Float): Int {
-        val w = weight.coerceIn(0f, 1f)
-        val inv = 1f - w
-        return Color.rgb(
-            (Color.red(base) * inv + Color.red(tint) * w).toInt().coerceIn(0, 255),
-            (Color.green(base) * inv + Color.green(tint) * w).toInt().coerceIn(0, 255),
-            (Color.blue(base) * inv + Color.blue(tint) * w).toInt().coerceIn(0, 255)
-        )
-    }
-
     private fun resolveMiSans(): Typeface {
-        cachedMiSansMedium?.let { return it }
-        val paths = arrayOf(
-            "/system/fonts/MiSans-Medium.ttf",
-            "/system/fonts/MiSans-Regular.ttf",
-            "/product/fonts/MiSans-Regular.ttf",
-        )
-        for (path in paths) {
+        cachedMiSansBold?.let { return it }
+        for (path in MinimalClockTextStylePolicy.CLOCK_TYPEFACE_PATHS) {
             try {
                 val file = java.io.File(path)
                 if (!file.exists()) continue
                 val tf = Typeface.createFromFile(file)
-                cachedMiSansMedium = tf
+                cachedMiSansBold = tf
                 return tf
             } catch (_: Throwable) {
             }
         }
-        val fallback = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        cachedMiSansMedium = fallback
+        val fallback = if (MinimalClockTextStylePolicy.clockTypefaceFallbackBold()) {
+            Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        } else {
+            Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+        cachedMiSansBold = fallback
         return fallback
     }
 }

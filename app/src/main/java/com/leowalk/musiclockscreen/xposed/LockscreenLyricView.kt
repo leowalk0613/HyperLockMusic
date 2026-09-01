@@ -167,6 +167,8 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cachedCtx: org.json.JSONObject? = null
     private var lastSongTitle: String = ""
     private var lastKnownTrackKey: String? = null
+    /** Provider 仍为上一首歌词、与 Session 不一致时已隐藏，避免每轮询重复 reflow。 */
+    private var staleProviderLyricSuppressed = false
     /** 切歌门闩：AOD / 亮屏共用 [TrackLyricGate]。 */
     private var trackGatePhase: TrackLyricGate.Phase = TrackLyricGate.Phase.IDLE
     private var trackGateSnapshot: TrackLyricGate.Snapshot? = null
@@ -191,6 +193,8 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private var aodScreenReceiver: BroadcastReceiver? = null
     private var aodRecoveryBurstGeneration = 0
+    private var lyricBootstrapBurstGeneration = 0
+    private var lyricBootstrapUntilMs = 0L
 
     init {
         setBackgroundColor(Color.TRANSPARENT)
@@ -576,33 +580,47 @@ class LockscreenLyricView(context: Context) : View(context) {
         dataDirty = true
         lastVersionsCheck = 0
         clearTrackGate()
+        lyricBootstrapUntilMs = SystemClock.elapsedRealtime() + LYRIC_BOOTSTRAP_GRACE_MS
         val mediaTitle = readCurrentMediaTitle()
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         val trackKey = AlbumArtResolver.getCachedTrackKey()
         if (trackKey != null) lastKnownTrackKey = trackKey
         if (isMusicLockscreenActive() && isKeyguardLocked()) {
             startPolling()
-            handler.post { readAndUpdate() }
+            handler.post {
+                updatePlayingState(force = true)
+                readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
+            }
+            scheduleLyricBootstrapBurst()
         }
     }
 
-    /** 切歌时强制重拉歌词（AOD / 亮屏同一套 WAITING 门闩）。 */
+    /** 切歌时重拉 Provider 歌词（信任 LyricFocus 输出，不走 WAITING 门闩）。 */
     fun onTrackMayHaveChanged() {
-        cancelImmersiveLineFade()
+        refreshLyricsFromProvider(clearLineCache = true)
+        if (isAodLyricRefreshMode()) {
+            scheduleAodLyricRecoveryBurst()
+        }
+    }
+
+    /** 从 LyricDataProvider 拉取并刷新显示；Provider 侧假定始终为最新。 */
+    private fun refreshLyricsFromProvider(clearLineCache: Boolean) {
         dataDirty = true
-        cachedLines = null
-        cachedCtx = null
         lastVersionsCheck = 0
+        clearTrackGate()
+        if (clearLineCache) {
+            purgeDisplayedLyrics(resetProviderSnapshot = true)
+        }
         val mediaTitle = readCurrentMediaTitle()
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         lastKnownTrackKey = AlbumArtResolver.getCachedTrackKey()
-
-        beginTrackWait()
         if (isMusicLockscreenActive() && isKeyguardLocked()) {
             startPolling()
-            handler.post { readAndUpdate() }
-            if (isAodLyricRefreshMode()) {
-                scheduleAodLyricRecoveryBurst()
+            handler.post {
+                updatePlayingState(force = true)
+                readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
             }
         } else {
             updateVisibilityState()
@@ -610,35 +628,20 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    private fun beginTrackWait() {
-        var vLyric = lastLyricVersion
-        var vFd = lastLyricFdVersion
-        try {
-            val vb = context.contentResolver.call(
-                Uri.parse(PROVIDER_URI), "versions", null, null
-            )
-            if (vb != null) {
-                vLyric = vb.getInt("lyric", vLyric)
-                vFd = vb.getInt("lyricfd", vFd)
-            }
-        } catch (_: Throwable) {
-        }
-        trackGatePhase = TrackLyricGate.Phase.WAITING
-        trackGateSnapshot = TrackLyricGate.Snapshot(
-            vLyric = vLyric,
-            vFd = vFd,
-            lyricJson = lastLyricJson,
-            startedAtElapsedMs = SystemClock.elapsedRealtime(),
-        )
-        lastLyricJson = "{}"
-        lastLyricVersion = -1
-        lastLyricFdVersion = -1
+    /** 立即清屏，避免切歌/无词时残留上一首可见文本。 */
+    private fun purgeDisplayedLyrics(resetProviderSnapshot: Boolean = false) {
+        cancelImmersiveLineFade()
         cachedLines = null
         cachedCtx = null
         hasLyric = false
         clearLyricDisplay()
-        dataDirty = true
+        if (resetProviderSnapshot) {
+            lastLyricJson = "{}"
+            lastLyricVersion = -1
+            lastLyricFdVersion = -1
+        }
         updateVisibilityState()
+        invalidate()
     }
 
     private fun clearTrackGate() {
@@ -646,55 +649,47 @@ class LockscreenLyricView(context: Context) : View(context) {
         trackGateSnapshot = null
     }
 
-    private fun decidePayload(json: JSONObject, vLyric: Int, vFd: Int): TrackLyricGate.Decision {
-        val mediaTitle = readCurrentMediaTitle().trim().ifBlank { lastSongTitle.trim() }
-        val providerTitle = json.optString("title", "").trim()
-        // 空标题：不强制 stale，交给内容/version 判定
-        val titleMatches = if (providerTitle.isBlank()) {
-            trackGatePhase == TrackLyricGate.Phase.IDLE || mediaTitle.isBlank()
-        } else {
-            TrackLyricGate.titlesMatch(providerTitle, mediaTitle)
+    /** @return true 表示载荷已写入 lastLyricJson 并应继续 apply；false 表示本包暂无有效行（不清屏，避免轮询打爆 UI）。 */
+    private fun ingestProviderPayload(json: JSONObject, raw: String, vLyric: Int, vFd: Int): Boolean {
+        if (!AodLyricDisplayPolicy.hasValidLyricLines(json)) {
+            return false
         }
-        val switchSnap = trackGateSnapshot?.lyricJson ?: "{}"
-        return TrackLyricGate.decide(
-            TrackLyricGate.Input(
-                phase = trackGatePhase,
-                snapshot = trackGateSnapshot,
-                nowElapsedMs = SystemClock.elapsedRealtime(),
-                vLyric = vLyric,
-                vFd = vFd,
-                hasValidLines = AodLyricDisplayPolicy.hasValidLyricLines(json),
-                titleMatchesMedia = titleMatches,
-                contentChangedFromSwitchSnapshot =
-                    AodLyricDisplayPolicy.lyricContentChangedFromSnapshot(json, switchSnap),
-                contentChangedFromCurrentDisplay =
-                    AodLyricDisplayPolicy.lyricContentChangedFromSnapshot(json, lastLyricJson),
-            )
-        )
+        lastLyricJson = raw
+        lastLyricVersion = vLyric
+        lastLyricFdVersion = vFd
+        clearTrackGate()
+        dataDirty = false
+        return true
     }
 
-    /** @return true 表示载荷已写入 lastLyricJson 并应继续 apply；false 表示已处理（忽略/出专辑）。 */
-    private fun ingestProviderPayload(json: JSONObject, raw: String, vLyric: Int, vFd: Int): Boolean {
-        return when (decidePayload(json, vLyric, vFd)) {
-            TrackLyricGate.Decision.SHOW_LYRIC -> {
-                lastLyricJson = raw
-                lastLyricVersion = vLyric
-                lastLyricFdVersion = vFd
-                clearTrackGate()
-                dataDirty = false
-                val t = json.optString("title", "").trim()
-                if (t.isNotBlank()) lastSongTitle = t
-                true
-            }
-            TrackLyricGate.Decision.SHOW_ALBUM -> {
-                resolveNoLyric()
-                false
-            }
-            TrackLyricGate.Decision.IGNORE -> {
-                dataDirty = trackGatePhase == TrackLyricGate.Phase.WAITING
-                false
-            }
+    /** Provider 歌词与当前 MediaSession 不同曲时隐藏；保留 Provider 快照供新词到达后比对。 */
+    private fun ensureProviderLyricMatchesMedia(json: JSONObject): Boolean {
+        val mediaTitle = readCurrentMediaTitle()
+        if (!AodLyricDisplayPolicy.isProviderLyricStaleForMedia(json, mediaTitle)) {
+            staleProviderLyricSuppressed = false
+            return true
         }
+        if (!staleProviderLyricSuppressed) {
+            logI(
+                "suppress stale provider lyric: provider=[${json.optString("title", "").trim()}] " +
+                    "media=[$mediaTitle]"
+            )
+        }
+        staleProviderLyricSuppressed = true
+        hideStaleProviderLyric()
+        return false
+    }
+
+    private fun hideStaleProviderLyric() {
+        if (!hasLyric && visibility == GONE && cachedLines == null && currentMainText.isEmpty()) {
+            return
+        }
+        cancelImmersiveLineFade()
+        cachedLines = null
+        cachedCtx = null
+        hasLyric = false
+        clearLyricDisplay()
+        updateVisibilityState()
     }
 
     private fun resolveNoLyric() {
@@ -703,10 +698,9 @@ class LockscreenLyricView(context: Context) : View(context) {
         cachedCtx = null
         cachedLines = null
         dataDirty = false
-        if (hasLyric) {
-            hasLyric = false
-            clearLyricDisplay()
-        }
+        if (!hasLyric && visibility == GONE) return
+        hasLyric = false
+        clearLyricDisplay()
         updateVisibilityState()
         requestLayout()
         try {
@@ -1409,8 +1403,31 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun finalizeLyricDisplayAfterContentUpdate() {
         if (!hasLyric || !hasDisplayableText()) return
         updateVisibilityState()
-        if (shouldDisplayLyric() || isAodLyricRevealEligible()) {
-            scheduleRevealAfterLayout()
+        if (!shouldDisplayLyric() && !isAodLyricRevealEligible()) return
+        if (visibility == VISIBLE) return
+        scheduleRevealAfterLayout()
+    }
+
+    private fun isLyricBootstrapGraceActive(): Boolean {
+        return SystemClock.elapsedRealtime() < lyricBootstrapUntilMs
+    }
+
+    /** 首次进入音乐锁屏：Session / Provider 信号滞后，短 burst 重拉避免等解锁再锁屏。 */
+    private fun scheduleLyricBootstrapBurst() {
+        if (!HookUtils.isScreenInteractive(context)) return
+        if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
+        val generation = ++lyricBootstrapBurstGeneration
+        val delays = longArrayOf(50L, 150L, 400L, 800L, 1500L)
+        for (delayMs in delays) {
+            handler.postDelayed({
+                if (generation != lyricBootstrapBurstGeneration) return@postDelayed
+                if (!isLyricBootstrapGraceActive()) return@postDelayed
+                if (!isMusicLockscreenActive() || !isKeyguardLocked()) return@postDelayed
+                updatePlayingState(force = true)
+                dataDirty = true
+                readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
+            }, delayMs)
         }
     }
 
@@ -1596,6 +1613,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     companion object {
         private const val PROVIDER_URI = "content://com.leowalk.musiclockscreen.lyric"
         private const val CONFIG_URI = "content://com.leowalk.musiclockscreen.config/config"
+        internal const val LYRIC_BOOTSTRAP_GRACE_MS = 3000L
 
         @Volatile
         private var cachedMiSansBold: Typeface? = null
@@ -1620,31 +1638,12 @@ class LockscreenLyricView(context: Context) : View(context) {
             } catch (_: Throwable) {}
 
             val versionsChanged = newVLyric != lastLyricVersion || newVLyricFd != lastLyricFdVersion
-            val waiting = trackGatePhase == TrackLyricGate.Phase.WAITING
-
-            // WAITING 超时 → 确认无词，显示专辑
-            if (waiting &&
-                TrackLyricGate.isWaitTimedOut(trackGateSnapshot, SystemClock.elapsedRealtime())
-            ) {
-                resolveNoLyric()
-                return
-            }
 
             if (!dataDirty && !versionsChanged) {
-                if (waiting) {
-                    // 切歌等待：主动探测（LyricFocus 常不 bump version）
-                    if (tryLoadAndAcceptLyricPayload(newVLyric, newVLyricFd)) {
-                        return
-                    }
-                    doReadAndUpdate(newVLyric, newVLyricFd)
-                    return
-                }
                 refreshCurrentLineFromCache()
                 return
             }
-            if (!waiting) {
-                dataDirty = false
-            }
+            dataDirty = false
             lastVersionsCheck = SystemClock.elapsedRealtime()
 
             doReadAndUpdate(newVLyric, newVLyricFd)
@@ -1656,25 +1655,15 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun doReadAndUpdate(newVLyric: Int, newVLyricFd: Int) {
         val oldVLyric = lastLyricVersion
         val oldVLyricFd = lastLyricFdVersion
-        val waiting = trackGatePhase == TrackLyricGate.Phase.WAITING
         try {
-            // 切歌等待且 version 未涨：先探测就地更新
-            if (waiting &&
-                !TrackLyricGate.versionBumpedSinceSwitch(trackGateSnapshot, newVLyric, newVLyricFd)
-            ) {
-                if (tryLoadAndAcceptLyricPayload(newVLyric, newVLyricFd)) {
-                    return
-                }
-            }
-
             lastLyricVersion = newVLyric
             lastLyricFdVersion = newVLyricFd
 
             val uri = Uri.parse(PROVIDER_URI)
 
-            // 1. FD 版本变化 / 切歌等待 → 读全量
+            // 1. FD 版本变化或首次加载 → 读全量
             var fdRead = false
-            if (oldVLyricFd != newVLyricFd || waiting) {
+            if (oldVLyricFd != newVLyricFd || (oldVLyricFd < 0 && lastLyricJson == "{}")) {
                 try {
                     val fb = context.contentResolver.call(uri, "lyric_fd", null, null)
                     val pfd = fb?.getParcelable("fd") as? android.os.ParcelFileDescriptor
@@ -1710,56 +1699,74 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
             }
 
-            // 2. 轻量版本变化 / 切歌等待 → 合并 ctx
-            if ((oldVLyric != newVLyric || waiting) && (oldVLyricFd == newVLyricFd || !fdRead)) {
+            // 2. 轻量版本变化 → 合并 ctx（Provider 输出即最新）
+            if ((oldVLyric != newVLyric || oldVLyric < 0) && (oldVLyricFd == newVLyricFd || !fdRead)) {
                 try {
                     val lb = context.contentResolver.call(uri, "lyric", null, null)
                     val j = lb?.getString("n")
                     if (j != null) {
                         try {
                             val neu = JSONObject(j)
-                            when (decidePayload(neu, newVLyric, newVLyricFd)) {
-                                TrackLyricGate.Decision.SHOW_LYRIC -> {
-                                    val emptyPush = !neu.has("l") && !neu.has("s")
-                                        && !neu.has("title") && !neu.has("ctx")
-                                    if (emptyPush) {
-                                        resolveNoLyric()
-                                    } else {
-                                        val old = try {
-                                            JSONObject(lastLyricJson)
-                                        } catch (_: Throwable) {
-                                            JSONObject("{}")
-                                        }
-                                        val newTitle = neu.optString("title", "")
-                                        val lightEmpty = neu.optString("l", "").trim().isEmpty() &&
-                                            neu.optString("s", "").trim().isEmpty() &&
-                                            !neu.has("ctx")
-                                        val songChanged = newTitle.isNotBlank() &&
-                                            lastSongTitle.isNotBlank() &&
-                                            newTitle != lastSongTitle
+                            val emptyPush = !neu.has("l") && !neu.has("s") &&
+                                !neu.has("title") && !neu.has("ctx")
+                            if (emptyPush) {
+                                resolveNoLyric()
+                            } else if (!AodLyricDisplayPolicy.hasValidLyricLines(neu)) {
+                                val old = try {
+                                    JSONObject(lastLyricJson)
+                                } catch (_: Throwable) {
+                                    JSONObject("{}")
+                                }
+                                val newTitle = neu.optString("title", "").trim()
+                                if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                if (AodLyricDisplayPolicy.isSameSongLyricPayload(old, neu) &&
+                                    shouldMergeLyricCtx(old, neu)
+                                ) {
+                                    neu.put("ctx", old.get("ctx"))
+                                    lastLyricJson = neu.toString()
+                                } else {
+                                    lastLyricJson = neu.toString()
+                                    if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                }
+                                lastLyricVersion = newVLyric
+                                lastLyricFdVersion = newVLyricFd
+                                dataDirty = false
+                            } else {
+                                val old = try {
+                                    JSONObject(lastLyricJson)
+                                } catch (_: Throwable) {
+                                    JSONObject("{}")
+                                }
+                                val newTitle = neu.optString("title", "")
+                                val lightEmpty = neu.optString("l", "").trim().isEmpty() &&
+                                    neu.optString("s", "").trim().isEmpty() &&
+                                    !neu.has("ctx")
+                                val songChanged = newTitle.isNotBlank() &&
+                                    lastSongTitle.isNotBlank() &&
+                                    !AodLyricDisplayPolicy.isSameSongLyricPayload(lastSongTitle, newTitle)
 
-                                        if (songChanged || lightEmpty) {
-                                            cachedCtx = null
-                                            cachedLines = null
-                                            if (newTitle.isNotBlank()) lastSongTitle = newTitle
-                                            lastLyricJson = neu.toString()
-                                        } else if (shouldMergeLyricCtx(old, neu)) {
-                                            neu.put("ctx", old.get("ctx"))
-                                            lastLyricJson = neu.toString()
-                                        } else {
-                                            lastLyricJson = neu.toString()
-                                            if (newTitle.isNotBlank()) lastSongTitle = newTitle
-                                        }
-                                        lastLyricVersion = newVLyric
-                                        lastLyricFdVersion = newVLyricFd
-                                        clearTrackGate()
-                                        dataDirty = false
-                                    }
+                                if (songChanged) {
+                                    purgeDisplayedLyrics()
+                                    cachedCtx = null
+                                    cachedLines = null
+                                    if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                    lastLyricJson = neu.toString()
+                                } else if (lightEmpty) {
+                                    cachedCtx = null
+                                    cachedLines = null
+                                    lastLyricJson = neu.toString()
+                                    if (newTitle.isNotBlank()) lastSongTitle = newTitle
+                                } else if (shouldMergeLyricCtx(old, neu)) {
+                                    neu.put("ctx", old.get("ctx"))
+                                    lastLyricJson = neu.toString()
+                                } else {
+                                    lastLyricJson = neu.toString()
+                                    if (newTitle.isNotBlank()) lastSongTitle = newTitle
                                 }
-                                TrackLyricGate.Decision.SHOW_ALBUM -> resolveNoLyric()
-                                TrackLyricGate.Decision.IGNORE -> {
-                                    dataDirty = waiting
-                                }
+                                lastLyricVersion = newVLyric
+                                lastLyricFdVersion = newVLyricFd
+                                clearTrackGate()
+                                dataDirty = false
                             }
                         } catch (_: Throwable) {
                             lastLyricJson = j
@@ -1784,30 +1791,15 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (raw != lastLyricJson) lastLyricJson = raw
             val lo = JSONObject(raw)
 
-            // 空载荷：WAITING 超时由 readAndUpdate 处理；此处仅清显示
             if (raw == "{}" || !AodLyricDisplayPolicy.hasValidLyricLines(lo)) {
-                if (trackGatePhase == TrackLyricGate.Phase.WAITING) {
-                    // 仍在等：保持空屏，勿提前出专辑（除非超时已在上游 resolve）
-                    if (hasLyric) {
-                        hasLyric = false
-                        clearLyricDisplay()
-                        updateVisibilityState()
-                    }
-                    return
-                }
-                if (hasLyric) {
-                    hasLyric = false
-                    clearLyricDisplay()
-                    updateVisibilityState()
-                    requestLayout()
-                }
+                hasLyric = false
+                clearLyricDisplay()
+                updateVisibilityState()
+                requestLayout()
                 return
             }
 
-            // lastLyricJson 仅在 SHOW_LYRIC 时写入；WAITING 不应带着有效词进这里
-            if (trackGatePhase == TrackLyricGate.Phase.WAITING) {
-                return
-            }
+            if (!ensureProviderLyricMatchesMedia(lo)) return
 
             val l = lo.optString("l", "") ?: ""
             val s = lo.optString("s", "") ?: ""
@@ -1886,9 +1878,10 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
                 newSecondIsTranslation = curTrans.isNotEmpty()
             } else {
-                newMain = l.ifBlank { " " }
-                newSecond = s
-                newSecondIsTranslation = false
+                val light = AodLyricDisplayPolicy.resolveLightLyricDisplay(l, s)
+                newMain = light.main
+                newSecond = light.second
+                newSecondIsTranslation = light.isTranslation
             }
 
             setLyricLines(newMain, newSecond, newSecond.isNotBlank(), newSecondIsTranslation)
@@ -1971,9 +1964,13 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun refreshCurrentLineFromCache() {
         try {
-            if (trackGatePhase == TrackLyricGate.Phase.WAITING) {
-                return
+            val snapshot = try {
+                JSONObject(lastLyricJson.trim().ifEmpty { "{}" })
+            } catch (_: Throwable) {
+                JSONObject("{}")
             }
+            if (!ensureProviderLyricMatchesMedia(snapshot)) return
+
             val lines = cachedLines
             if (lines == null || lines.isEmpty()) {
                 if (isAodLyricRefreshMode()) {
@@ -1990,18 +1987,28 @@ class LockscreenLyricView(context: Context) : View(context) {
             val currentTrans = lines[idx].translation.takeIf { it.isNotBlank() } ?: ""
             val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
 
-            val newMain = currentText.ifBlank { " " }
-            val newSecond = if (currentTrans.isNotEmpty()) {
-                currentTrans
-            } else if (!cfgImmersiveLyric) {
-                nextText
-            } else {
-                ""
+            val lightFields = try {
+                AodLyricDisplayPolicy.parseLyricSnapshotFields(
+                    JSONObject(lastLyricJson.trim().ifEmpty { "{}" })
+                )
+            } catch (_: Throwable) {
+                AodLyricDisplayPolicy.LyricSnapshotFields()
             }
-            val newHasSecond = newSecond.isNotBlank()
-            val isTranslationLine = currentTrans.isNotEmpty()
+            val resolved = AodLyricDisplayPolicy.resolveCachedLineDisplay(
+                currentText = currentText,
+                lineTranslation = currentTrans,
+                nextLineText = nextText,
+                lightMain = lightFields.l,
+                lightTranslation = lightFields.s,
+                immersiveLyric = cfgImmersiveLyric,
+            )
 
-            setLyricLines(newMain, newSecond, newHasSecond, isTranslation = isTranslationLine)
+            setLyricLines(
+                resolved.main,
+                resolved.second,
+                resolved.hasSecond,
+                isTranslation = resolved.isTranslation,
+            )
             finalizeLyricDisplayAfterContentUpdate()
         } catch (e: Throwable) {
             logE("refreshCurrentLineFromCache error", e)
@@ -2094,16 +2101,17 @@ class LockscreenLyricView(context: Context) : View(context) {
      * 根据互换开关和翻译有无，决定实际显示的主行/副行。
      */
     private fun applySwapIfNeeded() {
-        // 判断是否有翻译：第二行是翻译且非空
+        val swapped = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = rawMainText,
+            rawSecond = rawSecondText,
+            hasSecond = rawHasSecond,
+            isTranslation = secondIsTranslation,
+            swapEnabled = cfgSwapLyric,
+        )
+        val displayMain = swapped.main
+        val displaySecond = swapped.second
+        val displayHasSecond = swapped.hasSecond
         val hasTrans = secondIsTranslation && rawHasSecond && rawSecondText.isNotBlank()
-
-        val (displayMain, displaySecond, displayHasSecond) = if (cfgSwapLyric && hasTrans) {
-            // 有翻译且开关开启：互换 — 主行显示翻译，副行显示原文
-            Triple(rawSecondText, rawMainText, true)
-        } else {
-            // 无翻译、开关关闭、或第二行是下一句歌词：正常显示
-            Triple(rawMainText, rawSecondText, rawHasSecond)
-        }
 
         android.util.Log.i("HyperLockMusic_Lyric",
             "swapResult hasTrans=$hasTrans => main=[$displayMain] second=[$displaySecond]")
@@ -2249,27 +2257,22 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    /** 标题或 trackKey 变化时强制重拉歌词（AOD observer 常不可靠） */
+    /** 仅 trackKey 变化时清快照；标题 Session/Provider 常不一致，不能每轮询 purge。 */
     private fun detectTrackOrSongChange(): Boolean {
         val mediaTitle = readCurrentMediaTitle()
         val trackKey = AlbumArtResolver.getCachedTrackKey()
-        var changed = false
-        if (mediaTitle.isNotBlank() && lastSongTitle.isNotBlank() && mediaTitle != lastSongTitle) {
-            changed = true
-        }
-        if (trackKey != null && lastKnownTrackKey != null && trackKey != lastKnownTrackKey) {
-            changed = true
-        }
-        if (changed) {
-            cancelImmersiveLineFade()
-            cachedLines = null
-            cachedCtx = null
+        val trackChanged = AodLyricDisplayPolicy.shouldResetLyricForTrackKeyChange(
+            lastKnownTrackKey,
+            trackKey,
+        )
+        if (trackChanged) {
+            staleProviderLyricSuppressed = false
+            purgeDisplayedLyrics(resetProviderSnapshot = false)
             dataDirty = true
-            beginTrackWait()
         }
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         if (trackKey != null) lastKnownTrackKey = trackKey
-        return changed
+        return trackChanged
     }
 
     /**
@@ -2321,10 +2324,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    /** 轻量包缺 ctx 时仅在同曲且非切歌等待期合并全量 ctx，避免切歌后沿用上一首行表。 */
+    /** 轻量包缺 ctx 时仅在同曲合并全量 ctx。 */
     private fun shouldMergeLyricCtx(old: JSONObject, neu: JSONObject): Boolean {
-        if (trackGatePhase == TrackLyricGate.Phase.WAITING) return false
         if (neu.has("ctx") || !old.has("ctx")) return false
+        if (!AodLyricDisplayPolicy.isSameSongLyricPayload(old, neu)) return false
         val mediaTitle = readCurrentMediaTitle().trim().ifBlank { lastSongTitle.trim() }
         val oldTitle = old.optString("title", "").trim()
         val neuTitle = neu.optString("title", "").trim()

@@ -8,6 +8,7 @@ import android.widget.TextView
 class LyricStyleActivity : BaseScrollingActivity() {
 
     private var styleSegment: LinearLayout? = null
+    private var stylePreview: LinearLayout? = null
     private var normalOnlyBlock: LinearLayout? = null
     private var immersiveOnlyBlock: LinearLayout? = null
     private var sharedBlock: LinearLayout? = null
@@ -16,6 +17,10 @@ class LyricStyleActivity : BaseScrollingActivity() {
     override fun titleText() = "歌词样式"
 
     override fun buildContent(list: LinearLayout) {
+        list.addView(M3.card(this, M3.tipContent(this,
+            "歌词功能为 LyricFocus 的外部渲染功能；在 LyricFocus 中开启后，" +
+                "歌词将推送到本模块，锁屏才会显示。")))
+
         val card = M3.cardContent(this)
         card.addView(M3.title(this, "歌词显示"))
 
@@ -37,6 +42,12 @@ class LyricStyleActivity : BaseScrollingActivity() {
             refreshModeUi()
         }
         card.addView(styleSegment)
+        stylePreview = M3.stylePreviewRow(
+            this,
+            listOf("普通歌词", "沉浸歌词"),
+            intArrayOf(R.drawable.preview_lyric_normal, R.drawable.preview_lyric_immersive),
+        )
+        card.addView(stylePreview)
 
         modeHint = TextView(this).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -122,13 +133,6 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.swapLyric = checked
             ModuleConfig.push(this)
         })
-        sharedBlock!!.addView(M3.switchRow(
-            this, "保持锁屏常亮", "音乐锁屏时忽略系统自动息屏；手动关屏仍生效",
-            ModuleConfig.keepLockScreenOn
-        ) { checked ->
-            ModuleConfig.keepLockScreenOn = checked
-            ModuleConfig.push(this)
-        })
         card.addView(sharedBlock)
 
         list.addView(M3.card(this, card))
@@ -143,6 +147,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         val show = ModuleConfig.showLyric
         val immersive = ModuleConfig.immersiveLyric
         M3.setControlsEnabled(styleSegment, show)
+        M3.setControlsEnabled(stylePreview, show)
         M3.setControlsEnabled(sharedBlock, show)
         M3.setControlsEnabled(normalOnlyBlock, show && !immersive)
         M3.setControlsEnabled(immersiveOnlyBlock, show && immersive)

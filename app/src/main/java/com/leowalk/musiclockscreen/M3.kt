@@ -9,9 +9,11 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.annotation.DrawableRes
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -213,6 +215,68 @@ object M3 {
         ))
         btn.strokeWidth = 0
         return btn
+    }
+
+    /**
+     * 样式效果图并排预览：标题在上、缩略图在下，等分宽度，高度上限避免撑满设置页。
+     */
+    fun stylePreviewRow(
+        ctx: Context,
+        labels: List<String>,
+        @DrawableRes drawableIds: IntArray,
+        maxHeightDp: Float = 200f,
+    ): LinearLayout {
+        require(labels.size == drawableIds.size && labels.isNotEmpty())
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(ctx, 10f) }
+        }
+        val gap = dp(ctx, 8f)
+        val maxH = dp(ctx, maxHeightDp)
+        for (i in labels.indices) {
+            val col = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (i > 0) marginStart = gap
+                }
+            }
+            col.addView(TextView(ctx).apply {
+                text = labels[i]
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(ctx, 6f) }
+            })
+            val frame = MaterialCardView(ctx).apply {
+                radius = dp(ctx, 12f).toFloat()
+                cardElevation = 0f
+                strokeWidth = 0
+                setCardBackgroundColor(
+                    attrColor(ctx, com.google.android.material.R.attr.colorSurfaceContainer, 0xFF2B2930.toInt())
+                )
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            }
+            frame.addView(ImageView(ctx).apply {
+                setImageResource(drawableIds[i])
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                adjustViewBounds = true
+                maxHeight = maxH
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                contentDescription = labels[i]
+            })
+            col.addView(frame)
+            row.addView(col)
+        }
+        return row
     }
 
     /**

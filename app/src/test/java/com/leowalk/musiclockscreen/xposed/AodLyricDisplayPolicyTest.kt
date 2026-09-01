@@ -1,5 +1,6 @@
 package com.leowalk.musiclockscreen.xposed
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -91,5 +92,114 @@ class AodLyricDisplayPolicyTest {
                 AodLyricDisplayPolicy.LyricSnapshotFields(l = "line1"),
             )
         )
+    }
+
+    @Test
+    fun sameSongPayload_whenTitlesMatch() {
+        assertTrue(AodLyricDisplayPolicy.isSameSongLyricPayload("Song A", "Song A"))
+    }
+
+    @Test
+    fun differentSongPayload_whenTitleChanges() {
+        assertFalse(AodLyricDisplayPolicy.isSameSongLyricPayload("Song A", "Song B"))
+    }
+
+    @Test
+    fun resetLyricOnlyOnRealTrackKeySwitch() {
+        assertFalse(AodLyricDisplayPolicy.shouldResetLyricForTrackKeyChange(null, "k1"))
+        assertFalse(AodLyricDisplayPolicy.shouldResetLyricForTrackKeyChange("k1", "k1"))
+        assertTrue(AodLyricDisplayPolicy.shouldResetLyricForTrackKeyChange("k1", "k2"))
+    }
+
+    @Test
+    fun lightLyricDisplay_treatsNonBlankSAsTranslation() {
+        val display = AodLyricDisplayPolicy.resolveLightLyricDisplay("原文", "翻译")
+        assertTrue(display.isTranslation)
+        assertTrue(display.hasSecond)
+        assertEquals("翻译", display.second)
+    }
+
+    @Test
+    fun cachedLineDisplay_usesLightTranslationWhenLineRIsEmpty() {
+        val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
+            currentText = "第一句原文",
+            lineTranslation = "",
+            nextLineText = "第二句原文",
+            lightMain = "第一句原文",
+            lightTranslation = "第一句翻译",
+            immersiveLyric = false,
+        )
+        assertTrue(display.isTranslation)
+        assertEquals("第一句翻译", display.second)
+    }
+
+    @Test
+    fun cachedLineDisplay_prefersLineTranslationOverLightS() {
+        val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
+            currentText = "line",
+            lineTranslation = "from-r",
+            nextLineText = "next",
+            lightMain = "line",
+            lightTranslation = "from-s",
+            immersiveLyric = false,
+        )
+        assertEquals("from-r", display.second)
+    }
+
+    @Test
+    fun cachedLineDisplay_ignoresStaleLightWhenMainDiffers() {
+        val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
+            currentText = "current line",
+            lineTranslation = "",
+            nextLineText = "next line",
+            lightMain = "other line",
+            lightTranslation = "stale trans",
+            immersiveLyric = false,
+        )
+        assertFalse(display.isTranslation)
+        assertEquals("next line", display.second)
+    }
+
+    @Test
+    fun applyLyricSwap_swapsWhenTranslationPresent() {
+        val swapped = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = "原文",
+            rawSecond = "翻译",
+            hasSecond = true,
+            isTranslation = true,
+            swapEnabled = true,
+        )
+        assertEquals("翻译", swapped.main)
+        assertEquals("原文", swapped.second)
+    }
+
+    @Test
+    fun applyLyricSwap_skipsWhenSecondIsNextLine() {
+        val normal = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = "line1",
+            rawSecond = "line2",
+            hasSecond = true,
+            isTranslation = false,
+            swapEnabled = true,
+        )
+        assertEquals("line1", normal.main)
+        assertEquals("line2", normal.second)
+    }
+
+    @Test
+    fun providerLyricStale_whenTitleDiffersFromMedia() {
+        assertTrue(
+            AodLyricDisplayPolicy.isProviderLyricStaleForMedia("Song Old", "Song New")
+        )
+    }
+
+    @Test
+    fun providerLyricNotStale_whenTitleMatchesMedia() {
+        assertFalse(AodLyricDisplayPolicy.isProviderLyricStaleForMedia("Song A", "Song A"))
+    }
+
+    @Test
+    fun providerLyricNotStale_whenEitherTitleBlank() {
+        assertFalse(AodLyricDisplayPolicy.isProviderLyricStaleForMedia("Song A", ""))
     }
 }

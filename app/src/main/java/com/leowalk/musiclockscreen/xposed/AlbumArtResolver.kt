@@ -148,6 +148,13 @@ object AlbumArtResolver {
     }
 
     /**
+     * null→首键 不算切歌，避免首次开音乐锁屏误触发歌词 WAITING / 壁纸全量刷新。
+     */
+    internal fun isRealTrackSwitch(previousKey: String?, newKey: String?): Boolean {
+        return !previousKey.isNullOrBlank() && !newKey.isNullOrBlank() && previousKey != newKey
+    }
+
+    /**
      * @return 是否检测到曲目切换（用于锁屏即时刷新专辑/模糊/歌词取色）
      */
     fun refreshFromBind(
@@ -164,11 +171,15 @@ object AlbumArtResolver {
         val meta = metadata ?: lastBindMetadata
         val data = mediaData ?: lastBindMediaData
         val trackKey = computeTrackKey(context, meta, data)
-        val trackChanged = trackKey != null && trackKey != cachedTrackKey
+        val previousKey = cachedTrackKey
+        val trackChanged = isRealTrackSwitch(previousKey, trackKey)
         if (trackChanged) {
-            logI("track changed on bind: $cachedTrackKey -> $trackKey")
+            logI("track changed on bind: $previousKey -> $trackKey")
             rememberPoisonArt(primaryArtUri(meta, data, context))
             cachedBitmap = null
+            cachedTrackKey = trackKey
+        } else if (trackKey != null && trackKey != cachedTrackKey) {
+            logI("track key initialized on bind: $trackKey")
             cachedTrackKey = trackKey
         }
         // 空窗：可用「本轮 bind」的 MediaData Icon（songId 对齐且指纹非旧图），禁用滞后的 metadata 嵌入图
@@ -207,9 +218,10 @@ object AlbumArtResolver {
         // 曲目 key 以 metadata 为准；切歌时空窗里 lastBindMediaData 常仍是上一首
         val trackKey = computeTrackKey(context, metadata, null)
             ?: computeTrackKey(context, metadata, lastBindMediaData)
-        val trackChanged = trackKey != null && trackKey != cachedTrackKey
+        val previousKey = cachedTrackKey
+        val trackChanged = isRealTrackSwitch(previousKey, trackKey)
         if (trackChanged) {
-            logI("track changed on session: $cachedTrackKey -> $trackKey")
+            logI("track changed on session: $previousKey -> $trackKey")
             lastBindMediaData = null
             rememberPoisonArt(primaryArtUri(metadata, null, context))
             cachedBitmap = null
@@ -230,6 +242,10 @@ object AlbumArtResolver {
                 logI("session refresh empty on track change, cleared stale album cache")
             }
             return true
+        }
+        if (trackKey != null && trackKey != cachedTrackKey) {
+            logI("track key initialized on session: $trackKey")
+            cachedTrackKey = trackKey
         }
         // 切歌后空窗：禁用 metadata 嵌入图；Icon 等 bind
         if (!hasResolvedArt() && cachedTrackKey != null) {

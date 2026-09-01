@@ -43,6 +43,19 @@ class MainActivity : BaseScrollingActivity() {
         accessCard.addView(notificationAccessRow)
         list.addView(M3.card(this, accessCard))
 
+        list.addView(M3.clickRow(this, "专辑封面", "大封面显示/大小/位置/圆角") {
+            startActivity(Intent(this, AlbumStyleActivity::class.java))
+        })
+        list.addView(M3.clickRow(this, "媒体控件", "AOD 展开与歌名括号样式") {
+            startActivity(Intent(this, MediaTitleActivity::class.java))
+        })
+        list.addView(M3.clickRow(this, "歌词样式", "歌词/毛玻璃条/翻译互换/颜色与位置") {
+            startActivity(Intent(this, LyricStyleActivity::class.java))
+        })
+        list.addView(M3.clickRow(this, "其他设置", "壁纸模糊/简洁时钟/息屏缩放/锁屏常亮") {
+            startActivity(Intent(this, OtherSettingsActivity::class.java))
+        })
+
         val whitelistCard = M3.cardContent(this)
         whitelistCard.addView(M3.title(this, "音乐应用白名单"))
         whitelistCard.addView(
@@ -66,18 +79,6 @@ class MainActivity : BaseScrollingActivity() {
         whitelistCard.addView(manageRow)
         list.addView(M3.card(this, whitelistCard))
 
-        list.addView(M3.clickRow(this, "专辑封面", "大封面显示/大小/位置/圆角") {
-            startActivity(Intent(this, AlbumStyleActivity::class.java))
-        })
-        list.addView(M3.clickRow(this, "模糊背景", "壁纸模糊强度/暗色遮罩浓度") {
-            startActivity(Intent(this, BlurBackgroundActivity::class.java))
-        })
-        list.addView(M3.clickRow(this, "媒体控件", "AOD 展开/壁纸缩放与歌名括号样式") {
-            startActivity(Intent(this, MediaTitleActivity::class.java))
-        })
-        list.addView(M3.clickRow(this, "歌词样式", "歌词/毛玻璃条/翻译互换/颜色与位置") {
-            startActivity(Intent(this, LyricStyleActivity::class.java))
-        })
         list.addView(M3.clickRow(this, "关于", "版本号与使用说明") {
             startActivity(Intent(this, AboutActivity::class.java))
         })

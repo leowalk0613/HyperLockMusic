@@ -38,7 +38,7 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
-            android:name=".BlurBackgroundActivity"
+            android:name=".OtherSettingsActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
