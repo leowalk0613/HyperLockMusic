@@ -39,8 +39,13 @@ class AodLyricHook {
     private var lastVLyricFd = -1
     private var lastSongTitle = ""
     private var lastLyricJson = "{}"
+    private var cachedLines: List<AodLyricLine> = emptyList()
+    private var posBase: Long = 0L
+    private var posBaseTime: Long = 0L
     private var polling = false
     private val handler = Handler(Looper.getMainLooper())
+
+    private data class AodLyricLine(val time: Long, val text: String, val translation: String = "")
 
     companion object {
         private const val TAG = "HyperLockMusic_AodLyric"
@@ -247,12 +252,19 @@ class AodLyricHook {
                 lastSongTitle.isNotBlank() &&
                 mediaTitle != lastSongTitle
             val versionsChanged = vLyric != lastVLyric || vFd != lastVLyricFd
-            if (!versionsChanged && !titleChanged && !awaitingFreshLyrics) return
+            if (!versionsChanged && !titleChanged && !awaitingFreshLyrics) {
+                // version 未变：用全量时间轴按播放进度刷当前行
+                if (cachedLines.isNotEmpty()) {
+                    applyCurrentLineFromCache(ctx)
+                }
+                return
+            }
 
             val oldVLyric = lastVLyric
             val oldVFd = lastVLyricFd
             if (titleChanged) {
                 lastLyricJson = "{}"
+                cachedLines = emptyList()
                 awaitingFreshLyrics = true
                 sLyricContainer?.visibility = View.GONE
             }
@@ -331,9 +343,110 @@ class AodLyricHook {
             if (!isProviderLyricStale(jo, mediaTitle) && hasDisplayableLyric(jo)) {
                 awaitingFreshLyrics = false
             }
-            applyLyricToViews(jo, mediaTitle)
+            rebuildCachedLines(jo)
+            if (cachedLines.isNotEmpty()) {
+                applyCurrentLineFromCache(ctx)
+            } else {
+                applyLyricToViews(jo, mediaTitle)
+            }
         } catch (e: Throwable) {
             logE("refreshLyric error", e)
+        }
+    }
+
+    private fun rebuildCachedLines(jo: JSONObject) {
+        val ctxObj = jo.optJSONObject("ctx") ?: run {
+            if (!jo.has("l") && !jo.has("s")) {
+                // 空推可能清缓存；保留已有时间轴直到明确无词
+            }
+            return
+        }
+        val linesArr = ctxObj.optJSONArray("lines") ?: return
+        if (linesArr.length() <= 0) return
+        if (linesArr.optJSONObject(0)?.has("tm") != true) return
+        val parsed = ArrayList<AodLyricLine>(linesArr.length())
+        for (i in 0 until linesArr.length()) {
+            val o = linesArr.optJSONObject(i) ?: continue
+            val t = o.optString("t", "").trim()
+            if (t.isEmpty()) continue
+            parsed.add(
+                AodLyricLine(
+                    time = o.optLong("tm", Long.MAX_VALUE),
+                    text = t,
+                    translation = o.optString("r", "").trim(),
+                )
+            )
+        }
+        if (parsed.isNotEmpty()) cachedLines = parsed
+    }
+
+    private fun applyCurrentLineFromCache(ctx: Context) {
+        if (!cfgShowLyric) {
+            sLyricContainer?.visibility = View.GONE
+            return
+        }
+        val lines = cachedLines
+        if (lines.isEmpty()) return
+        val pos = getCurrentPosition(ctx)
+        var idx = if (pos >= 0) findCurrentLineIndex(lines, pos) else 0
+        if (idx < 0) idx = 0
+        val cur = lines[idx]
+        var mainText = cur.text
+        var subText = cur.translation.ifBlank {
+            if (idx + 1 < lines.size) lines[idx + 1].text else ""
+        }
+        if (cfgSwapLyric && cur.translation.isNotBlank()) {
+            val tmp = mainText
+            mainText = cur.translation
+            subText = tmp
+        }
+        if (mainText.isEmpty()) {
+            sLyricContainer?.visibility = View.GONE
+            return
+        }
+        sLyricContainer?.visibility = View.VISIBLE
+        sMainLyric?.text = mainText
+        sSubLyric?.text = subText
+        sSubLyric?.visibility = if (subText.isNotBlank()) View.VISIBLE else View.GONE
+    }
+
+    private fun findCurrentLineIndex(lines: List<AodLyricLine>, pos: Long): Int {
+        var low = 0
+        var high = lines.size - 1
+        var result = -1
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (lines[mid].time <= pos) {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result
+    }
+
+    private fun getCurrentPosition(ctx: Context): Long {
+        return try {
+            val sessions = com.leowalk.musiclockscreen.MediaSessionAccess.getActiveControllers(ctx)
+            val now = android.os.SystemClock.elapsedRealtime()
+            for (controller in sessions) {
+                val state = controller.playbackState ?: continue
+                val playing = state.state == android.media.session.PlaybackState.STATE_PLAYING
+                if (!playing && posBaseTime == 0L) continue
+                val delta = now - posBaseTime
+                if (delta > 800L || !playing || posBaseTime == 0L) {
+                    val p = state.position
+                    posBase = p
+                    posBaseTime = now
+                    return p
+                }
+                val speed = state.playbackSpeed.takeIf { it > 0f } ?: 1f
+                return posBase + (delta * speed).toLong()
+            }
+            -1L
+        } catch (_: Throwable) {
+            -1L
         }
     }
 
@@ -344,7 +457,12 @@ class AodLyricHook {
             val jo = JSONObject(j)
             if (isProviderLyricStale(jo, mediaTitle) || !hasDisplayableLyric(jo)) return false
             lastLyricJson = j
-            applyLyricToViews(jo, mediaTitle)
+            rebuildCachedLines(jo)
+            if (cachedLines.isNotEmpty()) {
+                applyCurrentLineFromCache(ctx)
+            } else {
+                applyLyricToViews(jo, mediaTitle)
+            }
             return true
         } catch (e: Throwable) {
             logE("tryReadLyricWithoutVersionBump error", e)

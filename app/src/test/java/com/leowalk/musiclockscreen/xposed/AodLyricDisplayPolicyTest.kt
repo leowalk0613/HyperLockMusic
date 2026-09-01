@@ -152,4 +152,52 @@ class AodLyricDisplayPolicyTest {
             )
         )
     }
+
+    @Test
+    fun shouldRefreshCachedLine_evenWhenTitleStale() {
+        assertTrue(
+            AodLyricDisplayPolicy.shouldRefreshCachedLineByPosition(
+                hasCachedLines = true,
+                providerTitleStale = true,
+            )
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldRefreshCachedLineByPosition(
+                hasCachedLines = false,
+                providerTitleStale = true,
+            )
+        )
+    }
+
+    @Test
+    fun shouldKeepDisplayedLyricOnReject_whenAlreadyShowing() {
+        assertTrue(
+            AodLyricDisplayPolicy.shouldKeepDisplayedLyricOnReject(
+                alreadyDisplayingLyric = true,
+                hasCachedLines = false,
+            )
+        )
+        assertTrue(
+            AodLyricDisplayPolicy.shouldKeepDisplayedLyricOnReject(
+                alreadyDisplayingLyric = false,
+                hasCachedLines = true,
+            )
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldKeepDisplayedLyricOnReject(
+                alreadyDisplayingLyric = false,
+                hasCachedLines = false,
+            )
+        )
+    }
+
+    @Test
+    fun lyricContentChanged_whenLightLineAdvances() {
+        assertTrue(
+            AodLyricDisplayPolicy.lyricContentChangedFromFields(
+                AodLyricDisplayPolicy.LyricSnapshotFields(l = "line2"),
+                AodLyricDisplayPolicy.LyricSnapshotFields(l = "line1"),
+            )
+        )
+    }
 }

@@ -47,6 +47,7 @@ internal object AodLyricDisplayPolicy {
     /**
      * 是否可接受 provider 载荷上屏。
      * AOD 切歌等待期：标题 stale 时仍可能因 version bump 或 l/s/ctx 相对快照变化而接受。
+     * 已上屏后标题仍滞后：允许 l/s/ctx 相对当前显示内容继续更新（进度行）。
      */
     fun canAcceptProviderLyric(
         json: JSONObject,
@@ -58,12 +59,37 @@ internal object AodLyricDisplayPolicy {
         aodSwitchLyricJsonSnapshot: String,
         providerTitleStale: Boolean,
         hasValidLines: Boolean,
+        alreadyDisplayingLyric: Boolean = false,
+        currentDisplayJson: String = "{}",
     ): Boolean {
         if (!hasValidLines) return false
         if (!providerTitleStale) return true
-        if (!pendingAodTrackSwitch) return false
-        if (vLyric > aodSwitchVLyric || vFd > aodSwitchVFd) return true
-        return lyricContentChangedFromSnapshot(json, aodSwitchLyricJsonSnapshot)
+        if (pendingAodTrackSwitch) {
+            if (vLyric > aodSwitchVLyric || vFd > aodSwitchVFd) return true
+            return lyricContentChangedFromSnapshot(json, aodSwitchLyricJsonSnapshot)
+        }
+        // 标题滞后但已有上屏歌词：LyricFocus 推送的下一行 l/s 仍应接受
+        if (alreadyDisplayingLyric) {
+            return lyricContentChangedFromSnapshot(json, currentDisplayJson)
+        }
+        return false
+    }
+
+    /** 已有时间轴缓存时，不因标题滞后阻断按进度刷行。 */
+    fun shouldRefreshCachedLineByPosition(
+        hasCachedLines: Boolean,
+        providerTitleStale: Boolean,
+    ): Boolean {
+        if (hasCachedLines) return true
+        return !providerTitleStale
+    }
+
+    /** 拒收新载荷时是否保留已上屏歌词（避免 AOD 标题滞后把进度缓存清掉）。 */
+    fun shouldKeepDisplayedLyricOnReject(
+        alreadyDisplayingLyric: Boolean,
+        hasCachedLines: Boolean,
+    ): Boolean {
+        return alreadyDisplayingLyric || hasCachedLines
     }
 
     internal data class LyricSnapshotFields(

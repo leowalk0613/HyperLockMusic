@@ -669,7 +669,24 @@ class LockscreenLyricView(context: Context) : View(context) {
             aodSwitchLyricJsonSnapshot = aodSwitchLyricJsonSnapshot,
             providerTitleStale = isProviderLyricStale(json),
             hasValidLines = hasValidLyricLines(json),
+            alreadyDisplayingLyric = hasLyric && hasDisplayableText(),
+            currentDisplayJson = lastLyricJson,
         )
+    }
+
+    private fun rejectProviderLyricKeepOrClear() {
+        if (AodLyricDisplayPolicy.shouldKeepDisplayedLyricOnReject(
+                alreadyDisplayingLyric = hasLyric && hasDisplayableText(),
+                hasCachedLines = cachedLines?.isNotEmpty() == true,
+            )
+        ) {
+            dataDirty = true
+            return
+        }
+        lastLyricJson = "{}"
+        cachedCtx = null
+        cachedLines = null
+        dataDirty = true
     }
 
     private fun snapshotLyricVersionsAtTrackSwitch() {
@@ -1689,12 +1706,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                             val jo = JSONObject(lastLyricJson)
                             val t = jo.optString("title", "")
                             if (!canAcceptProviderLyric(jo, newVLyric, newVLyricFd)) {
-                                // 切歌空窗：LyricFocus 仍是上一首，勿写回 lastSongTitle / 勿上屏
-                                lastLyricJson = "{}"
-                                cachedCtx = null
-                                cachedLines = null
+                                // 切歌空窗或标题滞后：已上屏则保留缓存，否则清空
+                                rejectProviderLyricKeepOrClear()
                                 fdRead = false
-                                dataDirty = true
                             } else {
                                 if (t.isNotBlank()) lastSongTitle = t
                                 if (!hasValidLyricLines(jo)) {
@@ -1727,10 +1741,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                             val old = JSONObject(lastLyricJson)
                             val neu = JSONObject(j)
                             if (!canAcceptProviderLyric(neu, newVLyric, newVLyricFd)) {
-                                lastLyricJson = "{}"
-                                cachedCtx = null
-                                cachedLines = null
-                                dataDirty = true
+                                rejectProviderLyricKeepOrClear()
                             } else {
                                 val emptyPush = !neu.has("l") && !neu.has("s")
                                         && !neu.has("title") && !neu.has("ctx")
@@ -1785,7 +1796,18 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (raw != lastLyricJson) lastLyricJson = raw
             val lo = JSONObject(raw)
             if (!canAcceptProviderLyric(lo, lastLyricVersion, lastLyricFdVersion)) {
-                // 仍是上一首歌的歌词：保持清空，等 LyricFocus 推送新曲
+                // 仍是上一首歌的歌词：已上屏则保留并继续按进度刷；否则清空等待
+                if (AodLyricDisplayPolicy.shouldKeepDisplayedLyricOnReject(
+                        alreadyDisplayingLyric = hasLyric && hasDisplayableText(),
+                        hasCachedLines = cachedLines?.isNotEmpty() == true,
+                    )
+                ) {
+                    dataDirty = true
+                    if (cachedLines != null && cachedLines!!.isNotEmpty()) {
+                        refreshCurrentLineFromCache()
+                    }
+                    return
+                }
                 lastLyricJson = "{}"
                 cachedLines = null
                 cachedCtx = null
@@ -1981,12 +2003,24 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (pendingAodTrackSwitch || awaitingFreshLyricsAfterTrackSwitch) {
                 return
             }
-            try {
-                if (isProviderLyricStale(JSONObject(lastLyricJson))) return
-            } catch (_: Throwable) {
-            }
             val lines = cachedLines
             if (lines == null || lines.isEmpty()) {
+                // 无时间轴时：AOD 下主动读轻量包，避免只卡在切歌瞬间的那一行
+                if (isAodLyricRefreshMode()) {
+                    tryLoadAndAcceptLyricPayload(lastLyricVersion, lastLyricFdVersion)
+                }
+                return
+            }
+            val titleStale = try {
+                isProviderLyricStale(JSONObject(lastLyricJson))
+            } catch (_: Throwable) {
+                false
+            }
+            if (!AodLyricDisplayPolicy.shouldRefreshCachedLineByPosition(
+                    hasCachedLines = true,
+                    providerTitleStale = titleStale,
+                )
+            ) {
                 return
             }
 
@@ -1996,7 +2030,6 @@ class LockscreenLyricView(context: Context) : View(context) {
 
             val currentText = lines[idx].text
             val currentTrans = lines[idx].translation.takeIf { it.isNotBlank() } ?: ""
-            val prevText = if (idx > 0) lines[idx - 1].text else ""
             val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
 
             val newMain = currentText.ifBlank { " " }
@@ -2036,24 +2069,33 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun getCurrentPosition(): Long {
         try {
+            val mediaActive = try {
+                ConfigReader.mediaPlaybackActive(context)
+            } catch (_: Throwable) {
+                false
+            }
             for (controller in getMediaControllers()) {
-                val state = controller.playbackState
-                if (state != null) {
-                    val playing = state.state == PlaybackState.STATE_PLAYING
-                    if (playing || isPlaying) {
-                        val now = SystemClock.elapsedRealtime()
-                        val delta = now - posBaseTime
-                        if (delta > 2000 || !isPlaying) {
-                            val p = state.position
-                            isPlaying = playing
-                            posBase = p
-                            posBaseTime = now
-                            return p
-                        } else {
-                            return posBase + delta
-                        }
-                    }
+                val state = controller.playbackState ?: continue
+                val playing = state.state == PlaybackState.STATE_PLAYING
+                // AOD 上 Session 状态偶发滞后：有活跃媒体时也按进度外推
+                if (!playing && !isPlaying && !mediaActive) continue
+                val now = SystemClock.elapsedRealtime()
+                val speed = if (playing || isPlaying) {
+                    state.playbackSpeed.takeIf { it > 0f } ?: 1f
+                } else {
+                    0f
                 }
+                val delta = now - posBaseTime
+                // AOD 更勤刷原始 position，避免外推漂移过大
+                val refreshMs = if (!HookUtils.isScreenInteractive(context)) 800L else 2000L
+                if (delta > refreshMs || (!playing && !isPlaying) || posBaseTime == 0L) {
+                    val p = state.position
+                    if (playing) isPlaying = true
+                    posBase = p
+                    posBaseTime = now
+                    return p
+                }
+                return posBase + (delta * speed).toLong()
             }
         } catch (_: Throwable) {
         }
