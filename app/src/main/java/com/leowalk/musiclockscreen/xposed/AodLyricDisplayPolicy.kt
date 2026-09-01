@@ -3,19 +3,12 @@ package com.leowalk.musiclockscreen.xposed
 import org.json.JSONObject
 
 /**
- * AOD / 息屏下歌词刷新策略。
- *
- * 亮屏切歌：version 门闩防闪回。
- * AOD 切歌：切歌瞬间快照 provider，版本 bump 或歌词内容变化即可上屏（标题可能滞后）。
+ * AOD / 息屏显示辅助策略（切歌门闩见 [TrackLyricGate]）。
  */
 internal object AodLyricDisplayPolicy {
 
     fun isAodLyricRefreshMode(screenInteractive: Boolean, onKeyguard: Boolean): Boolean {
         return !screenInteractive && onKeyguard
-    }
-
-    fun shouldUseStrictTrackSwitchGate(screenInteractive: Boolean, onKeyguard: Boolean): Boolean {
-        return screenInteractive && onKeyguard
     }
 
     fun isPlaybackOkForLyricDisplay(
@@ -33,63 +26,6 @@ internal object AodLyricDisplayPolicy {
             return mediaPlaybackActive
         }
         return false
-    }
-
-    fun shouldProbeLyricWithoutVersionBump(
-        awaitingFreshLyricsAfterTrackSwitch: Boolean,
-        screenInteractive: Boolean,
-        onKeyguard: Boolean,
-    ): Boolean {
-        return awaitingFreshLyricsAfterTrackSwitch &&
-            shouldUseStrictTrackSwitchGate(screenInteractive, onKeyguard)
-    }
-
-    /**
-     * 是否可接受 provider 载荷上屏。
-     * AOD 切歌等待期：标题 stale 时仍可能因 version bump 或 l/s/ctx 相对快照变化而接受。
-     * 已上屏后标题仍滞后：允许 l/s/ctx 相对当前显示内容继续更新（进度行）。
-     */
-    fun canAcceptProviderLyric(
-        json: JSONObject,
-        vLyric: Int,
-        vFd: Int,
-        pendingAodTrackSwitch: Boolean,
-        aodSwitchVLyric: Int,
-        aodSwitchVFd: Int,
-        aodSwitchLyricJsonSnapshot: String,
-        providerTitleStale: Boolean,
-        hasValidLines: Boolean,
-        alreadyDisplayingLyric: Boolean = false,
-        currentDisplayJson: String = "{}",
-    ): Boolean {
-        if (!hasValidLines) return false
-        if (!providerTitleStale) return true
-        if (pendingAodTrackSwitch) {
-            if (vLyric > aodSwitchVLyric || vFd > aodSwitchVFd) return true
-            return lyricContentChangedFromSnapshot(json, aodSwitchLyricJsonSnapshot)
-        }
-        // 标题滞后但已有上屏歌词：LyricFocus 推送的下一行 l/s 仍应接受
-        if (alreadyDisplayingLyric) {
-            return lyricContentChangedFromSnapshot(json, currentDisplayJson)
-        }
-        return false
-    }
-
-    /** 已有时间轴缓存时，不因标题滞后阻断按进度刷行。 */
-    fun shouldRefreshCachedLineByPosition(
-        hasCachedLines: Boolean,
-        providerTitleStale: Boolean,
-    ): Boolean {
-        if (hasCachedLines) return true
-        return !providerTitleStale
-    }
-
-    /** 拒收新载荷时是否保留已上屏歌词（避免 AOD 标题滞后把进度缓存清掉）。 */
-    fun shouldKeepDisplayedLyricOnReject(
-        alreadyDisplayingLyric: Boolean,
-        hasCachedLines: Boolean,
-    ): Boolean {
-        return alreadyDisplayingLyric || hasCachedLines
     }
 
     internal data class LyricSnapshotFields(
@@ -129,7 +65,7 @@ internal object AodLyricDisplayPolicy {
         return false
     }
 
-    internal fun lyricContentChangedFromSnapshot(json: JSONObject, snapshot: String): Boolean {
+    fun lyricContentChangedFromSnapshot(json: JSONObject, snapshot: String): Boolean {
         if (snapshot == "{}" || snapshot.isBlank()) return false
         val snapJson = try {
             JSONObject(snapshot)
@@ -140,5 +76,18 @@ internal object AodLyricDisplayPolicy {
             current = parseLyricSnapshotFields(json),
             previous = parseLyricSnapshotFields(snapJson),
         )
+    }
+
+    fun hasValidLyricLines(json: JSONObject): Boolean {
+        val l = json.optString("l", "").trim()
+        val s = json.optString("s", "").trim()
+        if (l.isNotEmpty() || s.isNotEmpty()) return true
+        val ctx = json.optJSONObject("ctx") ?: return false
+        val linesArr = ctx.optJSONArray("lines") ?: return false
+        for (i in 0 until linesArr.length()) {
+            val t = linesArr.optJSONObject(i)?.optString("t", "")?.trim().orEmpty()
+            if (t.isNotEmpty()) return true
+        }
+        return false
     }
 }

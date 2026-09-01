@@ -14,7 +14,7 @@ class LyricAlbumPriorityPolicyTest {
                 musicLockscreenActive = true,
                 onKeyguard = true,
                 lyricCurrentlyDisplayed = true,
-                awaitingFreshLyricsAfterTrackSwitch = false,
+                trackGatePhase = TrackLyricGate.Phase.IDLE,
                 hasLyricData = true,
                 hasDisplayableText = true,
             )
@@ -22,14 +22,14 @@ class LyricAlbumPriorityPolicyTest {
     }
 
     @Test
-    fun hidesAlbum_whileAwaitingFreshLyricsOnAodTrackChange() {
+    fun hidesAlbum_whileWaitingForFreshLyrics() {
         assertTrue(
             LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
                 showLyricEnabled = true,
                 musicLockscreenActive = true,
                 onKeyguard = true,
                 lyricCurrentlyDisplayed = false,
-                awaitingFreshLyricsAfterTrackSwitch = true,
+                trackGatePhase = TrackLyricGate.Phase.WAITING,
                 hasLyricData = false,
                 hasDisplayableText = false,
             )
@@ -37,27 +37,31 @@ class LyricAlbumPriorityPolicyTest {
     }
 
     @Test
-    fun showsAlbum_whenLyricOffOrNoLyricData() {
-        assertFalse(
-            LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
-                showLyricEnabled = false,
-                musicLockscreenActive = true,
-                onKeyguard = true,
-                lyricCurrentlyDisplayed = true,
-                awaitingFreshLyricsAfterTrackSwitch = false,
-                hasLyricData = true,
-                hasDisplayableText = true,
-            )
-        )
+    fun showsAlbum_whenIdleAndNoLyric() {
         assertFalse(
             LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
                 showLyricEnabled = true,
                 musicLockscreenActive = true,
                 onKeyguard = true,
                 lyricCurrentlyDisplayed = false,
-                awaitingFreshLyricsAfterTrackSwitch = false,
+                trackGatePhase = TrackLyricGate.Phase.IDLE,
                 hasLyricData = false,
                 hasDisplayableText = false,
+            )
+        )
+    }
+
+    @Test
+    fun showsAlbum_whenLyricSwitchOff() {
+        assertFalse(
+            LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
+                showLyricEnabled = false,
+                musicLockscreenActive = true,
+                onKeyguard = true,
+                lyricCurrentlyDisplayed = true,
+                trackGatePhase = TrackLyricGate.Phase.IDLE,
+                hasLyricData = true,
+                hasDisplayableText = true,
             )
         )
     }
