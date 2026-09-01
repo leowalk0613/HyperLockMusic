@@ -1,63 +1,81 @@
 # HyperLockMusic
 
-基于 [LSPosed](https://github.com/LSPosed/LSPosed) 的 **HyperOS 4** 锁屏音乐模块：在锁屏与息屏（AOD）界面重绘专辑壁纸、大封面与歌词，并扩展媒体控件行为。
+基于 [LSPosed](https://github.com/LSPosed/LSPosed)（libxposed API 102）的 **HyperOS 4** 锁屏音乐模块：在锁屏与息屏（AOD）重绘专辑壁纸、大封面 / 沉浸封面与歌词，并扩展媒体控件与息屏行为。
 
-> **English:** LSPosed module for **HyperOS 4** that redraws lock screen & AOD with album art wallpapers, large cover overlays, synced lyrics, and enhanced media controls. **MIUI and older HyperOS versions are not supported.**
+> **English:** LSPosed module for **HyperOS 4** that redraws the lock screen & AOD with album-art wallpapers, large / immersive covers, synced lyrics, expanded AOD media controls, and a minimal clock. **MIUI and older HyperOS versions are not supported.**
+
+当前版本：**0.1.0**
 
 ## 功能
 
-- **音乐锁屏壁纸** — 将当前播放专辑模糊合成锁屏背景，支持强度与暗色遮罩调节
-- **大专辑封面** — 锁屏 overlay 显示方形封面，可配置大小、位置、圆角；支持沉浸专辑模式
-- **锁屏歌词** — 毛玻璃歌词条、翻译互换、颜色/字号/位置/对齐；支持沉浸歌词模式
-- **AOD 歌词** — 息屏界面同步显示歌词（需勾选 `com.miui.aod` 作用域）
-- **媒体控件** — AOD 下保持媒体卡片展开并实时更新进度条；歌名括号样式可定制
-- **通知过滤** — 音乐锁屏激活时在锁屏隐藏无关通知，保留媒体控件
+- **音乐锁屏壁纸** — 按当前曲目合成模糊专辑背景；切歌走串行壁纸管线，减少回滚与闪烁
+- **大专辑 / 沉浸封面** — 方形大封面（大小、底边位置、圆角）或 Monet 取色沉浸封面；专辑样式与歌词样式自动绑定
+- **歌词优先** — 开启歌词时，有歌词（或切歌等待新词）优先占位，无歌词才显示方形专辑
+- **锁屏歌词** — 毛玻璃 / MiBlur 取色歌词条、翻译互换、字号 / 宽度 / 位置 / 对齐；支持沉浸歌词（大字当前行）
+- **AOD 歌词** — 息屏同步歌词；切歌时按版本 / 内容快照刷新，避免「只有亮屏才更新」或闪上一首
+- **AOD 媒体控件** — 可选息屏保持展开并实时进度条，减少压缩再展开的动画
+- **简洁时钟** — 音乐锁屏时隐藏系统大时钟，顶部显示可调字号 / 位置的时间日期
+- **通知过滤** — 音乐锁屏激活时隐藏无关通知，保留媒体控件与 LyricFocus
+- **媒体退出** — 划掉媒体、杀播放器或无活跃会话时自动退出音乐锁屏（建议开启通知使用权）
 - **应用白名单** — 可选限定哪些音乐应用可触发音乐锁屏
 - **网易云 HD 封面** — 可选拉取更高分辨率专辑图（需勾选对应音乐应用作用域）
+- **锁屏常亮** — 可选音乐锁屏时保持屏幕常亮
+- **歌名括号** — 媒体标题括号：原样 / 右侧缩小 / 隐藏
+
+歌词数据依赖 [LyricFocus](https://github.com/leowalk0613)（`com.leowalk.LyricFocus`）经 ContentProvider 推送；本模块在 SystemUI / AOD 内消费并上屏。
 
 ## 环境要求
 
 | 项目 | 说明 |
 |------|------|
 | 系统 | **HyperOS 4**（以 `4.0.0.14` 为开发与验证基准） |
-| Android | **Android 17** |
-| 框架 | LSPosed（API 102+） |
-| Root | 需要（LSPosed 依赖；应用内「重启界面」亦需 `su`） |
+| Android | **Android 17**（开发机） |
+| 框架 | LSPosed（API **102+**，libxposed） |
+| Root | 需要（LSPosed；应用内「重启界面」亦需 `su`） |
+| 歌词 | 建议安装并启用 **LyricFocus** |
 
 **参考实机：** Xiaomi `23127PN0CC`，HyperOS 4 `4.0.0.14`，Android 17。
 
-> **不支持 MIUI。** 本模块钩子针对 HyperOS 4 锁屏与 SystemUI 结构编写，MIUI 及 HyperOS 1/2/3 无法正常使用。其他机型与系统版本未测试，不保证可用。
+> **不支持 MIUI。** 钩子针对 HyperOS 4 锁屏 / SystemUI / AOD 编写，MIUI 及 HyperOS 1/2/3 无法正常使用。其他机型与版本未充分测试。
 
 ## 安装
 
-1. 从 [Releases](https://github.com/leowalk0613/HyperLockMusic/releases) 下载 APK，或自行编译 debug 包
-2. 在 LSPosed 中启用 **HyperLockMusic**
-3. 勾选作用域（见下表），**至少包含 `com.android.systemui`**
-4. 重启系统界面（LSPosed 内操作，或应用右上角「重启界面」）
+1. 从 [Releases](https://github.com/leowalk0613/HyperLockMusic/releases) 下载 APK，或自行编译
+2. 安装 **LyricFocus**（锁屏 / AOD 歌词数据源）
+3. 在 LSPosed 中启用 **HyperLockMusic**
+4. 勾选作用域（见下表），**至少包含 `com.android.systemui`**
+5. 在应用内开启 **通知使用权**（更准确检测播放与自动退出）
+6. 重启系统界面（LSPosed，或应用右上角「重启界面」）
 
 ### LSPosed 作用域
 
 | 包名 | 用途 |
 |------|------|
-| `com.android.systemui` | 锁屏壁纸、歌词、大封面、媒体控件（**必选**） |
+| `com.android.systemui` | 锁屏壁纸、歌词、大封面、媒体控件、时钟、通知栈（**必选**） |
 | `com.miui.aod` | 息屏 AOD 歌词 |
 | `miui.systemui.plugin` | SystemUI 插件层兼容 |
-| 各音乐应用包名 | 白名单/歌词通知监听（按需勾选，如 `com.netease.cloudmusic`） |
+| 各音乐应用包名 | 白名单 / 网易云 HD 等（按需，如 `com.netease.cloudmusic`） |
+
+模块声明作用域见 `app/src/main/resources/META-INF/xposed/scope.list`。
 
 ## 使用
 
 1. 播放音乐并进入锁屏
-2. 在锁屏**媒体控件左侧**自定义按钮开启/关闭**音乐锁屏**
+2. 在锁屏**媒体控件左侧**自定义按钮开启 / 关闭**音乐锁屏**
 3. **右侧**按钮控制歌词显示
-4. 打开 HyperLockMusic 应用调整样式；修改后点击右上角 **重启界面** 使 Xposed 钩子生效
+4. 打开 HyperLockMusic 调整样式；多数配置经 ContentProvider 即时下发，钩子结构变更时可点右上角 **重启界面**
 
-应用内设置入口：
+### 应用内设置
 
-- **专辑封面** — 大封面、沉浸专辑、位置与圆角
-- **模糊背景** — 模糊半径、暗色遮罩
-- **媒体控件** — AOD 完整媒体控件、歌名括号处理
-- **歌词样式** — 字号、颜色、毛玻璃、沉浸歌词、对齐与位置
-- **音乐应用白名单** — 限制触发来源
+| 入口 | 内容 |
+|------|------|
+| **权限** | 通知使用权（播放检测 / 自动退出） |
+| **音乐应用白名单** | 启用后仅白名单应用可开音乐锁屏 |
+| **专辑封面** | 大封面 / 沉浸封面、大小位置圆角、网易云 HD、简洁时钟 |
+| **模糊背景** | 模糊半径、暗色遮罩 |
+| **媒体控件** | AOD 完整媒体控件、歌名括号样式 |
+| **歌词样式** | 显示开关、普通 / 沉浸歌词、毛玻璃、翻译互换、对齐、锁屏常亮 |
+| **关于** | 版本与说明 |
 
 ### 其他
 
@@ -65,54 +83,45 @@
 
 ## 从源码构建
 
+一律使用项目 Wrapper，**不要依赖 Android Studio 同步 / 编译**：
+
 ```bash
 # Windows
 .\gradlew.bat assembleDebug
+.\gradlew.bat :app:installDebug
+.\gradlew.bat testDebugUnitTest
 
 # Linux / macOS
 ./gradlew assembleDebug
+./gradlew :app:installDebug
+./gradlew testDebugUnitTest
 ```
 
-构建产物：`app/build/outputs/apk/debug/app-debug.apk`
+产物：`app/build/outputs/apk/debug/app-debug.apk`
 
-安装到已连接设备：
+需要 Android SDK（`compileSdk 34`）与 **JDK 17**。可通过 `.env` 或环境变量 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 指定 SDK。
 
-```bash
-.\gradlew.bat :app:installDebug   # Windows
-./gradlew :app:installDebug       # Linux / macOS
-```
-
-需要 Android SDK（`compileSdk 34`）与 JDK 17。可通过环境变量 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 指定 SDK 路径。
+协作者约定见 [`AGENTS.md`](AGENTS.md)。
 
 ## 调试
 
-Logcat 过滤标签前缀：
-
-```
-HyperLockMusic
-```
-
-示例：
-
 ```bash
-adb logcat -s HyperLockMusic HyperLockMusic_Lyric HyperLockMusic_Wallpaper
+adb logcat -s HyperLockMusic HyperLockMusic_Lyric HyperLockMusic_Wallpaper HyperLockMusic_Config
 ```
+
+改动 SystemUI / AOD 钩子后，通常需重启 SystemUI；AOD 歌词异常时也可重启 `com.miui.aod`。
 
 ## 免责声明
 
-- 本模块通过 Xposed 钩子修改 SystemUI 行为，**仅供学习与个人使用**
-- 修改系统界面存在风险，请在了解后果后使用；作者不对数据丢失、系统异常或保修问题负责
-- HyperLockMusic 与小米、HyperOS 及任何音乐应用官方无关
+- 本模块通过 Xposed 钩子修改 SystemUI / AOD 行为，**仅供学习与个人使用**
+- 修改系统界面存在风险；作者不对数据丢失、系统异常或保修问题负责
+- 与小米、HyperOS 及任何音乐应用官方无关
 - **仅面向 HyperOS 4；MIUI 不在支持范围内**
-- 「音乐锁屏」指模块提供的锁屏壁纸功能，不是系统自带能力
+- 「音乐锁屏」指本模块功能，不是系统自带能力
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE)。
-
-- 可自由使用、修改、合并、发布与商用
-- 需在副本中保留版权声明与许可全文
-- 本软件按「原样」提供，不提供任何担保
+[MIT License](LICENSE)。
 
 ## 作者
 
