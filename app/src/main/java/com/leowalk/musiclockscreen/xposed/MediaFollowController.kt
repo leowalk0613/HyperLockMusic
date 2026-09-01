@@ -3,7 +3,6 @@ package com.leowalk.musiclockscreen.xposed
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 
 /**
@@ -15,8 +14,9 @@ object MediaFollowController {
     private const val TAG = "HyperLockMusic_MediaFollow"
 
     private var bgLayer: View? = null
-    private var predrawListener: ViewTreeObserver.OnPreDrawListener? = null
+    private var layoutChangeListener: View.OnLayoutChangeListener? = null
     private var listening = false
+    private var zOrderPinned = false
 
     private var lastAlbumAnchor = Float.NaN
     private var lastLyricAnchor = Float.NaN
@@ -45,6 +45,9 @@ object MediaFollowController {
         stopListening()
         invalidateCache()
         resetTransforms()
+        KeyguardWallpaperScalePolicy.reset()
+        KeyguardSleepTransition.reset()
+        KeyguardOverlayVisibilitySync.reset()
     }
 
     fun onKeyguardShown() {
@@ -79,18 +82,25 @@ object MediaFollowController {
         lastLyricAnchor = Float.NaN
         lastAlbumSize = -1
         lastLyricHeight = -1
+        zOrderPinned = false
     }
 
     private fun startListening() {
         val target = bgLayer ?: return
         if (listening) return
-        val listener = ViewTreeObserver.OnPreDrawListener {
+        val listener = View.OnLayoutChangeListener {
+                _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val w = right - left
+            val h = bottom - top
+            val oldW = oldRight - oldLeft
+            val oldH = oldBottom - oldTop
+            if (w == oldW && h == oldH) return@OnLayoutChangeListener
+            if (KeyguardSleepTransition.isInLinkageAnimWindow()) return@OnLayoutChangeListener
             layoutAll()
-            true
         }
-        predrawListener = listener
+        layoutChangeListener = listener
         try {
-            target.viewTreeObserver.addOnPreDrawListener(listener)
+            target.addOnLayoutChangeListener(listener)
             listening = true
         } catch (e: Throwable) {
             logE("startListening failed", e)
@@ -100,16 +110,14 @@ object MediaFollowController {
 
     private fun stopListening() {
         val target = bgLayer
-        val listener = predrawListener
+        val listener = layoutChangeListener
         if (target != null && listener != null) {
             try {
-                if (target.viewTreeObserver.isAlive) {
-                    target.viewTreeObserver.removeOnPreDrawListener(listener)
-                }
+                target.removeOnLayoutChangeListener(listener)
             } catch (_: Throwable) {
             }
         }
-        predrawListener = null
+        layoutChangeListener = null
         listening = false
     }
 
@@ -120,7 +128,6 @@ object MediaFollowController {
             ?: (MusicLockscreenManager.bigAlbumView?.parent as? View)
             ?: return
         if (bg.width <= 0 || bg.height <= 0) return
-
         if (HookUtils.isBouncerShowing(bg)) {
             MusicLockscreenManager.bigAlbumView?.takeIf { it.visibility == View.VISIBLE }
                 ?.visibility = View.INVISIBLE
@@ -370,6 +377,7 @@ object MediaFollowController {
     }
 
     private fun ensureLyricOnTop() {
+        if (zOrderPinned) return
         val lyric = MusicLockscreenManager.lyricView ?: return
         if (lyric.visibility == View.GONE) return
         val d = lyric.resources.displayMetrics.density
@@ -389,6 +397,7 @@ object MediaFollowController {
                 mask.translationZ = 64f * d
                 mask.bringToFront()
             }
+            zOrderPinned = true
         } catch (_: Throwable) {
         }
     }

@@ -143,6 +143,11 @@ object MusicLockscreenManager {
         return (lyricView as? LockscreenLyricView)?.isImmersiveLyricDisplayActive() == true
     }
 
+    /** 歌词开关开启且应优先于方形专辑（含切歌等歌词空窗）。 */
+    fun isLyricPriorityOverAlbum(): Boolean {
+        return (lyricView as? LockscreenLyricView)?.isLyricPriorityOverAlbum() == true
+    }
+
     fun showAlbumOverlay() {
         val album = bigAlbumView ?: return
         if (!isShowing || !LockscreenNotificationController.shouldShowKeyguardOverlays()) {

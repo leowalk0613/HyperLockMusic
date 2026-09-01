@@ -7,7 +7,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.View
@@ -21,6 +24,8 @@ import android.widget.ImageView
  *
  * 方形大封面：尺寸/圆角由配置决定，底边 = 屏高 × [albumAnchorY]%。
  * 沉浸专辑由 [WallpaperController] 合成进壁纸，此处不再绘制。
+ *
+ * 性能：封面 + 阴影在切歌 / 改尺寸时离屏合成一次，之后每帧只 blit 缓存位图。
  */
 class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
 
@@ -29,10 +34,15 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     private var configObserver: android.database.ContentObserver? = null
     private var configObserverRegistered = false
 
-    /** overlay 独占副本，避免 WallpaperController 回收后 ImageView 仍引用原 bitmap */
+    /** overlay 独占副本，避免 WallpaperController 回收后仍引用原 bitmap */
     private var ownedAlbumBitmap: Bitmap? = null
 
+    /** 阴影 + 圆角封面离屏缓存；曲目 / 尺寸不变时不重建 */
+    private var compositeBitmap: Bitmap? = null
+    private var compositeCacheKey: Long = 0L
+
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val blitPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private var cornerRadiusPx = 0f
     private var shadowPadLeftPx = 0
     private var shadowPadTopPx = 0
@@ -42,6 +52,9 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     private var shadowOffsetYPx = 0f
     private var shadowBlurPx = 0f
 
+    /** 非 Bitmap 封面时回退旧路径（每帧 saveLayer） */
+    private var legacyDrawableFallback = false
+
     /** 含阴影留白的外层尺寸，供布局使用 */
     var layoutWidthPx: Int = 1
         private set
@@ -49,7 +62,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
     var layoutHeightPx: Int = 1
         private set
 
-    /** 专辑内容区相对外层左上角的留白（阴影绘制在内容区外侧） */
+    /** 专辑内容区相对外层左上角的留白（阴影绘制在 content 区外侧） */
     val contentPadLeftPx: Int get() = shadowPadLeftPx
     val contentPadTopPx: Int get() = shadowPadTopPx
 
@@ -71,6 +84,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
 
         albumView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = GONE
         }
         addView(
             albumView,
@@ -94,7 +108,6 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         updateSquareShadowInsets(sw)
         layoutWidthPx = size + shadowPadLeftPx + shadowPadRightPx
         layoutHeightPx = size + shadowPadTopPx + shadowPadBottomPx
-        albumView.visibility = VISIBLE
 
         val cornerProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
@@ -108,6 +121,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
 
         val albumLp = (albumView.layoutParams as? LayoutParams)
             ?: LayoutParams(size, size).also { albumView.layoutParams = it }
+        var layoutChanged = false
         if (albumLp.width != size || albumLp.height != size ||
             albumLp.leftMargin != shadowPadLeftPx || albumLp.topMargin != shadowPadTopPx
         ) {
@@ -119,6 +133,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             albumLp.rightMargin = 0
             albumLp.bottomMargin = 0
             albumView.layoutParams = albumLp
+            layoutChanged = true
         }
 
         val lp = (layoutParams as? LayoutParams) ?: LayoutParams(layoutWidthPx, layoutHeightPx).also {
@@ -136,14 +151,34 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             lp.rightMargin = 0
             lp.bottomMargin = 0
             layoutParams = lp
+            layoutChanged = true
         }
 
         elevation = 2f * dm.density
-        MediaFollowController.requestReflow()
+        rebuildCompositeCacheIfNeeded()
+        if (layoutChanged) {
+            MediaFollowController.requestReflow()
+        }
     }
 
     fun setAlbumArt(drawable: Drawable?) {
-        if (drawable != null) albumView.setImageDrawable(drawable)
+        if (drawable == null) {
+            clearAlbum()
+            return
+        }
+        if (drawable is BitmapDrawable) {
+            val bmp = drawable.bitmap
+            if (bmp != null && !bmp.isRecycled) {
+                legacyDrawableFallback = false
+                setAlbumBitmap(bmp)
+                return
+            }
+        }
+        legacyDrawableFallback = true
+        releaseCompositeCache()
+        albumView.visibility = VISIBLE
+        albumView.setImageDrawable(drawable)
+        invalidate()
     }
 
     fun setAlbumBitmap(bitmap: Bitmap?) {
@@ -153,15 +188,21 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         } catch (_: Throwable) {
             return
         }
+        legacyDrawableFallback = false
+        albumView.visibility = GONE
+        albumView.setImageDrawable(null)
         ownedAlbumBitmap?.takeIf { it !== copy && !it.isRecycled }?.recycle()
         ownedAlbumBitmap = copy
-        albumView.setImageBitmap(copy)
+        rebuildCompositeCacheIfNeeded()
     }
 
     fun clearAlbum() {
+        legacyDrawableFallback = false
         albumView.setImageDrawable(null)
+        albumView.visibility = GONE
         ownedAlbumBitmap?.takeIf { !it.isRecycled }?.recycle()
         ownedAlbumBitmap = null
+        releaseCompositeCache()
     }
 
     fun showForMusicLockscreen() {
@@ -177,6 +218,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         applySizeFromConfig()
         alpha = 1f
         visibility = VISIBLE
+        rebuildCompositeCacheIfNeeded()
         MediaFollowController.requestReflow()
     }
 
@@ -188,6 +230,56 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         scaleY = 1f
         visibility = GONE
         clearAlbum()
+    }
+
+    private fun currentCompositeSpec(album: Bitmap): BigAlbumOverlayComposite.Spec {
+        return BigAlbumOverlayComposite.Spec(
+            layoutW = layoutWidthPx,
+            layoutH = layoutHeightPx,
+            contentSizePx = configuredSizePx,
+            cornerRadiusPx = cornerRadiusPx,
+            shadowBlurPx = shadowBlurPx,
+            shadowOffsetX = shadowOffsetXPx,
+            shadowOffsetY = shadowOffsetYPx,
+            padLeft = shadowPadLeftPx,
+            padTop = shadowPadTopPx,
+            albumIdentity = System.identityHashCode(album),
+            albumWidth = album.width,
+            albumHeight = album.height,
+        )
+    }
+
+    private fun rebuildCompositeCacheIfNeeded() {
+        if (legacyDrawableFallback) return
+        val album = ownedAlbumBitmap
+        if (album == null || album.isRecycled) {
+            releaseCompositeCache()
+            return
+        }
+        val spec = currentCompositeSpec(album)
+        if (!BigAlbumOverlayComposite.shouldRebuild(compositeCacheKey, spec)) {
+            return
+        }
+        releaseCompositeCache()
+        val w = layoutWidthPx
+        val h = layoutHeightPx
+        if (w <= 0 || h <= 0 || configuredSizePx <= 0) return
+        val out = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (_: Throwable) {
+            return
+        }
+        val canvas = Canvas(out)
+        drawCompositeOntoCanvas(canvas, album, configuredSizePx.toFloat())
+        compositeBitmap = out
+        compositeCacheKey = BigAlbumOverlayComposite.cacheKey(spec)
+        invalidate()
+    }
+
+    private fun releaseCompositeCache() {
+        compositeBitmap?.takeIf { !it.isRecycled }?.recycle()
+        compositeBitmap = null
+        compositeCacheKey = 0L
     }
 
     private fun updateSquareShadowInsets(screenWidth: Int) {
@@ -217,11 +309,54 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             cornerPx,
             shadowPaint
         )
+        shadowPaint.maskFilter = null
+    }
+
+    private fun drawCompositeOntoCanvas(canvas: Canvas, album: Bitmap, contentSize: Float) {
+        drawSquareDropShadow(canvas, contentSize, cornerRadiusPx)
+        val left = shadowPadLeftPx.toFloat()
+        val top = shadowPadTopPx.toFloat()
+        val rect = RectF(left, top, left + contentSize, top + contentSize)
+        val scaled = scaleCenterCrop(album, contentSize.toInt(), contentSize.toInt())
+        val clipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val albumPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val layer = canvas.saveLayer(rect, null)
+        canvas.drawRoundRect(rect, cornerRadiusPx, cornerRadiusPx, clipPaint)
+        albumPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(scaled, null, rect, albumPaint)
+        albumPaint.xfermode = null
+        canvas.restoreToCount(layer)
+        if (scaled !== album) {
+            scaled.recycle()
+        }
+    }
+
+    private fun scaleCenterCrop(src: Bitmap, targetW: Int, targetH: Int): Bitmap {
+        val sw = src.width.coerceAtLeast(1)
+        val sh = src.height.coerceAtLeast(1)
+        val scale = maxOf(targetW.toFloat() / sw, targetH.toFloat() / sh)
+        val scaledW = (sw * scale).toInt().coerceAtLeast(1)
+        val scaledH = (sh * scale).toInt().coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(src, scaledW, scaledH, true)
+        val x = ((scaledW - targetW) / 2).coerceAtLeast(0)
+        val y = ((scaledH - targetH) / 2).coerceAtLeast(0)
+        return if (x == 0 && y == 0 && scaledW == targetW && scaledH == targetH) {
+            scaled
+        } else {
+            val cropped = Bitmap.createBitmap(scaled, x, y, targetW, targetH)
+            if (cropped !== scaled) scaled.recycle()
+            cropped
+        }
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        val cache = compositeBitmap
+        if (!legacyDrawableFallback && cache != null && !cache.isRecycled) {
+            canvas.drawBitmap(cache, 0f, 0f, blitPaint)
+            return
+        }
         val drawable = albumView.drawable
-        if (drawable is android.graphics.drawable.BitmapDrawable) {
+        if (drawable is BitmapDrawable) {
             val bmp = drawable.bitmap
             if (bmp.isRecycled) {
                 clearAlbum()
@@ -231,6 +366,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         }
         val contentSize = configuredSizePx.toFloat()
         if (albumView.visibility == VISIBLE && contentSize > 0f) {
+            albumView.visibility = VISIBLE
             val layer = canvas.saveLayer(
                 0f, 0f, width.toFloat(), height.toFloat(), null
             )
@@ -249,6 +385,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
 
     override fun onDetachedFromWindow() {
         unregisterConfigObserver()
+        releaseCompositeCache()
         super.onDetachedFromWindow()
     }
 
@@ -271,8 +408,6 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
                         )
                         if (layoutChanged) {
                             if (bakeAfter) {
-                                // 仅当方形封面当前可见时才 hold；沉浸歌词占位时封面已隐藏，
-                                // 强行 show 会盖住全屏模糊背景。
                                 val squareVisible = MusicLockscreenManager.isSquareAlbumOverlayVisible()
                                 MusicLockscreenManager.holdSquareAlbumUntilWallpaperSettled =
                                     squareVisible

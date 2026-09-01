@@ -79,6 +79,8 @@ class KeyguardOverlayHook {
                             }
                             LockscreenClockController.getMinimalClockView()?.bringToFront()
                             MediaFollowController.bindBackgroundLayer(bgLayer)
+                            KeyguardWallpaperScaleHook.bindScreenEvents(bgLayer.context)
+                            KeyguardSleepTransition.bindScreenEvents(bgLayer.context)
                             KeepScreenController.bindLayer(bgLayer)
                             LockscreenClockController.sync()
                         }

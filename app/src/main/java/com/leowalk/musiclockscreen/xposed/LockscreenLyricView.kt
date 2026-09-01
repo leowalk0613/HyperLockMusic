@@ -3,7 +3,10 @@ package com.leowalk.musiclockscreen.xposed
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.database.ContentObserver
 import android.graphics.*
 import android.media.session.PlaybackState
@@ -168,6 +171,11 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var lyricVersionsAtTrackSwitch: Int = -1
     private var lyricFdVersionsAtTrackSwitch: Int = -1
     private var awaitingFreshLyricsAfterTrackSwitch: Boolean = false
+    /** AOD 切歌：等 provider 更新，不卡 version 门闩。 */
+    private var pendingAodTrackSwitch: Boolean = false
+    private var aodSwitchLyricJsonSnapshot: String = "{}"
+    private var aodSwitchVLyric: Int = -1
+    private var aodSwitchVFd: Int = -1
 
     private var dataDirty = false
     private var lastVersionsCheck: Long = 0
@@ -187,6 +195,9 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var configObserver: ContentObserver? = null
     private var configObserverRegistered = false
 
+    private var aodScreenReceiver: BroadcastReceiver? = null
+    private var aodRecoveryBurstGeneration = 0
+
     init {
         setBackgroundColor(Color.TRANSPARENT)
         isClickable = false
@@ -198,7 +209,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     // 测量与绘制
     // ============================================================
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        if (!shouldDisplayLyric()) {
+        if (!shouldShowLyricOverlay()) {
             setMeasuredDimension(0, 0)
             return
         }
@@ -264,6 +275,9 @@ class LockscreenLyricView(context: Context) : View(context) {
         lp.height = newHeight
         layoutParams = lp
         MediaFollowController.syncLyricLaidOut(newHeight)
+        if (shouldDisplayLyric() && visibility == INVISIBLE) {
+            scheduleRevealAfterLayout()
+        }
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -568,6 +582,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         dataDirty = true
         lastVersionsCheck = 0
         awaitingFreshLyricsAfterTrackSwitch = false
+        pendingAodTrackSwitch = false
         val mediaTitle = readCurrentMediaTitle()
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         val trackKey = AlbumArtResolver.getCachedTrackKey()
@@ -585,24 +600,76 @@ class LockscreenLyricView(context: Context) : View(context) {
         cachedLines = null
         cachedCtx = null
         lastVersionsCheck = 0
-        lastLyricVersion = -1
-        lastLyricFdVersion = -1
-        lastLyricJson = "{}"
-        // 同步到当前曲目身份，勿置 null：否则紧随其后的 readAndUpdate
-        // 无法靠 trackKey 判定切歌，还会把上一首 provider 内容重新画上去。
         val mediaTitle = readCurrentMediaTitle()
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         lastKnownTrackKey = AlbumArtResolver.getCachedTrackKey()
+
+        if (isAodLyricRefreshMode()) {
+            beginAodTrackSwitch()
+            if (isMusicLockscreenActive() && isKeyguardLocked()) {
+                startPolling()
+                handler.post { readAndUpdate() }
+                scheduleAodLyricRecoveryBurst()
+            }
+            return
+        }
+
+        lastLyricVersion = -1
+        lastLyricFdVersion = -1
+        lastLyricJson = "{}"
         snapshotLyricVersionsAtTrackSwitch()
         hasLyric = false
         clearLyricDisplay()
-        updateVisibilityState()
         if (isMusicLockscreenActive() && isKeyguardLocked()) {
             startPolling()
             handler.post { readAndUpdate() }
         } else {
+            updateVisibilityState()
             invalidate()
         }
+    }
+
+    private fun beginAodTrackSwitch() {
+        awaitingFreshLyricsAfterTrackSwitch = false
+        pendingAodTrackSwitch = true
+        aodSwitchLyricJsonSnapshot = lastLyricJson
+        aodSwitchVLyric = lastLyricVersion
+        aodSwitchVFd = lastLyricFdVersion
+        try {
+            val vb = context.contentResolver.call(
+                Uri.parse(PROVIDER_URI), "versions", null, null
+            )
+            if (vb != null) {
+                aodSwitchVLyric = vb.getInt("lyric", aodSwitchVLyric)
+                aodSwitchVFd = vb.getInt("lyricfd", aodSwitchVFd)
+            }
+        } catch (_: Throwable) {
+        }
+        hasLyric = false
+        clearLyricDisplay()
+        dataDirty = true
+        updateVisibilityState()
+    }
+
+    private fun clearAodTrackSwitchState() {
+        pendingAodTrackSwitch = false
+        aodSwitchLyricJsonSnapshot = "{}"
+        aodSwitchVLyric = -1
+        aodSwitchVFd = -1
+    }
+
+    private fun canAcceptProviderLyric(json: JSONObject, vLyric: Int, vFd: Int): Boolean {
+        return AodLyricDisplayPolicy.canAcceptProviderLyric(
+            json = json,
+            vLyric = vLyric,
+            vFd = vFd,
+            pendingAodTrackSwitch = pendingAodTrackSwitch,
+            aodSwitchVLyric = aodSwitchVLyric,
+            aodSwitchVFd = aodSwitchVFd,
+            aodSwitchLyricJsonSnapshot = aodSwitchLyricJsonSnapshot,
+            providerTitleStale = isProviderLyricStale(json),
+            hasValidLines = hasValidLyricLines(json),
+        )
     }
 
     private fun snapshotLyricVersionsAtTrackSwitch() {
@@ -707,6 +774,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         lastSongTitle = ""
         lastKnownTrackKey = null
         awaitingFreshLyricsAfterTrackSwitch = false
+        pendingAodTrackSwitch = false
+        aodSwitchLyricJsonSnapshot = "{}"
+        aodSwitchVLyric = -1
+        aodSwitchVFd = -1
         lyricVersionsAtTrackSwitch = -1
         lyricFdVersionsAtTrackSwitch = -1
         hasLyric = false
@@ -750,6 +821,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         super.onAttachedToWindow()
         registerLyricObserver()
         registerConfigObserver()
+        registerAodScreenReceiver()
         applyLyricConfig()
         startPolling()
         refreshNow()
@@ -758,6 +830,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         stopPolling()
+        unregisterAodScreenReceiver()
         unregisterLyricObserver()
         unregisterConfigObserver()
     }
@@ -795,7 +868,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             lyricObserver = object : ContentObserver(handler) {
                 override fun onChange(selfChange: Boolean) {
                     dataDirty = true
-                    handler.post { readAndUpdate() }
+                    handler.post {
+                        readAndUpdate()
+                        finalizeLyricDisplayAfterContentUpdate()
+                    }
                 }
             }
             context.contentResolver.registerContentObserver(uri, true, lyricObserver!!)
@@ -858,9 +934,24 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxHideBg = cursor.getColumnIndex("lyric_hide_background")
                 val idxAlign = cursor.getColumnIndex("lyric_align")
 
-                if (idxShow >= 0) cfgShowLyric = cursor.getInt(idxShow) != 0
+                if (idxShow >= 0) {
+                    val newShow = cursor.getInt(idxShow) != 0
+                    if (newShow != cfgShowLyric) {
+                        cfgShowLyric = newShow
+                        if (newShow && isMusicLockscreenActive()) {
+                            dataDirty = true
+                            lastVersionsCheck = 0
+                            handler.post { readAndUpdate() }
+                        }
+                    }
+                }
                 if (idxSize >= 0) cfgLyricSize = cursor.getFloat(idxSize)
-                if (idxSwap >= 0) cfgSwapLyric = cursor.getInt(idxSwap) != 0
+                var swapChanged = false
+                if (idxSwap >= 0) {
+                    val newSwap = cursor.getInt(idxSwap) != 0
+                    swapChanged = newSwap != cfgSwapLyric
+                    cfgSwapLyric = newSwap
+                }
                 var positionChanged = false
                 var styleChanged = false
                 if (idxWidth >= 0) {
@@ -894,6 +985,9 @@ class LockscreenLyricView(context: Context) : View(context) {
 
                 cursor.close()
                 applyLyricStyle()
+                if (swapChanged) {
+                    applySwapIfNeeded()
+                }
                 if (styleChanged) {
                     mainStaticLayout = null
                     immersiveSecondStaticLayout = null
@@ -1249,8 +1343,123 @@ class LockscreenLyricView(context: Context) : View(context) {
             !shadeOpen &&
             LockscreenNotificationController.shouldShowKeyguardOverlays() &&
             hasLyric &&
-            isPlaying &&
+            isPlaybackOkForLyric() &&
             hasDisplayableText()
+    }
+
+    /** 含 AOD 兜底：文本已就绪但 Session 播放态滞后时仍应上屏。 */
+    private fun shouldShowLyricOverlay(): Boolean {
+        return shouldDisplayLyric() || isAodLyricRevealEligible()
+    }
+
+    private fun isPlaybackOkForLyric(): Boolean {
+        return AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
+            isPlaying = isPlaying,
+            screenInteractive = HookUtils.isScreenInteractive(context),
+            musicLockscreenActive = isMusicLockscreenActive(),
+            onKeyguard = isKeyguardLocked(),
+            mediaPlaybackActive = ConfigReader.mediaPlaybackActive(context),
+            hasLyricData = hasLyric,
+            hasDisplayableText = hasDisplayableText(),
+        )
+    }
+
+    private fun isAodLyricRefreshMode(): Boolean {
+        return AodLyricDisplayPolicy.isAodLyricRefreshMode(
+            HookUtils.isScreenInteractive(context),
+            isKeyguardLocked(),
+        )
+    }
+
+    private fun useStrictTrackSwitchGate(): Boolean {
+        return AodLyricDisplayPolicy.shouldUseStrictTrackSwitchGate(
+            HookUtils.isScreenInteractive(context),
+            isKeyguardLocked(),
+        )
+    }
+
+    /** 息屏/AOD 下歌词文本已就绪即可尝试上屏（不依赖 MediaFollow 以外的播放态）。 */
+    private fun isAodLyricRevealEligible(): Boolean {
+        return !HookUtils.isScreenInteractive(context) &&
+            cfgShowLyric &&
+            isMusicLockscreenActive() &&
+            isKeyguardLocked() &&
+            !isBouncerShowing() &&
+            !shadeOpen &&
+            LockscreenNotificationController.shouldShowKeyguardOverlays() &&
+            hasLyric &&
+            hasDisplayableText()
+    }
+
+    private fun finalizeLyricDisplayAfterContentUpdate() {
+        if (!hasLyric || !hasDisplayableText()) return
+        updateVisibilityState()
+        if (shouldDisplayLyric() || isAodLyricRevealEligible()) {
+            scheduleRevealAfterLayout()
+        }
+    }
+
+    /** AOD 切歌后 LyricFocus / Session 信号滞后，短 burst 重拉避免等亮屏。 */
+    fun scheduleAodLyricRecoveryBurst() {
+        if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
+        val generation = ++aodRecoveryBurstGeneration
+        val delays = longArrayOf(100L, 300L, 600L, 1200L, 2000L, 3500L)
+        for (delayMs in delays) {
+            handler.postDelayed({
+                if (generation != aodRecoveryBurstGeneration) return@postDelayed
+                if (!isMusicLockscreenActive() || !isKeyguardLocked()) return@postDelayed
+                ConfigReader.invalidate()
+                dataDirty = true
+                readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
+            }, delayMs)
+        }
+    }
+
+    private fun registerAodScreenReceiver() {
+        if (aodScreenReceiver != null) return
+        val app = context.applicationContext
+        aodScreenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> onScreenPoweredOffForAod()
+                    Intent.ACTION_SCREEN_ON -> {
+                        ConfigReader.invalidate()
+                        handler.post {
+                            readAndUpdate()
+                            finalizeLyricDisplayAfterContentUpdate()
+                        }
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        app.registerReceiver(aodScreenReceiver, filter)
+    }
+
+    private fun unregisterAodScreenReceiver() {
+        val app = context.applicationContext
+        val receiver = aodScreenReceiver ?: return
+        try {
+            app.unregisterReceiver(receiver)
+        } catch (_: Throwable) {
+        }
+        aodScreenReceiver = null
+    }
+
+    private fun onScreenPoweredOffForAod() {
+        if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
+        ConfigReader.invalidate()
+        dataDirty = true
+        startPolling()
+        handler.post {
+            readAndUpdate()
+            finalizeLyricDisplayAfterContentUpdate()
+        }
+        scheduleAodLyricRecoveryBurst()
     }
 
     /** 沉浸歌词模式且当前有歌词正在显示（占用专辑区块）。 */
@@ -1258,8 +1467,41 @@ class LockscreenLyricView(context: Context) : View(context) {
         return cfgImmersiveLyric && shouldDisplayLyric()
     }
 
+    /** 歌词开关开启时应让出方形专辑位（含 AOD 切歌等待新歌词）。 */
+    fun isLyricPriorityOverAlbum(): Boolean {
+        return LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
+            showLyricEnabled = cfgShowLyric,
+            musicLockscreenActive = isMusicLockscreenActive(),
+            onKeyguard = isKeyguardLocked(),
+            lyricCurrentlyDisplayed = shouldDisplayLyric(),
+            awaitingFreshLyricsAfterTrackSwitch = awaitingFreshLyricsAfterTrackSwitch || pendingAodTrackSwitch,
+            hasLyricData = hasLyric,
+            hasDisplayableText = hasDisplayableText(),
+        )
+    }
+
+    private fun scheduleRevealAfterLayout() {
+        handler.removeCallbacks(revealAfterLayoutRunnable)
+        handler.post(revealAfterLayoutRunnable)
+    }
+
+    private val revealAfterLayoutRunnable = Runnable {
+        if (!shouldShowLyricOverlay()) return@Runnable
+        MediaFollowController.requestReflow()
+        if (visibility == INVISIBLE || visibility == GONE) {
+            visibility = INVISIBLE
+            requestLayout()
+        }
+        if (visibility == INVISIBLE) {
+            visibility = VISIBLE
+            alpha = 1f
+            invalidate()
+            syncImmersiveMiBlur()
+        }
+    }
+
     private fun updateVisibilityState() {
-        if (shouldDisplayLyric()) {
+        if (shouldShowLyricOverlay()) {
             animate().cancel()
             scaleX = 1f
             scaleY = 1f
@@ -1272,6 +1514,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 translationZ = elevation
                 requestLayout()
                 MediaFollowController.requestReflow()
+                scheduleRevealAfterLayout()
             } else {
                 alpha = 1f
                 elevation = 48f * resources.displayMetrics.density
@@ -1283,7 +1526,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                 bringToFront()
             } catch (_: Throwable) {
             }
-            if (cfgImmersiveLyric) {
+            if (isLyricPriorityOverAlbum()) {
+                MusicLockscreenManager.bigAlbumView?.visibility = View.GONE
+            } else if (cfgImmersiveLyric) {
                 MusicLockscreenManager.showAlbumOverlay()
             }
         } else {
@@ -1293,9 +1538,14 @@ class LockscreenLyricView(context: Context) : View(context) {
                 clearLyricDisplay()
             }
             visibility = View.GONE
-            if (cfgImmersiveLyric) {
-                MusicLockscreenManager.showAlbumOverlay()
+            if (isLyricPriorityOverAlbum()) {
+                MusicLockscreenManager.bigAlbumView?.visibility = View.GONE
                 MediaFollowController.requestReflow()
+            } else {
+                MusicLockscreenManager.showAlbumOverlay()
+                if (cfgImmersiveLyric) {
+                    MediaFollowController.requestReflow()
+                }
             }
         }
     }
@@ -1356,14 +1606,27 @@ class LockscreenLyricView(context: Context) : View(context) {
 
             val versionsChanged = newVLyric != lastLyricVersion || newVLyricFd != lastLyricFdVersion
             if (!dataDirty && !versionsChanged) {
-                if (awaitingFreshLyricsAfterTrackSwitch) {
-                    // 切歌后仍停在旧 version：继续等 LyricFocus，勿用旧缓存行刷新
+                if (AodLyricDisplayPolicy.shouldProbeLyricWithoutVersionBump(
+                        awaitingFreshLyricsAfterTrackSwitch,
+                        HookUtils.isScreenInteractive(context),
+                        isKeyguardLocked(),
+                    )
+                ) {
+                    if (tryLoadAndAcceptLyricPayload(newVLyric, newVLyricFd)) {
+                        return
+                    }
+                    return
+                }
+                if (pendingAodTrackSwitch) {
+                    doReadAndUpdate(newVLyric, newVLyricFd)
                     return
                 }
                 refreshCurrentLineFromCache()
                 return
             }
-            dataDirty = false
+            if (!pendingAodTrackSwitch) {
+                dataDirty = false
+            }
             lastVersionsCheck = SystemClock.elapsedRealtime()
 
             doReadAndUpdate(newVLyric, newVLyricFd)
@@ -1376,10 +1639,14 @@ class LockscreenLyricView(context: Context) : View(context) {
         val oldVLyric = lastLyricVersion
         val oldVLyricFd = lastLyricFdVersion
         try {
-            // 切歌后 provider 版本尚未递增：丢掉同版本旧载荷，保持清空并继续等待
-            if (awaitingFreshLyricsAfterTrackSwitch &&
+            // 切歌后 version 可能未涨但内容已就地更新；先探测再决定是否继续等
+            if (useStrictTrackSwitchGate() &&
+                awaitingFreshLyricsAfterTrackSwitch &&
                 !hasLyricVersionBumpedSinceTrackSwitch(newVLyric, newVLyricFd)
             ) {
+                if (tryLoadAndAcceptLyricPayload(newVLyric, newVLyricFd)) {
+                    return
+                }
                 lastLyricJson = "{}"
                 cachedLines = null
                 cachedCtx = null
@@ -1396,7 +1663,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             // 1. FD 版本变化 → 读全量
             var fdRead = false
             if (oldVLyricFd != newVLyricFd ||
-                (awaitingFreshLyricsAfterTrackSwitch && newVLyricFd != lyricFdVersionsAtTrackSwitch)
+                pendingAodTrackSwitch ||
+                (useStrictTrackSwitchGate() &&
+                    awaitingFreshLyricsAfterTrackSwitch &&
+                    newVLyricFd != lyricFdVersionsAtTrackSwitch)
             ) {
                 try {
                     val fb = context.contentResolver.call(uri, "lyric_fd", null, null)
@@ -1418,7 +1688,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                         try {
                             val jo = JSONObject(lastLyricJson)
                             val t = jo.optString("title", "")
-                            if (isProviderLyricStale(jo)) {
+                            if (!canAcceptProviderLyric(jo, newVLyric, newVLyricFd)) {
                                 // 切歌空窗：LyricFocus 仍是上一首，勿写回 lastSongTitle / 勿上屏
                                 lastLyricJson = "{}"
                                 cachedCtx = null
@@ -1443,7 +1713,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             // 当 fd 版本未变化，或 fd 已被清空（切到纯音乐/无歌词）时，也必须处理轻量歌词，
             // 否则旧歌词 JSON 会残留、锁屏继续显示上一首歌的歌词。
             if ((oldVLyric != newVLyric ||
-                    (awaitingFreshLyricsAfterTrackSwitch && newVLyric != lyricVersionsAtTrackSwitch)) &&
+                    pendingAodTrackSwitch ||
+                    (useStrictTrackSwitchGate() &&
+                        awaitingFreshLyricsAfterTrackSwitch &&
+                        newVLyric != lyricVersionsAtTrackSwitch)) &&
                 (oldVLyricFd == newVLyricFd || !fdRead)
             ) {
                 try {
@@ -1453,7 +1726,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                         try {
                             val old = JSONObject(lastLyricJson)
                             val neu = JSONObject(j)
-                            if (isProviderLyricStale(neu)) {
+                            if (!canAcceptProviderLyric(neu, newVLyric, newVLyricFd)) {
                                 lastLyricJson = "{}"
                                 cachedCtx = null
                                 cachedLines = null
@@ -1480,7 +1753,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                                         cachedLines = null
                                         if (newTitle.isNotBlank()) lastSongTitle = newTitle
                                         lastLyricJson = neu.toString()
-                                    } else if (!neu.has("ctx") && old.has("ctx")) {
+                                    } else if (shouldMergeLyricCtx(old, neu)) {
                                         neu.put("ctx", old.get("ctx"))
                                         lastLyricJson = neu.toString()
                                     } else {
@@ -1511,7 +1784,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             val raw = lastLyricJson.trim().ifEmpty { "{}" }
             if (raw != lastLyricJson) lastLyricJson = raw
             val lo = JSONObject(raw)
-            if (isProviderLyricStale(lo)) {
+            if (!canAcceptProviderLyric(lo, lastLyricVersion, lastLyricFdVersion)) {
                 // 仍是上一首歌的歌词：保持清空，等 LyricFocus 推送新曲
                 lastLyricJson = "{}"
                 cachedLines = null
@@ -1525,14 +1798,26 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
                 return
             }
-            if (awaitingFreshLyricsAfterTrackSwitch && hasValidLyricLines(lo)) {
-                awaitingFreshLyricsAfterTrackSwitch = false
+            if (awaitingFreshLyricsAfterTrackSwitch) {
+                if (hasValidLyricLines(lo)) {
+                    awaitingFreshLyricsAfterTrackSwitch = false
+                } else if (
+                    lastLyricVersion > lyricVersionsAtTrackSwitch ||
+                    lastLyricFdVersion > lyricFdVersionsAtTrackSwitch
+                ) {
+                    // 新版本已到达但无歌词 → 纯音乐，允许显示专辑
+                    awaitingFreshLyricsAfterTrackSwitch = false
+                }
+            }
+            if (pendingAodTrackSwitch && hasValidLyricLines(lo)) {
+                clearAodTrackSwitchState()
+                dataDirty = false
             }
             val l = lo.optString("l", "") ?: ""
             val s = lo.optString("s", "") ?: ""
             val ctx = lo.optJSONObject("ctx")
 
-            updatePlayingState()
+            updatePlayingState(force = !HookUtils.isScreenInteractive(context))
 
             if (ctx != null) {
                 val linesArr = ctx.optJSONArray("lines")
@@ -1562,13 +1847,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                 hasLyric = newHasLyric
                 if (!newHasLyric) {
                     clearLyricDisplay()
+                    updateVisibilityState()
+                    requestLayout()
                 }
-                updateVisibilityState()
-                requestLayout()
             } else if (!newHasLyric) {
                 clearLyricDisplay()
                 updateVisibilityState()
             }
+
+            if (!hasLyric) return
 
             if (cachedLines != null && cachedLines!!.isNotEmpty()) {
                 refreshCurrentLineFromCache()
@@ -1612,14 +1899,17 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
 
             setLyricLines(newMain, newSecond, newSecond.isNotBlank(), newSecondIsTranslation)
+            finalizeLyricDisplayAfterContentUpdate()
         } catch (e: Throwable) {
             logE("applyLyricFromJson error", e)
         }
     }
 
-    private fun updatePlayingState() {
+    private fun updatePlayingState(force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastPlayingCheck < 1000) return
+        val onAod = !HookUtils.isScreenInteractive(context) && isKeyguardLocked()
+        val throttleMs = if (onAod) 300L else 1000L
+        if (!force && now - lastPlayingCheck < throttleMs) return
         lastPlayingCheck = now
         try {
             for (controller in getMediaControllers()) {
@@ -1640,17 +1930,25 @@ class LockscreenLyricView(context: Context) : View(context) {
         override fun run() {
             if (!polling) return
 
-            updateVisibilityState()
-
             val onKeyguard = isKeyguardLocked()
             val isBouncer = isBouncerShowing()
+            val onAod = !HookUtils.isScreenInteractive(context)
+            updatePlayingState(force = onAod && onKeyguard)
+            if (onAod && onKeyguard) {
+                ConfigReader.invalidate()
+            }
+
             if (isMusicLockscreenActive() && onKeyguard && !isBouncer) {
                 refreshNow()
+                finalizeLyricDisplayAfterContentUpdate()
                 KeepScreenController.sync()
             } else if (isMusicLockscreenActive() && onKeyguard) {
                 // 歌词暂不可见（如 INVISIBLE 定位中）仍拉取数据，AOD 切歌不丢
                 readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
             }
+
+            updateVisibilityState()
 
             val interval = when {
                 !isMusicLockscreenActive() || !onKeyguard -> 1000L
@@ -1680,6 +1978,13 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun refreshCurrentLineFromCache() {
         try {
+            if (pendingAodTrackSwitch || awaitingFreshLyricsAfterTrackSwitch) {
+                return
+            }
+            try {
+                if (isProviderLyricStale(JSONObject(lastLyricJson))) return
+            } catch (_: Throwable) {
+            }
             val lines = cachedLines
             if (lines == null || lines.isEmpty()) {
                 return
@@ -1706,6 +2011,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             val isTranslationLine = currentTrans.isNotEmpty()
 
             setLyricLines(newMain, newSecond, newHasSecond, isTranslation = isTranslationLine)
+            finalizeLyricDisplayAfterContentUpdate()
         } catch (e: Throwable) {
             logE("refreshCurrentLineFromCache error", e)
         }
@@ -1819,6 +2125,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
                 applyLyricContentImmediate(displayMain, displaySecond, displayHasSecond)
             }
+            finalizeLyricDisplayAfterContentUpdate()
         }
     }
 
@@ -1958,19 +2265,87 @@ class LockscreenLyricView(context: Context) : View(context) {
             cachedLines = null
             cachedCtx = null
             dataDirty = true
-            lastLyricJson = "{}"
-            mainStaticLayout = null
-            immersiveSecondStaticLayout = null
-            lastLyricVersion = -1
-            lastLyricFdVersion = -1
-            hasLyric = false
-            snapshotLyricVersionsAtTrackSwitch()
-            clearLyricDisplay()
-            updateVisibilityState()
+            if (isAodLyricRefreshMode()) {
+                beginAodTrackSwitch()
+            } else {
+                lastLyricJson = "{}"
+                mainStaticLayout = null
+                immersiveSecondStaticLayout = null
+                lastLyricVersion = -1
+                lastLyricFdVersion = -1
+                hasLyric = false
+                snapshotLyricVersionsAtTrackSwitch()
+                clearLyricDisplay()
+            }
         }
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
         if (trackKey != null) lastKnownTrackKey = trackKey
         return changed
+    }
+
+    /**
+     * 切歌后 LyricFocus 常就地更新 l/s/ctx 而不 bump version；主动读 provider 判定是否可上屏。
+     * @return true 表示已接受新歌词并完成 apply
+     */
+    private fun tryLoadAndAcceptLyricPayload(vLyric: Int, vFd: Int): Boolean {
+        val uri = Uri.parse(PROVIDER_URI)
+        try {
+            val lb = context.contentResolver.call(uri, "lyric", null, null)
+            val j = lb?.getString("n")
+            if (j != null) {
+                val jo = JSONObject(j)
+                if (canAcceptProviderLyric(jo, vLyric, vFd)) {
+                    lastLyricVersion = vLyric
+                    lastLyricFdVersion = vFd
+                    lastLyricJson = j
+                    awaitingFreshLyricsAfterTrackSwitch = false
+                    clearAodTrackSwitchState()
+                    dataDirty = false
+                    applyLyricFromJson()
+                    return true
+                }
+            }
+        } catch (e: Throwable) {
+            logE("tryLoad light lyric error", e)
+        }
+
+        try {
+            val fb = context.contentResolver.call(uri, "lyric_fd", null, null)
+            val pfd = fb?.getParcelable("fd") as? android.os.ParcelFileDescriptor ?: return false
+            val fis = FileInputStream(pfd.fileDescriptor)
+            val bos = ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            var n: Int
+            while (true) {
+                n = fis.read(buf)
+                if (n <= 0) break
+                bos.write(buf, 0, n)
+            }
+            fis.close()
+            pfd.close()
+            val json = String(bos.toByteArray(), Charsets.UTF_8).ifBlank { "{}" }
+            val jo = JSONObject(json)
+            if (!canAcceptProviderLyric(jo, vLyric, vFd)) return false
+            lastLyricVersion = vLyric
+            lastLyricFdVersion = vFd
+            lastLyricJson = json
+            awaitingFreshLyricsAfterTrackSwitch = false
+            clearAodTrackSwitchState()
+            dataDirty = false
+            applyLyricFromJson()
+            return true
+        } catch (e: Throwable) {
+            logE("tryLoad lyric_fd error", e)
+            return false
+        }
+    }
+
+    /** 轻量包缺 ctx 时仅在同曲且非切歌等待期合并全量 ctx，避免切歌后沿用上一首行表。 */
+    private fun shouldMergeLyricCtx(old: JSONObject, neu: JSONObject): Boolean {
+        if (pendingAodTrackSwitch || awaitingFreshLyricsAfterTrackSwitch) return false
+        if (neu.has("ctx") || !old.has("ctx")) return false
+        if (isProviderLyricStale(old) || isProviderLyricStale(neu)) return false
+        return true
     }
 
     /**

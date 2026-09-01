@@ -81,7 +81,9 @@ object LockscreenNotificationController {
     }
 
     fun syncKeyguardOverlayVisibility() {
-        if (shouldShowKeyguardOverlays()) {
+        val shouldShow = shouldShowKeyguardOverlays()
+        if (!KeyguardOverlayVisibilitySync.shouldApply(shouldShow)) return
+        if (shouldShow) {
             MusicLockscreenManager.resumeAlbumOverlay()
         } else if (WallpaperController.isShowing() && isOnKeyguard()) {
             MusicLockscreenManager.pauseAlbumOverlay()
@@ -231,6 +233,7 @@ object LockscreenNotificationController {
             isHidden = false
             stack.requestLayout()
             logI("released to SystemUI, restored $restoredRows hidden row(s)")
+            KeyguardOverlayVisibilitySync.reset()
             syncKeyguardOverlayVisibility()
             NumStateViewController.syncVisibility()
         } catch (e: Throwable) {

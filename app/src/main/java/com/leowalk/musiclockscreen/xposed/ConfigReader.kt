@@ -192,12 +192,8 @@ object ConfigReader {
     fun shouldShowSquareAlbum(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         if (!cachedShowBigAlbum) return false
-        // 沉浸专辑：封面已烘焙进壁纸，不显示方形 overlay（与沉浸歌词是否开启无关）
         if (cachedImmersiveAlbum) return false
-        // 大专辑 + 沉浸歌词正在占位时，专辑位让给歌词
-        if (cachedImmersiveLyric && cachedShowLyric &&
-            MusicLockscreenManager.isImmersiveLyricDisplayActive()
-        ) {
+        if (cachedShowLyric && MusicLockscreenManager.isLyricPriorityOverAlbum()) {
             return false
         }
         return true

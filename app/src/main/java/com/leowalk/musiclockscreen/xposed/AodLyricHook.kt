@@ -32,6 +32,8 @@ class AodLyricHook {
     private var sObserverRegistered = false
     private var sConfigObserverRegistered = false
     private var cfgSwapLyric: Boolean = true
+    private var cfgShowLyric: Boolean = true
+    private var awaitingFreshLyrics = false
 
     private var lastVLyric = -1
     private var lastVLyricFd = -1
@@ -134,12 +136,20 @@ class AodLyricHook {
             val uri = Uri.parse(CONFIG_URI)
             val cursor = ctx.contentResolver.query(uri, null, null, null, null)
             if (cursor != null && cursor.moveToFirst()) {
-                val idx = cursor.getColumnIndex("swap_lyric")
-                if (idx >= 0) {
-                    cfgSwapLyric = cursor.getInt(idx) != 0
+                val swapIdx = cursor.getColumnIndex("swap_lyric")
+                if (swapIdx >= 0) {
+                    cfgSwapLyric = cursor.getInt(swapIdx) != 0
                     logI("swap_lyric config: $cfgSwapLyric")
                 }
+                val showIdx = cursor.getColumnIndex("show_lyric")
+                if (showIdx >= 0) {
+                    cfgShowLyric = cursor.getInt(showIdx) != 0
+                    logI("show_lyric config: $cfgShowLyric")
+                }
                 cursor.close()
+            }
+            if (!cfgShowLyric) {
+                sLyricContainer?.visibility = View.GONE
             }
         } catch (e: Throwable) {
             logE("loadSwapConfig error", e)
@@ -214,6 +224,10 @@ class AodLyricHook {
     private fun refreshLyric() {
         try {
             val ctx = sRoot?.context ?: return
+            if (!cfgShowLyric) {
+                sLyricContainer?.visibility = View.GONE
+                return
+            }
             val uri = Uri.parse(LYRIC_URI)
 
             var vLyric = lastVLyric
@@ -233,14 +247,13 @@ class AodLyricHook {
                 lastSongTitle.isNotBlank() &&
                 mediaTitle != lastSongTitle
             val versionsChanged = vLyric != lastVLyric || vFd != lastVLyricFd
-            if (!versionsChanged && !titleChanged) return
+            if (!versionsChanged && !titleChanged && !awaitingFreshLyrics) return
 
             val oldVLyric = lastVLyric
             val oldVFd = lastVLyricFd
             if (titleChanged) {
                 lastLyricJson = "{}"
-                lastVLyric = -1
-                lastVLyricFd = -1
+                awaitingFreshLyrics = true
                 sLyricContainer?.visibility = View.GONE
             }
 
@@ -248,13 +261,16 @@ class AodLyricHook {
             lastVLyricFd = vFd
             if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
 
-            // 标题已变但 version 未涨：不要把上一首 FD 再画上去
+            // 标题已变但 version 未涨：仍读轻量包，LyricFocus 可能就地更新
             if (titleChanged && !versionsChanged) {
+                if (tryReadLyricWithoutVersionBump(ctx, uri, mediaTitle)) {
+                    awaitingFreshLyrics = false
+                }
                 return
             }
 
             var fdRead = false
-            if (oldVFd != vFd || titleChanged) {
+            if (oldVFd != vFd || titleChanged || awaitingFreshLyrics) {
                 try {
                     val fb = ctx.contentResolver.call(uri, "lyric_fd", null, null)
                     val pfd = fb?.getParcelable<android.os.ParcelFileDescriptor>("fd")
@@ -270,25 +286,33 @@ class AodLyricHook {
                         }
                         fis.close()
                         pfd.close()
-                        lastLyricJson = String(bos.toByteArray(), Charsets.UTF_8)
-                        fdRead = true
+                        val json = String(bos.toByteArray(), Charsets.UTF_8)
+                        val jo = JSONObject(json)
+                        if (!isProviderLyricStale(jo, mediaTitle)) {
+                            lastLyricJson = json
+                            fdRead = true
+                        }
                     }
                 } catch (e: Throwable) {
                     logE("refreshLyric lyric_fd error", e)
                 }
             }
 
-            if ((oldVLyric != vLyric || titleChanged) && (oldVFd == vFd || !fdRead)) {
+            if ((oldVLyric != vLyric || titleChanged || awaitingFreshLyrics) &&
+                (oldVFd == vFd || !fdRead)
+            ) {
                 try {
                     val lb = ctx.contentResolver.call(uri, "lyric", null, null)
                     val j = lb?.getString("n")
                     if (j != null) {
-                        if (titleChanged || lastLyricJson == "{}") {
+                        val neu = JSONObject(j)
+                        if (isProviderLyricStale(neu, mediaTitle)) {
+                            lastLyricJson = "{}"
+                        } else if (titleChanged || lastLyricJson == "{}" || awaitingFreshLyrics) {
                             lastLyricJson = j
                         } else {
                             try {
                                 val old = JSONObject(lastLyricJson)
-                                val neu = JSONObject(j)
                                 if (!neu.has("ctx") && old.has("ctx")) {
                                     neu.put("ctx", old.get("ctx"))
                                 }
@@ -303,17 +327,66 @@ class AodLyricHook {
                 }
             }
 
-            applyLyricToViews(JSONObject(lastLyricJson))
+            val jo = JSONObject(lastLyricJson)
+            if (!isProviderLyricStale(jo, mediaTitle) && hasDisplayableLyric(jo)) {
+                awaitingFreshLyrics = false
+            }
+            applyLyricToViews(jo, mediaTitle)
         } catch (e: Throwable) {
             logE("refreshLyric error", e)
         }
     }
 
-    private fun applyLyricToViews(jo: JSONObject) {
+    private fun tryReadLyricWithoutVersionBump(ctx: Context, uri: Uri, mediaTitle: String): Boolean {
+        try {
+            val lb = ctx.contentResolver.call(uri, "lyric", null, null)
+            val j = lb?.getString("n") ?: return false
+            val jo = JSONObject(j)
+            if (isProviderLyricStale(jo, mediaTitle) || !hasDisplayableLyric(jo)) return false
+            lastLyricJson = j
+            applyLyricToViews(jo, mediaTitle)
+            return true
+        } catch (e: Throwable) {
+            logE("tryReadLyricWithoutVersionBump error", e)
+            return false
+        }
+    }
+
+    private fun hasDisplayableLyric(jo: JSONObject): Boolean {
+        if (jo.optString("l", "").trim().isNotEmpty()) return true
+        if (jo.optString("s", "").trim().isNotEmpty()) return true
+        val ctxObj = jo.optJSONObject("ctx") ?: return false
+        val lines = ctxObj.optJSONArray("lines") ?: return false
+        for (i in 0 until lines.length()) {
+            if (lines.optJSONObject(i)?.optString("t", "")?.trim()?.isNotEmpty() == true) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun isProviderLyricStale(json: JSONObject, mediaTitle: String): Boolean {
+        val providerTitle = json.optString("title", "").trim()
+        if (providerTitle.isBlank()) return false
+        val expected = mediaTitle.trim().ifBlank { lastSongTitle.trim() }
+        if (expected.isBlank()) return false
+        if (providerTitle == expected) return false
+        val p = providerTitle.replace(" ", "")
+        val m = expected.replace(" ", "")
+        if (p.contains(m) || m.contains(p)) return false
+        return true
+    }
+
+    private fun applyLyricToViews(jo: JSONObject, mediaTitle: String? = null) {
+        if (!cfgShowLyric) {
+            sLyricContainer?.visibility = View.GONE
+            return
+        }
+        val resolvedMediaTitle = mediaTitle ?: readCurrentMediaTitle(sRoot?.context ?: return)
         val title = jo.optString("title", "").trim()
-        val mediaTitle = readCurrentMediaTitle(sRoot?.context ?: return).trim()
-        if (title.isNotBlank() && mediaTitle.isNotBlank() && title != mediaTitle) {
-            // 切歌空窗：仍是上一首，先藏起来
+        if (title.isNotBlank() && resolvedMediaTitle.isNotBlank() &&
+            isProviderLyricStale(jo, resolvedMediaTitle)
+        ) {
             sLyricContainer?.visibility = View.GONE
             return
         }
@@ -365,7 +438,8 @@ class AodLyricHook {
         override fun run() {
             if (!polling) return
             refreshLyric()
-            handler.postDelayed(this, 500L)
+            val interval = if (awaitingFreshLyrics) 300L else 500L
+            handler.postDelayed(this, interval)
         }
     }
 

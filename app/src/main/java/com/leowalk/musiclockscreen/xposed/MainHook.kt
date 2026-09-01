@@ -50,6 +50,11 @@ class MainHook : XposedModule() {
                     installSafe(param.classLoader, this, "LockscreenClockController") {
                         LockscreenClockController.install(param.classLoader, this)
                     }
+                    installSafe(param.classLoader, this, "KeyguardWallpaperScaleHook") {
+                        KeyguardWallpaperScaleHook.install(param.classLoader, this) { p, t, m, tr ->
+                            log(p, t, m, tr)
+                        }
+                    }
                 }
                 PACKAGE_AOD -> {
                     installSafe(param.classLoader, this, "AodLyricHook") {
