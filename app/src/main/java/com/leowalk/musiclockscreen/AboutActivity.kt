@@ -37,23 +37,20 @@ class AboutActivity : BaseScrollingActivity() {
         val infoCard = M3.cardContent(this)
         infoCard.addView(M3.title(this, "项目信息"))
         infoCard.addView(
-            M3.clickRow(this, "项目地址", "查看本仓库地址") {
+            M3.cardEntryRow(this, "项目地址", "查看本仓库地址") {
                 showProjectUrlDialog()
             }
         )
         infoCard.addView(
-            M3.clickRow(this, "致谢", "查看引用的开源项目") {
+            M3.cardEntryRow(this, "致谢", "查看引用的开源项目") {
                 showCreditsDialog()
             }
         )
         infoCard.addView(
-            M3.clickRow(this, "许可证", "MIT License") {
+            M3.cardEntryRow(this, "许可证", "MIT License", bottomMarginDp = 0f) {
                 showLicenseDialog()
             }
         )
-        // 卡片内最后一行去掉多余底边距
-        (infoCard.getChildAt(infoCard.childCount - 1).layoutParams as? LinearLayout.LayoutParams)
-            ?.bottomMargin = 0
         list.addView(M3.card(this, infoCard))
 
         list.addView(M3.card(this, M3.tipContent(this,

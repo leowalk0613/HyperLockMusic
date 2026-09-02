@@ -36,12 +36,16 @@ object M3 {
     private const val CARD_TITLE_DESC_GAP_DP = 4f
     /** 说明文字与右侧开关间距 */
     private const val CARD_TEXT_SWITCH_GAP_DP = 14f
+    private const val CARD_CORNER_RADIUS_DP = 16f
+
+    fun cardBackgroundColor(ctx: Context): Int =
+        attrColor(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow, 0xFF26252B.toInt())
 
     fun card(ctx: Context, content: View): MaterialCardView {
         val card = MaterialCardView(ctx)
-        card.radius = dp(ctx, 16f).toFloat()
+        card.radius = dp(ctx, CARD_CORNER_RADIUS_DP).toFloat()
         card.cardElevation = 0f
-        card.setCardBackgroundColor(attrColor(ctx, com.google.android.material.R.attr.colorSurfaceContainerLow, 0xFF26252B.toInt()))
+        card.setCardBackgroundColor(cardBackgroundColor(ctx))
         card.strokeWidth = 0
         card.isClickable = false
         card.addView(content)
@@ -177,47 +181,65 @@ object M3 {
     }
 
     /**
-     * 可点击入口行：渐变色背景卡片 + 标题 + 说明。
+     * 卡片内可点击入口：与外层 card 同色，不再叠一层深浅不同的底。
      */
-    fun clickRow(
+    fun cardEntryRow(
         ctx: Context,
         name: String,
         desc: String?,
-        titleSizeSp: Float = CARD_PRIMARY_TITLE_SP,
-        descSizeSp: Float = CARD_DESC_SP,
+        bottomMarginDp: Float = 8f,
         listener: View.OnClickListener,
-    ): View {
-        val row = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        row.gravity = Gravity.CENTER_VERTICAL
+    ): LinearLayout {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
+            isFocusable = true
+            val ripple = TypedValue()
+            ctx.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+            if (ripple.resourceId != 0) {
+                setBackgroundResource(ripple.resourceId)
+            }
+            setOnClickListener(listener)
+        }
 
         val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         textCol.addView(TextView(ctx).apply {
             text = name
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, titleSizeSp)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_PRIMARY_TITLE_SP)
             setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
             typeface = Typeface.DEFAULT_BOLD
         })
         if (!desc.isNullOrEmpty()) {
             textCol.addView(TextView(ctx).apply {
                 text = desc
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, descSizeSp)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_DESC_SP)
                 setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
                 setPadding(0, dp(ctx, CARD_TITLE_DESC_GAP_DP), 0, 0)
             })
         }
         row.addView(textCol)
-
-        row.setPadding(dp(ctx, 12f), dp(ctx, 10f), dp(ctx, 12f), dp(ctx, 10f))
-        val bg = GradientDrawable().apply {
-            setColor(attrColor(ctx, com.google.android.material.R.attr.colorSurfaceContainer, 0xFF2B2930.toInt()))
-            cornerRadius = dp(ctx, 12f).toFloat()
-        }
-        row.background = bg
-        if (listener != null) row.setOnClickListener(listener)
         row.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            .apply { bottomMargin = dp(ctx, 12f) }
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            topMargin = dp(ctx, 4f)
+            bottomMargin = dp(ctx, bottomMarginDp)
+        }
         return row
+    }
+
+    /**
+     * 独立卡片入口：外层 MaterialCardView + [cardEntryRow]。
+     */
+    fun clickRow(
+        ctx: Context,
+        name: String,
+        desc: String?,
+        listener: View.OnClickListener,
+    ): View {
+        val content = cardContent(ctx)
+        content.addView(cardEntryRow(ctx, name, desc, bottomMarginDp = 0f, listener))
+        return card(ctx, content)
     }
 
     fun tipContent(ctx: Context, text: String): LinearLayout {

@@ -91,7 +91,7 @@ class MainActivity : BaseScrollingActivity() {
 
         val accessCard = M3.cardContent(this)
         accessCard.addView(M3.title(this, "权限"))
-        notificationAccessRow = M3.clickRow(
+        notificationAccessRow = M3.cardEntryRow(
             this,
             "通知使用权",
             notificationAccessDesc()
