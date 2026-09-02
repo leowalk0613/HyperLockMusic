@@ -1,7 +1,11 @@
 package com.leowalk.musiclockscreen
 
 import android.content.Context
-import android.widget.TextView
+import android.content.res.ColorStateList
+import android.util.TypedValue
+import android.view.View
+import android.widget.ImageView
+import androidx.appcompat.content.res.AppCompatResources
 import kotlin.concurrent.thread
 
 /**
@@ -29,13 +33,21 @@ object SystemUiRestart {
         } catch (ignored: Exception) {}
     }
 
-    /** 工具栏上的"重启界面"入口按钮，供 MainActivity 使用。 */
-    fun buildAction(ctx: Context, onConfirm: () -> Unit): TextView {
-        return TextView(ctx).apply {
-            text = "重启界面"
-            setTextSize(14f)
-            setTextColor(M3.attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
-            setPadding(M3.dp(ctx, 16f), M3.dp(ctx, 6f), M3.dp(ctx, 16f), M3.dp(ctx, 6f))
+    /** 工具栏上的重启 SystemUI 图标按钮，供 MainActivity 使用。 */
+    fun buildAction(ctx: Context, onConfirm: () -> Unit): View {
+        val iconSize = M3.dp(ctx, 24f)
+        val pad = M3.dp(ctx, 12f)
+        val primary = M3.attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt())
+        val ripple = TypedValue()
+        ctx.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, ripple, true)
+        return ImageView(ctx).apply {
+            setImageDrawable(AppCompatResources.getDrawable(ctx, R.drawable.ic_restart_system_ui))
+            imageTintList = ColorStateList.valueOf(primary)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = "重启界面"
+            setPadding(pad, pad, pad, pad)
+            if (ripple.resourceId != 0) setBackgroundResource(ripple.resourceId)
+            layoutParams = android.view.ViewGroup.LayoutParams(iconSize + pad * 2, iconSize + pad * 2)
             setOnClickListener { onConfirm() }
         }
     }

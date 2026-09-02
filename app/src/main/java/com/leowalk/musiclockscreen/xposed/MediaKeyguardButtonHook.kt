@@ -246,7 +246,10 @@ object MediaKeyguardButtonHook {
             button.setOnClickListener {
                 val ctx = it.context
                 if (!HookUtils.isOnKeyguard(ctx) || !shouldShowOurSlots(ctx)) return@setOnClickListener
-                // 三行模式：点击 = 退出歌词显示、恢复显示专辑（即隐藏歌词）
+                if (!ConfigReader.lyricEnabled(ctx)) {
+                    logI("action4 blocked: lyric feature disabled")
+                    return@setOnClickListener
+                }
                 val newValue = !ConfigReader.showLyric(ctx)
                 if (ConfigReader.setShowLyric(ctx, newValue)) {
                     MusicLockscreenManager.lyricView?.refreshVisibility()
@@ -267,14 +270,19 @@ object MediaKeyguardButtonHook {
         if (icon != null) {
             button.setImageDrawable(icon)
         }
-        val active = ConfigReader.showLyric(context)
-        button.isEnabled = true
+        val featureOn = ConfigReader.lyricEnabled(context)
+        val active = featureOn && ConfigReader.showLyric(context)
+        button.isEnabled = featureOn
         button.isSelected = active
-        button.alpha = if (active) 1f else 0.45f
-        button.contentDescription = if (active) {
-            "隐藏歌词"
-        } else {
-            "显示歌词"
+        button.alpha = when {
+            !featureOn -> 0.28f
+            active -> 1f
+            else -> 0.45f
+        }
+        button.contentDescription = when {
+            !featureOn -> "歌词功能已关闭"
+            active -> "隐藏歌词"
+            else -> "显示歌词"
         }
         button.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
     }

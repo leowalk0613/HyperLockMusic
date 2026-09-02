@@ -43,11 +43,6 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
-            android:name=".MediaTitleActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity" />
-
-        <activity
             android:name=".LyricStyleActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />

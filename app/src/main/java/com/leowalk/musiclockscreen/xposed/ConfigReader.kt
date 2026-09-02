@@ -22,6 +22,7 @@ object ConfigReader {
     private var cachedAlbumOffsetY: Float = 55f
     private var cachedAlbumCorner: Float = 24f
     private var cachedAlbumNetworkHd: Boolean = false
+    private var cachedLyricEnabled: Boolean = true
     private var cachedShowLyric: Boolean = true
     private var cachedLyricWidth: Float = 55f
     private var cachedLyricBgOffsetY: Float = 12f
@@ -129,9 +130,19 @@ object ConfigReader {
         return cachedAlbumNetworkHd
     }
 
+    fun lyricEnabled(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedLyricEnabled
+    }
+
     fun showLyric(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         return cachedShowLyric
+    }
+
+    fun shouldShowLyric(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return LyricDisplayPolicy.shouldShowLyric(cachedLyricEnabled, cachedShowLyric)
     }
 
     /** 歌词区域宽度：占屏幕宽度的百分比 */
@@ -293,6 +304,7 @@ object ConfigReader {
                 val albumOffsetYIdx = cursor.getColumnIndex("album_offset_y")
                 val albumCornerIdx = cursor.getColumnIndex("album_corner")
                 val albumNetworkHdIdx = cursor.getColumnIndex("album_sr_enhance")
+                val lyricEnabledIdx = cursor.getColumnIndex("lyric_enabled")
                 val showLyricIdx = cursor.getColumnIndex("show_lyric")
                 val lyricWidthIdx = cursor.getColumnIndex("lyric_width")
                 val lyricBgOffsetYIdx = cursor.getColumnIndex("lyric_bg_offset_y")
@@ -334,6 +346,9 @@ object ConfigReader {
                 }
                 if (albumNetworkHdIdx >= 0) {
                     cachedAlbumNetworkHd = cursor.getInt(albumNetworkHdIdx) == 1
+                }
+                if (lyricEnabledIdx >= 0) {
+                    cachedLyricEnabled = cursor.getInt(lyricEnabledIdx) == 1
                 }
                 if (showLyricIdx >= 0) {
                     cachedShowLyric = cursor.getInt(showLyricIdx) == 1

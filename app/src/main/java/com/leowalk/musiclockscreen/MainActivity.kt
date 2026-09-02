@@ -11,7 +11,6 @@ import android.widget.LinearLayout
  */
 class MainActivity : BaseScrollingActivity() {
 
-    private var manageWhitelistRow: View? = null
     private var notificationAccessRow: View? = null
 
     override fun titleText() = "HyperLockMusic"
@@ -29,7 +28,66 @@ class MainActivity : BaseScrollingActivity() {
     override fun buildContent(list: LinearLayout) {
         list.addView(M3.card(this, M3.tipContent(this,
             "基于 LSPosed 的 HyperLockMusic 模块，为锁屏重绘专辑壁纸与歌词。" +
-                "调整后可点右上角\"重启界面\"让改动立即生效。")))
+                "调整后可点右上角重启按钮让改动立即生效。")))
+
+        val albumCard = M3.cardContent(this)
+        albumCard.addView(
+            M3.switchRow(
+                this,
+                "专辑封面",
+                "关闭后锁屏不绘制大专辑 / 沉浸封面",
+                ModuleConfig.showBigAlbum,
+                titlePrimary = true,
+                onTitleClick = {
+                    startActivity(Intent(this, AlbumStyleActivity::class.java))
+                },
+            ) { checked ->
+                ModuleConfig.showBigAlbum = checked
+                ModuleConfig.push(this)
+            }
+        )
+        list.addView(M3.card(this, albumCard))
+
+        val lyricCard = M3.cardContent(this)
+        lyricCard.addView(
+            M3.switchRow(
+                this,
+                "歌词",
+                "关闭后禁用整个歌词功能；锁屏按钮无法重新开启",
+                ModuleConfig.lyricEnabled,
+                titlePrimary = true,
+                onTitleClick = {
+                    startActivity(Intent(this, LyricStyleActivity::class.java))
+                },
+            ) { checked ->
+                ModuleConfig.lyricEnabled = checked
+                ModuleConfig.push(this)
+            }
+        )
+        list.addView(M3.card(this, lyricCard))
+
+        list.addView(M3.clickRow(this, "其他设置", "壁纸模糊/媒体控件/简洁时钟/息屏缩放/锁屏常亮") {
+            startActivity(Intent(this, OtherSettingsActivity::class.java))
+        })
+
+        val whitelistCard = M3.cardContent(this)
+        whitelistCard.addView(
+            M3.switchRow(
+                this,
+                "音乐应用白名单",
+                "开启后仅白名单内应用可开启/保持音乐锁屏",
+                ModuleConfig.musicWhitelistEnabled,
+                titlePrimary = true,
+                onTitleClick = {
+                    startActivity(Intent(this, AppWhitelistActivity::class.java))
+                },
+            ) { checked ->
+                ModuleConfig.musicWhitelistEnabled = checked
+                if (checked) ModuleConfig.ensureDefaultWhitelistIfEmpty()
+                ModuleConfig.push(this)
+            }
+        )
+        list.addView(M3.card(this, whitelistCard))
 
         val accessCard = M3.cardContent(this)
         accessCard.addView(M3.title(this, "权限"))
@@ -42,42 +100,6 @@ class MainActivity : BaseScrollingActivity() {
         }
         accessCard.addView(notificationAccessRow)
         list.addView(M3.card(this, accessCard))
-
-        list.addView(M3.clickRow(this, "专辑封面", "大封面显示/大小/位置/圆角") {
-            startActivity(Intent(this, AlbumStyleActivity::class.java))
-        })
-        list.addView(M3.clickRow(this, "媒体控件", "AOD 展开与歌名括号样式") {
-            startActivity(Intent(this, MediaTitleActivity::class.java))
-        })
-        list.addView(M3.clickRow(this, "歌词样式", "歌词/毛玻璃条/翻译互换/颜色与位置") {
-            startActivity(Intent(this, LyricStyleActivity::class.java))
-        })
-        list.addView(M3.clickRow(this, "其他设置", "壁纸模糊/简洁时钟/息屏缩放/锁屏常亮") {
-            startActivity(Intent(this, OtherSettingsActivity::class.java))
-        })
-
-        val whitelistCard = M3.cardContent(this)
-        whitelistCard.addView(M3.title(this, "音乐应用白名单"))
-        whitelistCard.addView(
-            M3.switchRow(
-                this,
-                "启用白名单",
-                "开启后仅白名单内应用可开启/保持音乐锁屏",
-                ModuleConfig.musicWhitelistEnabled
-            ) { checked ->
-                ModuleConfig.musicWhitelistEnabled = checked
-                if (checked) ModuleConfig.ensureDefaultWhitelistIfEmpty()
-                ModuleConfig.push(this)
-                updateManageRowEnabled(checked)
-            }
-        )
-        val manageRow = M3.clickRow(this, "管理白名单应用", "添加/移除允许开启音乐锁屏的应用") {
-            startActivity(Intent(this, AppWhitelistActivity::class.java))
-        }
-        manageWhitelistRow = manageRow
-        updateManageRowEnabled(ModuleConfig.musicWhitelistEnabled)
-        whitelistCard.addView(manageRow)
-        list.addView(M3.card(this, whitelistCard))
 
         list.addView(M3.clickRow(this, "关于", "版本号与使用说明") {
             startActivity(Intent(this, AboutActivity::class.java))
@@ -97,13 +119,6 @@ class MainActivity : BaseScrollingActivity() {
         val textCol = row.getChildAt(0) as? LinearLayout ?: return
         val desc = textCol.getChildAt(1) as? android.widget.TextView ?: return
         desc.text = notificationAccessDesc()
-    }
-
-    private fun updateManageRowEnabled(enabled: Boolean) {
-        manageWhitelistRow?.let { row ->
-            row.alpha = if (enabled) 1f else 0.5f
-            row.isEnabled = enabled
-        }
     }
 
     private fun confirmRestart() {

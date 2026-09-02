@@ -24,6 +24,19 @@ import com.google.android.material.slider.Slider
  */
 object M3 {
 
+    /** 卡片主标题（主界面开关行、独立入口行） */
+    const val CARD_PRIMARY_TITLE_SP = 17f
+    /** 卡片内普通行标题（开关 / 滑块） */
+    const val CARD_ROW_TITLE_SP = 15f
+    /** 卡片分区标题 */
+    const val CARD_SECTION_TITLE_SP = 17f
+    /** 卡片说明文字 */
+    const val CARD_DESC_SP = 13f
+    /** 标题与说明间距 */
+    private const val CARD_TITLE_DESC_GAP_DP = 4f
+    /** 说明文字与右侧开关间距 */
+    private const val CARD_TEXT_SWITCH_GAP_DP = 14f
+
     fun card(ctx: Context, content: View): MaterialCardView {
         val card = MaterialCardView(ctx)
         card.radius = dp(ctx, 16f).toFloat()
@@ -49,7 +62,7 @@ object M3 {
     fun title(ctx: Context, text: String): TextView {
         return TextView(ctx).apply {
             this.text = text
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_SECTION_TITLE_SP)
             setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(
@@ -61,26 +74,54 @@ object M3 {
     /**
      * 开关行：标题 + 可选说明 + 右侧 MaterialSwitch。
      */
-    fun switchRow(ctx: Context, name: String, desc: String?, checked: Boolean,
-                  onChanged: (Boolean) -> Unit): LinearLayout {
+    fun switchRow(
+        ctx: Context,
+        name: String,
+        desc: String?,
+        checked: Boolean,
+        titlePrimary: Boolean = false,
+        onTitleClick: (() -> Unit)? = null,
+        onChanged: (Boolean) -> Unit,
+    ): LinearLayout {
+        val titleSp = if (titlePrimary) CARD_PRIMARY_TITLE_SP else CARD_ROW_TITLE_SP
         val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         row.gravity = Gravity.CENTER_VERTICAL
 
         val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         textCol.addView(TextView(ctx).apply {
             text = name
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, titleSp)
+            if (titlePrimary) {
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
+                typeface = Typeface.DEFAULT_BOLD
+            } else {
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
+            }
         })
         if (!desc.isNullOrEmpty()) {
             textCol.addView(TextView(ctx).apply {
                 text = desc
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_DESC_SP)
                 setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
-                setPadding(0, dp(ctx, 2f), 0, 0)
+                setPadding(0, dp(ctx, CARD_TITLE_DESC_GAP_DP), 0, 0)
             })
         }
-        row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (onTitleClick != null) {
+            textCol.isClickable = true
+            textCol.isFocusable = true
+            val ripple = android.util.TypedValue()
+            ctx.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+            if (ripple.resourceId != 0) {
+                textCol.setBackgroundResource(ripple.resourceId)
+            }
+            textCol.setOnClickListener { onTitleClick() }
+        }
+        row.addView(
+            textCol,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(ctx, CARD_TEXT_SWITCH_GAP_DP)
+            },
+        )
 
         val sw = MaterialSwitch(ctx)
         sw.isChecked = checked
@@ -106,7 +147,7 @@ object M3 {
         }
         head.addView(TextView(ctx).apply {
             text = name
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_ROW_TITLE_SP)
             setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val valueTv = TextView(ctx).apply {
@@ -138,23 +179,30 @@ object M3 {
     /**
      * 可点击入口行：渐变色背景卡片 + 标题 + 说明。
      */
-    fun clickRow(ctx: Context, name: String, desc: String?, listener: View.OnClickListener): View {
+    fun clickRow(
+        ctx: Context,
+        name: String,
+        desc: String?,
+        titleSizeSp: Float = CARD_PRIMARY_TITLE_SP,
+        descSizeSp: Float = CARD_DESC_SP,
+        listener: View.OnClickListener,
+    ): View {
         val row = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         row.gravity = Gravity.CENTER_VERTICAL
 
         val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         textCol.addView(TextView(ctx).apply {
             text = name
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, titleSizeSp)
             setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
             typeface = Typeface.DEFAULT_BOLD
         })
         if (!desc.isNullOrEmpty()) {
             textCol.addView(TextView(ctx).apply {
                 text = desc
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, descSizeSp)
                 setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
-                setPadding(0, dp(ctx, 3f), 0, 0)
+                setPadding(0, dp(ctx, CARD_TITLE_DESC_GAP_DP), 0, 0)
             })
         }
         row.addView(textCol)
@@ -176,7 +224,7 @@ object M3 {
         val ll = cardContent(ctx)
         ll.addView(TextView(ctx).apply {
             this.text = text
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_DESC_SP)
             setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
             setLineSpacing(dp(ctx, 2f).toFloat(), 1f)
         })

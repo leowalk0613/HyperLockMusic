@@ -20,7 +20,8 @@ object ModuleConfig {
     private const val KEY_ALBUM_NETWORK_HD = "album_sr_enhance"
 
     // 歌词相关
-    private const val KEY_SHOW_LYRIC = "show_lyric"
+    private const val KEY_LYRIC_ENABLED = "lyric_enabled"   // 主界面总开关：整个歌词功能
+    private const val KEY_SHOW_LYRIC = "show_lyric"           // 显示歌词（设置 / 锁屏按钮）
     private const val KEY_LYRIC_SIZE = "lyric_size"       // 主行字号 sp
     private const val KEY_SWAP_LYRIC = "swap_lyric"       // 歌词/翻译互换
     private const val KEY_LYRIC_WIDTH = "lyric_width"     // 歌词区域宽度（占专辑宽度百分比）
@@ -73,6 +74,7 @@ object ModuleConfig {
     private const val DEFAULT_ALBUM_CORNER = 24f
     private const val DEFAULT_ALBUM_NETWORK_HD = false
 
+    private const val DEFAULT_LYRIC_ENABLED = true
     private const val DEFAULT_SHOW_LYRIC = true
     private const val DEFAULT_LYRIC_SIZE = 20f
     private const val DEFAULT_SWAP_LYRIC = true
@@ -138,6 +140,12 @@ object ModuleConfig {
         get() = getPrefs().getBoolean(KEY_ALBUM_NETWORK_HD, DEFAULT_ALBUM_NETWORK_HD)
         set(value) = getPrefs().edit().putBoolean(KEY_ALBUM_NETWORK_HD, value).apply()
 
+    /** 主界面总开关：关闭后整个歌词功能不可用，锁屏按钮无法重新开启。 */
+    var lyricEnabled: Boolean
+        get() = getPrefs().getBoolean(KEY_LYRIC_ENABLED, DEFAULT_LYRIC_ENABLED)
+        set(value) = getPrefs().edit().putBoolean(KEY_LYRIC_ENABLED, value).apply()
+
+    /** 是否显示歌词（设置页 / 锁屏媒体按钮）；需 [lyricEnabled] 为 true 才生效。 */
     var showLyric: Boolean
         get() = getPrefs().getBoolean(KEY_SHOW_LYRIC, DEFAULT_SHOW_LYRIC)
         set(value) = getPrefs().edit().putBoolean(KEY_SHOW_LYRIC, value).apply()
@@ -290,6 +298,7 @@ object ModuleConfig {
                 put("album_offset_y", albumOffsetY)
                 put("album_corner", albumCorner)
                 put("album_sr_enhance", if (albumNetworkHd) 1 else 0)
+                put("lyric_enabled", if (lyricEnabled) 1 else 0)
                 put("show_lyric", if (showLyric) 1 else 0)
                 put("lyric_size", lyricSize)
                 put("swap_lyric", if (swapLyric) 1 else 0)

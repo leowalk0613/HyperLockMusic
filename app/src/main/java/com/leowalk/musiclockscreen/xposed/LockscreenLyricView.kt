@@ -136,6 +136,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     // ============================================================
     // 配置
     // ============================================================
+    private var cfgLyricEnabled: Boolean = true
     private var cfgShowLyric: Boolean = true
     private var cfgLyricSize: Float = 20f
     private var cfgSwapLyric: Boolean = true
@@ -941,6 +942,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             val uri = Uri.parse(CONFIG_URI)
             val cursor = context.contentResolver.query(uri, null, null, null, null)
             if (cursor != null && cursor.moveToFirst()) {
+                val idxEnabled = cursor.getColumnIndex("lyric_enabled")
                 val idxShow = cursor.getColumnIndex("show_lyric")
                 val idxSize = cursor.getColumnIndex("lyric_size")
                 val idxSwap = cursor.getColumnIndex("swap_lyric")
@@ -950,11 +952,16 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxHideBg = cursor.getColumnIndex("lyric_hide_background")
                 val idxAlign = cursor.getColumnIndex("lyric_align")
 
+                if (idxEnabled >= 0) {
+                    cfgLyricEnabled = cursor.getInt(idxEnabled) != 0
+                }
                 if (idxShow >= 0) {
                     val newShow = cursor.getInt(idxShow) != 0
                     if (newShow != cfgShowLyric) {
                         cfgShowLyric = newShow
-                        if (newShow && isMusicLockscreenActive()) {
+                        if (LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, newShow) &&
+                            isMusicLockscreenActive()
+                        ) {
                             dataDirty = true
                             lastVersionsCheck = 0
                             handler.post { readAndUpdate() }
@@ -1353,7 +1360,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun shouldDisplayLyric(): Boolean {
         return isMusicLockscreenActive() &&
-            cfgShowLyric &&
+            LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric) &&
             isKeyguardLocked() &&
             !isBouncerShowing() &&
             !shadeOpen &&
@@ -1390,7 +1397,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 息屏/AOD 下歌词文本已就绪即可尝试上屏（不依赖 MediaFollow 以外的播放态）。 */
     private fun isAodLyricRevealEligible(): Boolean {
         return !HookUtils.isScreenInteractive(context) &&
-            cfgShowLyric &&
+            LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric) &&
             isMusicLockscreenActive() &&
             isKeyguardLocked() &&
             !isBouncerShowing() &&
@@ -1502,7 +1509,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 歌词开关开启时应让出方形专辑位（含 AOD 切歌等待新歌词）。 */
     fun isLyricPriorityOverAlbum(): Boolean {
         return LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
-            showLyricEnabled = cfgShowLyric,
+            showLyricEnabled = LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric),
             musicLockscreenActive = isMusicLockscreenActive(),
             onKeyguard = isKeyguardLocked(),
             lyricCurrentlyDisplayed = shouldDisplayLyric(),

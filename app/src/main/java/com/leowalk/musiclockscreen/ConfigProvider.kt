@@ -26,6 +26,7 @@ class ConfigProvider : ContentProvider() {
         const val KEY_ALBUM_NETWORK_HD = "album_sr_enhance"
 
         // 歌词配置
+        const val KEY_LYRIC_ENABLED = "lyric_enabled"
         const val KEY_SHOW_LYRIC = "show_lyric"
         const val KEY_LYRIC_SIZE = "lyric_size"
         const val KEY_SWAP_LYRIC = "swap_lyric"
@@ -89,6 +90,7 @@ class ConfigProvider : ContentProvider() {
                 KEY_ALBUM_OFFSET_Y,
                 KEY_ALBUM_CORNER,
                 KEY_ALBUM_NETWORK_HD,
+                KEY_LYRIC_ENABLED,
                 KEY_SHOW_LYRIC,
                 KEY_LYRIC_SIZE,
                 KEY_SWAP_LYRIC,
@@ -124,6 +126,7 @@ class ConfigProvider : ContentProvider() {
                 prefs.getFloat(KEY_ALBUM_OFFSET_Y, 55f),
                 prefs.getFloat(KEY_ALBUM_CORNER, 24f),
                 if (prefs.getBoolean(KEY_ALBUM_NETWORK_HD, false)) 1 else 0,
+                if (prefs.getBoolean(KEY_LYRIC_ENABLED, true)) 1 else 0,
                 if (prefs.getBoolean(KEY_SHOW_LYRIC, true)) 1 else 0,
                 prefs.getFloat(KEY_LYRIC_SIZE, 20f),
                 if (prefs.getBoolean(KEY_SWAP_LYRIC, true)) 1 else 0,
@@ -195,6 +198,9 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_ALBUM_NETWORK_HD)) {
                     editor.putBoolean(KEY_ALBUM_NETWORK_HD, values.getAsInteger(KEY_ALBUM_NETWORK_HD) == 1)
+                }
+                if (values.containsKey(KEY_LYRIC_ENABLED)) {
+                    editor.putBoolean(KEY_LYRIC_ENABLED, values.getAsInteger(KEY_LYRIC_ENABLED) == 1)
                 }
                 if (values.containsKey(KEY_SHOW_LYRIC)) {
                     editor.putBoolean(KEY_SHOW_LYRIC, values.getAsInteger(KEY_SHOW_LYRIC) == 1)

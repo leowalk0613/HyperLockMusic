@@ -18,16 +18,6 @@ class AlbumStyleActivity : BaseScrollingActivity() {
 
     override fun buildContent(list: LinearLayout) {
         val card = M3.cardContent(this)
-        card.addView(M3.title(this, "封面显示"))
-
-        card.addView(M3.switchRow(
-            this, "显示封面", "关闭后锁屏不绘制大专辑 / 沉浸封面",
-            ModuleConfig.showBigAlbum
-        ) { checked ->
-            ModuleConfig.showBigAlbum = checked
-            ModuleConfig.push(this)
-            refreshModeUi()
-        })
 
         card.addView(sectionLabel("封面样式（二选一）"))
         val styleIndex = if (ModuleConfig.immersiveAlbum) 1 else 0
@@ -48,7 +38,7 @@ class AlbumStyleActivity : BaseScrollingActivity() {
         card.addView(stylePreview)
 
         modeHint = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
             setTextColor(
                 M3.attrColor(
                     this@AlbumStyleActivity,
@@ -138,7 +128,7 @@ class AlbumStyleActivity : BaseScrollingActivity() {
     private fun sectionLabel(text: String): TextView {
         return TextView(this).apply {
             this.text = text
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
             setTextColor(
                 M3.attrColor(
                     this@AlbumStyleActivity,

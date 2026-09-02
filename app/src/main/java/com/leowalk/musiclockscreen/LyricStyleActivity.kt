@@ -14,21 +14,29 @@ class LyricStyleActivity : BaseScrollingActivity() {
     private var sharedBlock: LinearLayout? = null
     private var modeHint: TextView? = null
 
+    private var showLyricRow: LinearLayout? = null
+
     override fun titleText() = "歌词样式"
 
     override fun buildContent(list: LinearLayout) {
         list.addView(M3.card(this, M3.tipContent(this,
             "歌词功能为 LyricFocus 的外部渲染功能；在 LyricFocus 中开启后，" +
-                "歌词将推送到本模块，锁屏才会显示。")))
+                "歌词将推送到本模块，锁屏才会显示。\n\n" +
+                "主界面「歌词」总开关关闭后，整个歌词功能不可用；下方「显示歌词」仅控制锁屏是否展示。")))
 
         val card = M3.cardContent(this)
-        card.addView(M3.title(this, "歌词显示"))
+        card.addView(M3.title(this, "锁屏显示"))
 
-        card.addView(M3.switchRow(this, "显示歌词", null, ModuleConfig.showLyric) { checked ->
+        card.addView(M3.switchRow(
+            this,
+            "显示歌词",
+            "仅控制锁屏是否展示歌词；总开关在主界面",
+            ModuleConfig.showLyric,
+        ) { checked ->
             ModuleConfig.showLyric = checked
             ModuleConfig.push(this)
             refreshModeUi()
-        })
+        }.also { showLyricRow = it })
 
         card.addView(sectionLabel("歌词样式（二选一）"))
         val styleIndex = if (ModuleConfig.immersiveLyric) 1 else 0
@@ -50,7 +58,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         card.addView(stylePreview)
 
         modeHint = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
             setTextColor(
                 M3.attrColor(
                     this@LyricStyleActivity,
@@ -111,7 +119,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         })
         immersiveOnlyBlock!!.addView(TextView(this).apply {
             text = "区块大小/底边请到「专辑封面」调整（与大专辑共用）。"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
             setTextColor(
                 M3.attrColor(
                     this@LyricStyleActivity,
@@ -144,15 +152,18 @@ class LyricStyleActivity : BaseScrollingActivity() {
     }
 
     private fun refreshModeUi() {
+        val enabled = ModuleConfig.lyricEnabled
         val show = ModuleConfig.showLyric
         val immersive = ModuleConfig.immersiveLyric
-        M3.setControlsEnabled(styleSegment, show)
-        M3.setControlsEnabled(stylePreview, show)
-        M3.setControlsEnabled(sharedBlock, show)
-        M3.setControlsEnabled(normalOnlyBlock, show && !immersive)
-        M3.setControlsEnabled(immersiveOnlyBlock, show && immersive)
+        M3.setControlsEnabled(showLyricRow, enabled)
+        M3.setControlsEnabled(styleSegment, enabled && show)
+        M3.setControlsEnabled(stylePreview, enabled && show)
+        M3.setControlsEnabled(sharedBlock, enabled && show)
+        M3.setControlsEnabled(normalOnlyBlock, enabled && show && !immersive)
+        M3.setControlsEnabled(immersiveOnlyBlock, enabled && show && immersive)
         modeHint?.text = when {
-            !show -> "歌词已关闭，样式设置暂不生效。"
+            !enabled -> "歌词功能已在主界面关闭，样式设置暂不生效。"
+            !show -> "显示歌词已关闭，样式设置暂不生效。"
             immersive -> "当前：沉浸歌词。字号固定；宽度/底边用专辑设置；对齐可用；隐藏背景无效。"
             else -> "当前：普通歌词。字号/宽度/底边/隐藏背景可用；对齐仅沉浸歌词生效。"
         }
@@ -161,7 +172,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
     private fun sectionLabel(text: String): TextView {
         return TextView(this).apply {
             this.text = text
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
             setTextColor(
                 M3.attrColor(
                     this@LyricStyleActivity,

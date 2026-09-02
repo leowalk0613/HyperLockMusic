@@ -32,6 +32,7 @@ class AodLyricHook {
     private var sObserverRegistered = false
     private var sConfigObserverRegistered = false
     private var cfgSwapLyric: Boolean = true
+    private var cfgLyricEnabled: Boolean = true
     private var cfgShowLyric: Boolean = true
     private var awaitingFreshLyrics = false
 
@@ -146,14 +147,18 @@ class AodLyricHook {
                     cfgSwapLyric = cursor.getInt(swapIdx) != 0
                     logI("swap_lyric config: $cfgSwapLyric")
                 }
+                val enabledIdx = cursor.getColumnIndex("lyric_enabled")
                 val showIdx = cursor.getColumnIndex("show_lyric")
+                if (enabledIdx >= 0) {
+                    cfgLyricEnabled = cursor.getInt(enabledIdx) != 0
+                }
                 if (showIdx >= 0) {
                     cfgShowLyric = cursor.getInt(showIdx) != 0
-                    logI("show_lyric config: $cfgShowLyric")
+                    logI("show_lyric config: enabled=$cfgLyricEnabled show=$cfgShowLyric")
                 }
                 cursor.close()
             }
-            if (!cfgShowLyric) {
+            if (!LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric)) {
                 sLyricContainer?.visibility = View.GONE
             }
         } catch (e: Throwable) {
@@ -229,7 +234,7 @@ class AodLyricHook {
     private fun refreshLyric() {
         try {
             val ctx = sRoot?.context ?: return
-            if (!cfgShowLyric) {
+            if (!LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric)) {
                 sLyricContainer?.visibility = View.GONE
                 return
             }
@@ -381,7 +386,7 @@ class AodLyricHook {
     }
 
     private fun applyCurrentLineFromCache(ctx: Context) {
-        if (!cfgShowLyric) {
+        if (!LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric)) {
             sLyricContainer?.visibility = View.GONE
             return
         }
@@ -496,7 +501,7 @@ class AodLyricHook {
     }
 
     private fun applyLyricToViews(jo: JSONObject, mediaTitle: String? = null) {
-        if (!cfgShowLyric) {
+        if (!LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric)) {
             sLyricContainer?.visibility = View.GONE
             return
         }
