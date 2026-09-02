@@ -14,22 +14,20 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import com.leowalk.musiclockscreen.xposed.BlurUtils
-import com.leowalk.musiclockscreen.xposed.HookUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
- * 彩蛋：沉浸封面壁纸制作（Monet 取色铺底，与锁屏 [BlurUtils.blurWithImmersiveAlbum] 同源）。
+ * 彩蛋：沉浸封面壁纸制作（独立演示 UI，不调用锁屏 / SystemUI 渲染链路）。
  */
 class WallpaperMakerActivity : BaseScrollingActivity() {
 
     private var sourceBitmap: Bitmap? = null
     private var resultBitmap: Bitmap? = null
 
-    /** 专辑竖直中心占屏高百分比（中间偏上默认 38） */
+    /** 专辑竖直中心占屏高百分比（彩蛋页本地参数，不写模块配置） */
     private var albumCenterY = 38f
 
     private lateinit var previewView: ImageView
@@ -39,7 +37,7 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
     private val pickImage = registerForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        if (uri != null) loadSource(uri) else Unit
+        if (uri != null) loadSource(uri)
     }
 
     override fun titleText() = "制作壁纸"
@@ -52,11 +50,6 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
     }
 
     override fun buildContent(list: LinearLayout) {
-        albumCenterY = try {
-            ModuleConfig.immersiveAlbumCenterY.coerceIn(20f, 55f)
-        } catch (_: Throwable) {
-            38f
-        }
         val previewCard = M3.cardContent(this)
         previewCard.addView(M3.title(this, "预览"))
 
@@ -70,8 +63,8 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
             previewView,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
         )
 
         progressBar = ProgressBar(this).apply {
@@ -89,18 +82,13 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
         paramCard.addView(M3.title(this, "参数"))
         paramCard.addView(M3.sliderRow(
             this, "专辑位置", 20f, 55f, albumCenterY,
-            { "中心 ${it.toInt()}% 屏高" }
+            { "中心 ${it.toInt()}% 屏高" },
         ) { v ->
             albumCenterY = v
-            try {
-                ModuleConfig.immersiveAlbumCenterY = v
-                ModuleConfig.push(this)
-            } catch (_: Throwable) {
-            }
         })
         list.addView(M3.card(this, paramCard))
 
-        list.addView(M3.clickRow(this, "生成预览", "按当前参数渲染沉浸封面壁纸") {
+        list.addView(M3.clickRow(this, "生成预览", "彩蛋演示预览（与锁屏渲染独立）") {
             generatePreview()
         })
 
@@ -109,8 +97,8 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
         })
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "渲染算法与锁屏沉浸封面一致。建议选用方形或接近方形的专辑图，" +
-                "保存后可设为系统锁屏或桌面壁纸。")))
+            "这是隐藏彩蛋页：界面与参数仅供把玩，不会写入模块配置，也不会影响锁屏壁纸。\n\n" +
+                "预览使用应用内简化合成，与 SystemUI 沉浸封面算法脱钩。")))
     }
 
     private fun loadSource(uri: Uri) {
@@ -142,17 +130,7 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
         val centerY = albumCenterY
         worker.execute {
             try {
-                val (tw, th) = HookUtils.lockScreenWallpaperSize(this)
-                val out = BlurUtils.blurWithImmersiveAlbum(
-                    blurSource = src,
-                    sharpAlbum = src,
-                    radius = 0f,
-                    darkOverlayAlpha = 0,
-                    targetWidth = tw,
-                    targetHeight = th,
-                    albumAnchorYPercent = 80f,
-                    albumCenterYPercent = centerY,
-                )
+                val out = WallpaperMakerDemoRenderer.render(src, centerY)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) {
                         if (!out.isRecycled) out.recycle()
@@ -162,7 +140,7 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
                     resultBitmap = out
                     previewView.setImageBitmap(out)
                     setBusy(false)
-                    toast("预览已生成 ${out.width}×${out.height}")
+                    toast("彩蛋预览已生成 ${out.width}×${out.height}")
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -180,14 +158,14 @@ class WallpaperMakerActivity : BaseScrollingActivity() {
             return
         }
         try {
-            val name = "hyperlockmusic_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.png"
+            val name = "hyperlockmusic_easter_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.png"
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(
                         MediaStore.MediaColumns.RELATIVE_PATH,
-                        "${Environment.DIRECTORY_PICTURES}/HyperLockMusic"
+                        "${Environment.DIRECTORY_PICTURES}/HyperLockMusic",
                     )
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }

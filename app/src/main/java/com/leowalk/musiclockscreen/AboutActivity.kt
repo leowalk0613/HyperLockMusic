@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 /** 关于：版本号、项目信息、开源致谢与使用说明。 */
@@ -94,11 +95,11 @@ class AboutActivity : BaseScrollingActivity() {
 
     private fun onVersionTapped() {
         val now = System.currentTimeMillis()
-        if (now - lastVersionTapMs > 2000L) versionTapCount = 0
+        val (nextCount, triggered) = VersionEasterEgg.onTap(versionTapCount, lastVersionTapMs, now)
+        versionTapCount = nextCount
         lastVersionTapMs = now
-        versionTapCount++
-        if (versionTapCount >= 5) {
-            versionTapCount = 0
+        if (triggered) {
+            Toast.makeText(this, VersionEasterEgg.TOAST_MESSAGE, Toast.LENGTH_SHORT).show()
             startActivity(Intent(this, WallpaperMakerActivity::class.java))
         }
     }
