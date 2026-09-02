@@ -57,4 +57,18 @@ class ImmersiveAlbumLayoutTest {
             )
         )
     }
+
+    @Test
+    fun bakeTrue_edgeGradientToggle_counts() {
+        assertTrue(
+            immersiveAlbumLayoutChanged(
+                bakeBefore = true,
+                bakeAfter = true,
+                centerBefore = 0.5f,
+                centerAfter = 0.5f,
+                edgeGradientBefore = true,
+                edgeGradientAfter = false,
+            )
+        )
+    }
 }

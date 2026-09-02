@@ -187,7 +187,7 @@ object BlurUtils {
     /**
      * 沉浸专辑壁纸（与大专辑模糊算法分离）：
      * Monet 取色铺底 + 区域内 contain 完整封面，上下 alpha 溶入色底。
-     * [radius] / [darkOverlayAlpha] 保留兼容；沉浸路径不做模糊、不压暗。
+     * [radius] 保留兼容；沉浸路径不做模糊。上下沿暗色渐变强度取自 [darkOverlayAlpha]。
      */
     @Suppress("UNUSED_PARAMETER")
     fun blurWithImmersiveAlbum(
@@ -201,6 +201,7 @@ object BlurUtils {
         topPercent: Float = 0f,
         /** 专辑竖直中心占屏高百分比，默认中间偏上 */
         albumCenterYPercent: Float = 38f,
+        edgeGradientEnabled: Boolean = true,
     ): Bitmap {
         // 取色只用系统封面；前景可用高清 sharpAlbum
         val colorSource = blurSource.takeIf { !it.isRecycled } ?: sharpAlbum
@@ -266,8 +267,61 @@ object BlurUtils {
         maskPaint.xfermode = null
         canvas.restoreToCount(layer)
 
+        if (edgeGradientEnabled) {
+            drawImmersiveWallpaperEdgeGradients(
+                canvas = canvas,
+                width = w,
+                height = h,
+                albumTop = albumTop,
+                albumBottom = albumDrawRect.bottom,
+                darkOverlayAlpha = darkOverlayAlpha,
+            )
+        }
+
         if (albumFitted !== albumBitmap) albumFitted.recycle()
         return wallpaper
+    }
+
+    private fun drawImmersiveWallpaperEdgeGradients(
+        canvas: Canvas,
+        width: Float,
+        height: Float,
+        albumTop: Float,
+        albumBottom: Float,
+        darkOverlayAlpha: Int,
+    ) {
+        val spans = computeImmersiveEdgeGradientSpans(height, albumTop, albumBottom)
+        val peakAlpha = computeImmersiveEdgeGradientPeakAlpha(darkOverlayAlpha)
+        val midAlpha = (peakAlpha * 0.35f).toInt().coerceIn(0, 255)
+
+        val topPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, spans.topSpanPx,
+                intArrayOf(
+                    Color.argb(peakAlpha, 0, 0, 0),
+                    Color.argb(midAlpha, 0, 0, 0),
+                    Color.TRANSPARENT,
+                ),
+                floatArrayOf(0f, 0.5f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawRect(0f, 0f, width, spans.topSpanPx, topPaint)
+
+        val bottomStart = height - spans.bottomSpanPx
+        val bottomPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f, bottomStart, 0f, height,
+                intArrayOf(
+                    Color.TRANSPARENT,
+                    Color.argb(midAlpha, 0, 0, 0),
+                    Color.argb(peakAlpha, 0, 0, 0),
+                ),
+                floatArrayOf(0f, 0.5f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawRect(0f, bottomStart, width, height, bottomPaint)
     }
 
     /** 沉浸封面上下沿溶入 Monet 色底的 alpha 蒙版。 */

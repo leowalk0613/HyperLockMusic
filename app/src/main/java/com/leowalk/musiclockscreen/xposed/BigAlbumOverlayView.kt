@@ -398,13 +398,18 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
                     val bakeBefore = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
                     val centerBefore =
                         if (bakeBefore) ConfigReader.immersiveAlbumCenterY(context) else Float.NaN
+                    val edgeGradientBefore =
+                        if (bakeBefore) ConfigReader.immersiveAlbumEdgeGradient(context) else false
                     ConfigReader.invalidate()
                     val bakeAfter = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(context)
                     val centerAfter =
                         if (bakeAfter) ConfigReader.immersiveAlbumCenterY(context) else Float.NaN
+                    val edgeGradientAfter =
+                        if (bakeAfter) ConfigReader.immersiveAlbumEdgeGradient(context) else false
                     if (MusicLockscreenManager.isShowing) {
                         val layoutChanged = immersiveAlbumLayoutChanged(
-                            bakeBefore, bakeAfter, centerBefore, centerAfter
+                            bakeBefore, bakeAfter, centerBefore, centerAfter,
+                            edgeGradientBefore, edgeGradientAfter,
                         )
                         if (layoutChanged) {
                             if (bakeAfter) {

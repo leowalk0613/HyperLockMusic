@@ -87,6 +87,14 @@ class AlbumStyleActivity : BaseScrollingActivity() {
             ModuleConfig.immersiveAlbumCenterY = v
             ModuleConfig.push(this)
         })
+        immersiveOnlyBlock!!.addView(M3.switchRow(
+            this, "上下暗角渐变",
+            "壁纸顶部与底部暗色渐变，范围随专辑位置变化",
+            ModuleConfig.immersiveAlbumEdgeGradient,
+        ) { checked ->
+            ModuleConfig.immersiveAlbumEdgeGradient = checked
+            ModuleConfig.push(this)
+        })
         card.addView(immersiveOnlyBlock)
 
         networkHdRow = M3.switchRow(

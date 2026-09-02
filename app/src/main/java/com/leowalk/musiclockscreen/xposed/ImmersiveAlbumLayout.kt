@@ -8,9 +8,12 @@ internal fun immersiveAlbumLayoutChanged(
     bakeBefore: Boolean,
     bakeAfter: Boolean,
     centerBefore: Float,
-    centerAfter: Float
+    centerAfter: Float,
+    edgeGradientBefore: Boolean = false,
+    edgeGradientAfter: Boolean = false,
 ): Boolean {
     val centerChanged = bakeAfter &&
         !(centerBefore == centerAfter || (centerBefore.isNaN() && centerAfter.isNaN()))
-    return bakeBefore != bakeAfter || centerChanged
+    val edgeGradientChanged = bakeAfter && edgeGradientBefore != edgeGradientAfter
+    return bakeBefore != bakeAfter || centerChanged || edgeGradientChanged
 }

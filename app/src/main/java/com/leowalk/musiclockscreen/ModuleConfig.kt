@@ -33,6 +33,8 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     /** 沉浸封面竖直中心占屏高百分比（与大专辑底边 [KEY_ALBUM_OFFSET_Y] 互不共用） */
     private const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
+    /** 沉浸壁纸上下沿暗色渐变 */
+    private const val KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT = "immersive_album_edge_gradient"
     private const val KEY_MINIMAL_CLOCK = "minimal_clock"
     private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
@@ -86,6 +88,7 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_IMMERSIVE_ALBUM_CENTER_Y = 38f
+    private const val DEFAULT_IMMERSIVE_ALBUM_EDGE_GRADIENT = true
     private const val DEFAULT_MINIMAL_CLOCK = true
     private const val DEFAULT_MINIMAL_CLOCK_SIZE = 30f
     private const val DEFAULT_MINIMAL_CLOCK_TOP_Y = 10f
@@ -192,6 +195,14 @@ object ModuleConfig {
     var immersiveAlbumCenterY: Float
         get() = getPrefs().getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, DEFAULT_IMMERSIVE_ALBUM_CENTER_Y)
         set(value) = getPrefs().edit().putFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, value).apply()
+
+    /** 沉浸壁纸上下沿暗色渐变（范围随专辑位置变化） */
+    var immersiveAlbumEdgeGradient: Boolean
+        get() = getPrefs().getBoolean(
+            KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT,
+            DEFAULT_IMMERSIVE_ALBUM_EDGE_GRADIENT,
+        )
+        set(value) = getPrefs().edit().putBoolean(KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT, value).apply()
 
     /** 音乐锁屏简洁时钟：隐藏系统大时钟，顶部显示一行时间日期 */
     var minimalClock: Boolean
@@ -310,6 +321,7 @@ object ModuleConfig {
                 put("lyric_align", lyricAlign)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("immersive_album_center_y", immersiveAlbumCenterY)
+                put("immersive_album_edge_gradient", if (immersiveAlbumEdgeGradient) 1 else 0)
                 put("minimal_clock", if (minimalClock) 1 else 0)
                 put("minimal_clock_size", minimalClockSize)
                 put("minimal_clock_top_y", minimalClockTopY)

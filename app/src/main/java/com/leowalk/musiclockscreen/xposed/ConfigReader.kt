@@ -33,6 +33,7 @@ object ConfigReader {
     private var cachedKeepLockScreenOn: Boolean = false
     private var cachedImmersiveAlbum: Boolean = false
     private var cachedImmersiveAlbumCenterY: Float = 38f
+    private var cachedImmersiveAlbumEdgeGradient: Boolean = true
     private var cachedMinimalClock: Boolean = true
     private var cachedMinimalClockSize: Float = 30f
     private var cachedMinimalClockTopY: Float = 10f
@@ -117,6 +118,12 @@ object ConfigReader {
     fun immersiveAlbumCenterY(context: Context): Float {
         refreshConfigIfNeeded(context)
         return cachedImmersiveAlbumCenterY.coerceIn(18f, 70f)
+    }
+
+    /** 沉浸壁纸上下沿暗色渐变 */
+    fun immersiveAlbumEdgeGradient(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedImmersiveAlbumEdgeGradient
     }
 
     fun albumCorner(context: Context): Float {
@@ -315,6 +322,7 @@ object ConfigReader {
                 val keepLockScreenOnIdx = cursor.getColumnIndex("keep_lockscreen_on")
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val immersiveAlbumCenterYIdx = cursor.getColumnIndex("immersive_album_center_y")
+                val immersiveAlbumEdgeGradientIdx = cursor.getColumnIndex("immersive_album_edge_gradient")
                 val minimalClockIdx = cursor.getColumnIndex("minimal_clock")
                 val minimalClockSizeIdx = cursor.getColumnIndex("minimal_clock_size")
                 val minimalClockTopYIdx = cursor.getColumnIndex("minimal_clock_top_y")
@@ -379,6 +387,9 @@ object ConfigReader {
                 }
                 if (immersiveAlbumCenterYIdx >= 0) {
                     cachedImmersiveAlbumCenterY = cursor.getFloat(immersiveAlbumCenterYIdx)
+                }
+                if (immersiveAlbumEdgeGradientIdx >= 0) {
+                    cachedImmersiveAlbumEdgeGradient = cursor.getInt(immersiveAlbumEdgeGradientIdx) == 1
                 }
                 if (minimalClockIdx >= 0) {
                     cachedMinimalClock = cursor.getInt(minimalClockIdx) == 1

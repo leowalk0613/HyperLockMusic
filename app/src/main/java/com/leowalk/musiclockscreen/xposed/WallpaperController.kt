@@ -738,6 +738,7 @@ object WallpaperController {
                     targetHeight = th,
                     albumAnchorYPercent = 80f,
                     albumCenterYPercent = centerY,
+                    edgeGradientEnabled = ConfigReader.immersiveAlbumEdgeGradient(context),
                 )
             } catch (e: Throwable) {
                 immersiveError = e
