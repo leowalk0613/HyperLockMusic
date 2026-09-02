@@ -9,11 +9,13 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.content.res.ColorStateList
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.annotation.DrawableRes
+import androidx.appcompat.content.res.AppCompatResources
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -63,11 +65,15 @@ object M3 {
         }
     }
 
-    fun title(ctx: Context, text: String): TextView {
+    fun title(ctx: Context, text: String, primary: Boolean = false): TextView {
         return TextView(ctx).apply {
             this.text = text
             setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_SECTION_TITLE_SP)
-            setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
+            if (primary) {
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
+            } else {
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
+            }
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -188,8 +194,10 @@ object M3 {
         name: String,
         desc: String?,
         bottomMarginDp: Float = 8f,
+        titlePrimary: Boolean = true,
         listener: View.OnClickListener,
     ): LinearLayout {
+        val titleSp = if (titlePrimary) CARD_PRIMARY_TITLE_SP else CARD_ROW_TITLE_SP
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
@@ -206,9 +214,13 @@ object M3 {
         val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         textCol.addView(TextView(ctx).apply {
             text = name
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_PRIMARY_TITLE_SP)
-            setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
-            typeface = Typeface.DEFAULT_BOLD
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, titleSp)
+            if (titlePrimary) {
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt()))
+                typeface = Typeface.DEFAULT_BOLD
+            } else {
+                setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
+            }
         })
         if (!desc.isNullOrEmpty()) {
             textCol.addView(TextView(ctx).apply {
@@ -228,6 +240,93 @@ object M3 {
         return row
     }
 
+    class PermissionStatusRow internal constructor(
+        val view: LinearLayout,
+        private val statusIcon: ImageView,
+    ) {
+        fun setGranted(granted: Boolean) {
+            applyPermissionStatusIcon(statusIcon, granted)
+        }
+    }
+
+    /**
+     * 权限行：左侧名称 + 说明，右侧图标表示已授权 / 未授权。
+     */
+    fun permissionRow(
+        ctx: Context,
+        name: String,
+        desc: String,
+        granted: Boolean,
+        bottomMarginDp: Float = 8f,
+        listener: View.OnClickListener? = null,
+    ): PermissionStatusRow {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            if (listener != null) {
+                isClickable = true
+                isFocusable = true
+                val ripple = TypedValue()
+                ctx.theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+                if (ripple.resourceId != 0) {
+                    setBackgroundResource(ripple.resourceId)
+                }
+                setOnClickListener(listener)
+            }
+        }
+
+        val textCol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        textCol.addView(TextView(ctx).apply {
+            text = name
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_ROW_TITLE_SP)
+            setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()))
+        })
+        textCol.addView(TextView(ctx).apply {
+            text = desc
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CARD_DESC_SP)
+            setTextColor(attrColor(ctx, com.google.android.material.R.attr.colorOnSurfaceVariant, 0xFFCAC4D0.toInt()))
+            setPadding(0, dp(ctx, CARD_TITLE_DESC_GAP_DP), 0, 0)
+        })
+        row.addView(
+            textCol,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(ctx, CARD_TEXT_SWITCH_GAP_DP)
+            },
+        )
+
+        val statusIcon = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            layoutParams = LinearLayout.LayoutParams(dp(ctx, 24f), dp(ctx, 24f))
+        }
+        applyPermissionStatusIcon(statusIcon, granted)
+        row.addView(statusIcon)
+
+        row.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            topMargin = dp(ctx, 4f)
+            bottomMargin = dp(ctx, bottomMarginDp)
+        }
+        return PermissionStatusRow(row, statusIcon)
+    }
+
+    private fun applyPermissionStatusIcon(icon: ImageView, granted: Boolean) {
+        val ctx = icon.context
+        icon.setImageDrawable(
+            AppCompatResources.getDrawable(
+                ctx,
+                if (granted) R.drawable.ic_permission_granted else R.drawable.ic_permission_denied,
+            ),
+        )
+        val tint = if (granted) {
+            attrColor(ctx, com.google.android.material.R.attr.colorPrimary, 0xFFFFFFFF.toInt())
+        } else {
+            attrColor(ctx, com.google.android.material.R.attr.colorError, 0xFFCF6679.toInt())
+        }
+        icon.imageTintList = ColorStateList.valueOf(tint)
+        icon.contentDescription = if (granted) "已授权" else "未授权"
+    }
+
     /**
      * 独立卡片入口：外层 MaterialCardView + [cardEntryRow]。
      */
@@ -238,7 +337,7 @@ object M3 {
         listener: View.OnClickListener,
     ): View {
         val content = cardContent(ctx)
-        content.addView(cardEntryRow(ctx, name, desc, bottomMarginDp = 0f, listener))
+        content.addView(cardEntryRow(ctx, name, desc, bottomMarginDp = 0f, listener = listener))
         return card(ctx, content)
     }
 
