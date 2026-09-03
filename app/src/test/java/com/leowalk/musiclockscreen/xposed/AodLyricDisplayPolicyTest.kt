@@ -120,6 +120,36 @@ class AodLyricDisplayPolicyTest {
     }
 
     @Test
+    fun lightLyricDisplay_sMatchingNextLineIsNotTranslation() {
+        val display = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+            l = "还有什么人在未来",
+            s = "既然未知是唯一的期待",
+            nextLineText = "既然未知是唯一的期待",
+        )
+        assertFalse(display.isTranslation)
+        assertEquals("既然未知是唯一的期待", display.second)
+    }
+
+    @Test
+    fun lightLyricDisplay_songWithoutTranslationNeverTreatsSAsTranslation() {
+        val display = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+            l = "归零",
+            s = "这世界从来没有如果",
+            songHasTranslation = false,
+        )
+        assertFalse(display.isTranslation)
+        val swapped = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = display.main,
+            rawSecond = display.second,
+            hasSecond = display.hasSecond,
+            isTranslation = display.isTranslation,
+            swapEnabled = true,
+        )
+        assertEquals("归零", swapped.main)
+        assertEquals("这世界从来没有如果", swapped.second)
+    }
+
+    @Test
     fun cachedLineDisplay_usesLightTranslationWhenLineRIsEmpty() {
         val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
             currentText = "第一句原文",
@@ -131,6 +161,40 @@ class AodLyricDisplayPolicyTest {
         )
         assertTrue(display.isTranslation)
         assertEquals("第一句翻译", display.second)
+    }
+
+    @Test
+    fun cachedLineDisplay_doesNotTreatNextLineInSAsTranslation() {
+        val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
+            currentText = "还有什么人在未来",
+            lineTranslation = "",
+            nextLineText = "既然未知是唯一的期待",
+            lightMain = "还有什么人在未来",
+            lightTranslation = "既然未知是唯一的期待",
+            immersiveLyric = false,
+            songHasTranslation = false,
+        )
+        assertFalse(display.isTranslation)
+        assertEquals("既然未知是唯一的期待", display.second)
+        val swapped = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = display.main,
+            rawSecond = display.second,
+            hasSecond = display.hasSecond,
+            isTranslation = display.isTranslation,
+            swapEnabled = true,
+        )
+        assertEquals("还有什么人在未来", swapped.main)
+        assertEquals("既然未知是唯一的期待", swapped.second)
+    }
+
+    @Test
+    fun songHasTranslationFromRs_falseWhenAllEmpty() {
+        assertFalse(AodLyricDisplayPolicy.songHasTranslationFromRs(listOf("", "  ", "")))
+    }
+
+    @Test
+    fun songHasTranslationFromRs_trueWhenAnyPresent() {
+        assertTrue(AodLyricDisplayPolicy.songHasTranslationFromRs(listOf("", "trans")))
     }
 
     @Test

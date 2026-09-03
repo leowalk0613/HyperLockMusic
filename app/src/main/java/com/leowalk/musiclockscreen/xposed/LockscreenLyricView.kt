@@ -1885,7 +1885,11 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
                 newSecondIsTranslation = curTrans.isNotEmpty()
             } else {
-                val light = AodLyricDisplayPolicy.resolveLightLyricDisplay(l, s)
+                val light = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+                    l = l,
+                    s = s,
+                    songHasTranslation = AodLyricDisplayPolicy.songHasTranslationFromCtx(lo),
+                )
                 newMain = light.main
                 newSecond = light.second
                 newSecondIsTranslation = light.isTranslation
@@ -2001,6 +2005,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             } catch (_: Throwable) {
                 AodLyricDisplayPolicy.LyricSnapshotFields()
             }
+            val songHasTrans = lines.any { it.translation.isNotBlank() }
             val resolved = AodLyricDisplayPolicy.resolveCachedLineDisplay(
                 currentText = currentText,
                 lineTranslation = currentTrans,
@@ -2008,6 +2013,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 lightMain = lightFields.l,
                 lightTranslation = lightFields.s,
                 immersiveLyric = cfgImmersiveLyric,
+                songHasTranslation = songHasTrans,
             )
 
             setLyricLines(

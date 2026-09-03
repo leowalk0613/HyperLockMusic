@@ -142,16 +142,28 @@ internal object AodLyricDisplayPolicy {
         val isTranslation: Boolean,
     )
 
-    /** 轻量 l/s：s 非空即当前行翻译（与 AOD 路径一致）。 */
-    fun resolveLightLyricDisplay(l: String, s: String): LyricLineDisplay {
+    /**
+     * LyricFocus 轻量 s：有翻译时为译文，无翻译时常为下一句原文。
+     * [nextLineText] / [songHasTranslation] 用于消歧，避免无翻译时误触发互换。
+     */
+    fun resolveLightLyricDisplay(
+        l: String,
+        s: String,
+        nextLineText: String = "",
+        songHasTranslation: Boolean? = null,
+    ): LyricLineDisplay {
         val main = l.trim().ifBlank { " " }
         val second = s.trim()
         val hasSecond = second.isNotEmpty()
-        return LyricLineDisplay(main, second, hasSecond, isTranslation = hasSecond)
+        if (!hasSecond) {
+            return LyricLineDisplay(main, "", hasSecond = false, isTranslation = false)
+        }
+        val isTranslation = isSecondaryLineTranslation(second, nextLineText, songHasTranslation)
+        return LyricLineDisplay(main, second, hasSecond = true, isTranslation = isTranslation)
     }
 
     /**
-     * 全量 ctx 当前行：优先行内 r，否则在轻量 l 与当前行原文一致时用 s 作翻译回退。
+     * 全量 ctx 当前行：优先行内 r；轻量 s 仅在不像「下一句」时作翻译回退。
      */
     fun resolveCachedLineDisplay(
         currentText: String,
@@ -160,27 +172,59 @@ internal object AodLyricDisplayPolicy {
         lightMain: String,
         lightTranslation: String,
         immersiveLyric: Boolean,
+        songHasTranslation: Boolean? = null,
     ): LyricLineDisplay {
         val main = currentText.trim().ifBlank { " " }
+        val next = nextLineText.trim()
         val trans = lineTranslation.trim().ifBlank {
             val lightS = lightTranslation.trim()
             val lightL = lightMain.trim()
-            if (lightS.isNotEmpty() && (lightL.isEmpty() || lightL == currentText.trim())) {
-                lightS
-            } else {
-                ""
-            }
+            val lightOk = lightS.isNotEmpty() &&
+                (lightL.isEmpty() || lightL == currentText.trim()) &&
+                isSecondaryLineTranslation(lightS, next, songHasTranslation)
+            if (lightOk) lightS else ""
         }
         if (trans.isNotEmpty()) {
             return LyricLineDisplay(main, trans, hasSecond = true, isTranslation = true)
         }
         if (!immersiveLyric) {
-            val next = nextLineText.trim()
             if (next.isNotEmpty()) {
                 return LyricLineDisplay(main, next, hasSecond = true, isTranslation = false)
             }
         }
         return LyricLineDisplay(main, "", hasSecond = false, isTranslation = false)
+    }
+
+    /**
+     * 副行是否为翻译：全曲已确认无翻译 → false；与下一句相同 → false（LyricFocus 无译惯例）。
+     */
+    fun isSecondaryLineTranslation(
+        secondary: String,
+        nextLineText: String = "",
+        songHasTranslation: Boolean? = null,
+    ): Boolean {
+        val second = secondary.trim()
+        if (second.isEmpty()) return false
+        if (songHasTranslation == false) return false
+        if (songHasTranslation == true) return true
+        val next = nextLineText.trim()
+        if (next.isNotEmpty() && second == next) return false
+        return true
+    }
+
+    /** ctx.lines 是否出现过非空 r；无 lines 时返回 null。 */
+    fun songHasTranslationFromCtx(json: JSONObject): Boolean? {
+        val lines = json.optJSONObject("ctx")?.optJSONArray("lines") ?: return null
+        if (lines.length() == 0) return null
+        val rs = ArrayList<String>(lines.length())
+        for (i in 0 until lines.length()) {
+            rs.add(lines.optJSONObject(i)?.optString("r", "").orEmpty())
+        }
+        return songHasTranslationFromRs(rs)
+    }
+
+    fun songHasTranslationFromRs(translations: Iterable<String>): Boolean {
+        return translations.any { it.trim().isNotEmpty() }
     }
 
     /** 原文/翻译互换：仅当第二行确认为翻译时生效。 */

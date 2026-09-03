@@ -396,15 +396,19 @@ class AodLyricHook {
         var idx = if (pos >= 0) findCurrentLineIndex(lines, pos) else 0
         if (idx < 0) idx = 0
         val cur = lines[idx]
-        var mainText = cur.text
-        var subText = cur.translation.ifBlank {
-            if (idx + 1 < lines.size) lines[idx + 1].text else ""
-        }
-        if (cfgSwapLyric && cur.translation.isNotBlank()) {
-            val tmp = mainText
-            mainText = cur.translation
-            subText = tmp
-        }
+        val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
+        val hasTrans = cur.translation.isNotBlank()
+        val rawMain = cur.text
+        val rawSecond = if (hasTrans) cur.translation else nextText
+        val swapped = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = rawMain,
+            rawSecond = rawSecond,
+            hasSecond = rawSecond.isNotBlank(),
+            isTranslation = hasTrans,
+            swapEnabled = cfgSwapLyric,
+        )
+        val mainText = swapped.main
+        val subText = swapped.second
         if (mainText.isEmpty()) {
             sLyricContainer?.visibility = View.GONE
             return
@@ -412,7 +416,7 @@ class AodLyricHook {
         sLyricContainer?.visibility = View.VISIBLE
         sMainLyric?.text = mainText
         sSubLyric?.text = subText
-        sSubLyric?.visibility = if (subText.isNotBlank()) View.VISIBLE else View.GONE
+        sSubLyric?.visibility = if (swapped.hasSecond && subText.isNotBlank()) View.VISIBLE else View.GONE
     }
 
     private fun findCurrentLineIndex(lines: List<AodLyricLine>, pos: Long): Int {
@@ -522,13 +526,25 @@ class AodLyricHook {
             mainText = title
         }
 
-        if (cfgSwapLyric && subText.isNotBlank()) {
-            val tmp = mainText
-            mainText = subText
-            subText = tmp
-        }
+        // 无翻译时 LyricFocus 常把下一句放进 s，不能仅凭 s 非空就互换
+        val songHasTrans = AodLyricDisplayPolicy.songHasTranslationFromCtx(jo)
+            ?: cachedLines.any { it.translation.isNotBlank() }.takeIf { cachedLines.isNotEmpty() }
+        val light = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+            l = mainText,
+            s = subText,
+            songHasTranslation = songHasTrans,
+        )
+        val swapped = AodLyricDisplayPolicy.applyLyricSwap(
+            rawMain = light.main,
+            rawSecond = light.second,
+            hasSecond = light.hasSecond,
+            isTranslation = light.isTranslation,
+            swapEnabled = cfgSwapLyric,
+        )
+        mainText = swapped.main
+        subText = swapped.second
 
-        val hasSub = subText.isNotBlank()
+        val hasSub = swapped.hasSecond && subText.isNotBlank()
         if (mainText.isEmpty()) {
             sLyricContainer?.visibility = View.GONE
             return
@@ -539,7 +555,7 @@ class AodLyricHook {
         sSubLyric?.text = subText
         sSubLyric?.visibility = if (hasSub) View.VISIBLE else View.GONE
 
-        logI("applyLyric: main=$mainText sub=$subText")
+        logI("applyLyric: main=$mainText sub=$subText isTrans=${light.isTranslation}")
     }
 
     private fun readCurrentMediaTitle(ctx: Context): String {
