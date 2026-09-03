@@ -198,6 +198,59 @@ class AodLyricDisplayPolicyTest {
     }
 
     @Test
+    fun lyricSnapshotEmpty_forBlankOrBraces() {
+        assertTrue(AodLyricDisplayPolicy.isLyricSnapshotEmpty("{}"))
+        assertTrue(AodLyricDisplayPolicy.isLyricSnapshotEmpty("  "))
+        assertFalse(AodLyricDisplayPolicy.isLyricSnapshotEmpty("""{"l":"hi"}"""))
+    }
+
+    @Test
+    fun shouldReloadLyricFd_whenSnapshotEmptyEvenIfVersionUnchanged() {
+        // 重启后误记 version、内容未写入：必须允许同 version 重拉
+        assertTrue(
+            AodLyricDisplayPolicy.shouldReloadLyricFd(
+                oldVLyricFd = 10,
+                newVLyricFd = 10,
+                snapshotEmpty = true,
+            )
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldReloadLyricFd(
+                oldVLyricFd = 10,
+                newVLyricFd = 10,
+                snapshotEmpty = false,
+            )
+        )
+        assertTrue(
+            AodLyricDisplayPolicy.shouldReloadLyricFd(
+                oldVLyricFd = 9,
+                newVLyricFd = 10,
+                snapshotEmpty = false,
+            )
+        )
+    }
+
+    @Test
+    fun shouldReloadLightLyric_whenSnapshotEmpty() {
+        assertTrue(
+            AodLyricDisplayPolicy.shouldReloadLightLyric(
+                oldVLyric = 5,
+                newVLyric = 5,
+                snapshotEmpty = true,
+                fdVersionUnchangedOrFdFailed = true,
+            )
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldReloadLightLyric(
+                oldVLyric = 5,
+                newVLyric = 5,
+                snapshotEmpty = false,
+                fdVersionUnchangedOrFdFailed = true,
+            )
+        )
+    }
+
+    @Test
     fun cachedLineDisplay_prefersLineTranslationOverLightS() {
         val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
             currentText = "line",

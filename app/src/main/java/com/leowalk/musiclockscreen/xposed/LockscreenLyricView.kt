@@ -1662,17 +1662,18 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun doReadAndUpdate(newVLyric: Int, newVLyricFd: Int) {
         val oldVLyric = lastLyricVersion
         val oldVLyricFd = lastLyricFdVersion
+        val snapshotEmpty = AodLyricDisplayPolicy.isLyricSnapshotEmpty(lastLyricJson)
         try {
-            lastLyricVersion = newVLyric
-            lastLyricFdVersion = newVLyricFd
-
+            // 禁止在读到内容前进 version：否则读失败后 version 已对齐，轮询不再拉取，
+            // 只能等 LyricFocus 切源 bump——表现为「重启后要切源才出词」。
             val uri = Uri.parse(PROVIDER_URI)
 
-            // 1. FD 版本变化或首次加载 → 读全量
             var fdRead = false
-            if (oldVLyricFd != newVLyricFd || (oldVLyricFd < 0 && lastLyricJson == "{}")) {
+            var providerContacted = false
+            if (AodLyricDisplayPolicy.shouldReloadLyricFd(oldVLyricFd, newVLyricFd, snapshotEmpty)) {
                 try {
                     val fb = context.contentResolver.call(uri, "lyric_fd", null, null)
+                    providerContacted = true
                     val pfd = fb?.getParcelable("fd") as? android.os.ParcelFileDescriptor
                     if (pfd != null) {
                         val fis = FileInputStream(pfd.fileDescriptor)
@@ -1695,8 +1696,6 @@ class LockscreenLyricView(context: Context) : View(context) {
                                     cachedCtx = null
                                     cachedLines = null
                                 }
-                            } else {
-                                fdRead = false
                             }
                         } catch (_: Throwable) {
                         }
@@ -1706,10 +1705,16 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
             }
 
-            // 2. 轻量版本变化 → 合并 ctx（Provider 输出即最新）
-            if ((oldVLyric != newVLyric || oldVLyric < 0) && (oldVLyricFd == newVLyricFd || !fdRead)) {
+            val lightReload = AodLyricDisplayPolicy.shouldReloadLightLyric(
+                oldVLyric = oldVLyric,
+                newVLyric = newVLyric,
+                snapshotEmpty = AodLyricDisplayPolicy.isLyricSnapshotEmpty(lastLyricJson),
+                fdVersionUnchangedOrFdFailed = oldVLyricFd == newVLyricFd || !fdRead,
+            )
+            if (lightReload) {
                 try {
                     val lb = context.contentResolver.call(uri, "lyric", null, null)
+                    providerContacted = true
                     val j = lb?.getString("n")
                     if (j != null) {
                         try {
@@ -1718,6 +1723,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                                 !neu.has("title") && !neu.has("ctx")
                             if (emptyPush) {
                                 resolveNoLyric()
+                                lastLyricVersion = newVLyric
+                                lastLyricFdVersion = newVLyricFd
                             } else if (!AodLyricDisplayPolicy.hasValidLyricLines(neu)) {
                                 val old = try {
                                     JSONObject(lastLyricJson)
@@ -1785,9 +1792,23 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
 
             applyLyricFromJson()
+
+            // 仍无快照且本次未成功提交 version → 保持旧 version，下轮继续拉
+            if (AodLyricDisplayPolicy.isLyricSnapshotEmpty(lastLyricJson) &&
+                lastLyricVersion == oldVLyric &&
+                lastLyricFdVersion == oldVLyricFd
+            ) {
+                if (providerContacted && newVLyricFd < 0 && newVLyric <= 0) {
+                    lastLyricVersion = newVLyric
+                    lastLyricFdVersion = newVLyricFd
+                } else {
+                    dataDirty = true
+                }
+            }
         } catch (e: Throwable) {
             lastLyricVersion = oldVLyric
             lastLyricFdVersion = oldVLyricFd
+            dataDirty = true
             logE("doReadAndUpdate fail", e)
         }
     }

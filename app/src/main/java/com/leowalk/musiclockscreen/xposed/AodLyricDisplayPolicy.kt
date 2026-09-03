@@ -227,6 +227,38 @@ internal object AodLyricDisplayPolicy {
         return translations.any { it.trim().isNotEmpty() }
     }
 
+    /** 本地歌词快照是否为空（需向 Provider 重拉）。 */
+    fun isLyricSnapshotEmpty(lastLyricJson: String): Boolean {
+        return lastLyricJson.isBlank() || lastLyricJson.trim() == "{}"
+    }
+
+    /**
+     * 是否应重读全量 FD。
+     * 快照为空时即使 version 未变也要重拉——避免「先记 version、读失败」后卡死，
+     * 直到 LyricFocus 切源 bump 才恢复。
+     */
+    fun shouldReloadLyricFd(
+        oldVLyricFd: Int,
+        newVLyricFd: Int,
+        snapshotEmpty: Boolean,
+    ): Boolean {
+        if (oldVLyricFd != newVLyricFd) return true
+        if (snapshotEmpty && newVLyricFd >= 0) return true
+        return oldVLyricFd < 0 && snapshotEmpty
+    }
+
+    /** 是否应重读轻量 lyric（全量未成功或仅 light 版本变化）。 */
+    fun shouldReloadLightLyric(
+        oldVLyric: Int,
+        newVLyric: Int,
+        snapshotEmpty: Boolean,
+        fdVersionUnchangedOrFdFailed: Boolean,
+    ): Boolean {
+        if (!fdVersionUnchangedOrFdFailed) return false
+        if (oldVLyric != newVLyric || oldVLyric < 0) return true
+        return snapshotEmpty
+    }
+
     /** 原文/翻译互换：仅当第二行确认为翻译时生效。 */
     fun applyLyricSwap(
         rawMain: String,
