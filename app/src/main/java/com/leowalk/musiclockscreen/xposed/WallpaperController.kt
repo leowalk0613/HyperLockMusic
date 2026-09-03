@@ -486,6 +486,8 @@ object WallpaperController {
                 "silent update coalesced: in-flight track=$targetKey " +
                     "applied=${appliedWallpaperTrackKey()}"
             )
+            // 同曲合并时壁纸不重建，但仍可能缺 overlay / 取色（切歌空窗清过）
+            recoverAlbumVisualsIfNeeded()
             return true
         }
         val jobId = submit.job!!.jobId
@@ -538,6 +540,8 @@ object WallpaperController {
                         logE("silent update: build failed, keep lagging for poll/retry")
                         wallpaperLayoutStale = true
                         pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
+                        // pending 已清 fog；构建失败时补取色，避免空窗卡死
+                        mainHandler.post { ensureLyricFogReady() }
                         return@Thread
                     }
                     pipelineGate.withLock { pipeline.markPreviewed(jobId) }
@@ -571,14 +575,35 @@ object WallpaperController {
                     logE("updateMusicWallpaperSilently async error", e)
                     wallpaperLayoutStale = true
                     pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
+                    mainHandler.post { ensureLyricFogReady() }
                 }
             }.start()
             return true
         } catch (e: Throwable) {
             logE("updateMusicWallpaperSilently error", e)
             pipelineGate.withLock { pipeline.markBuildFailed(jobId) }
+            ensureLyricFogReady()
             return false
         }
+    }
+
+    /** 同曲 coalesce / 补刷：用缓存封面刷新 overlay 与取色，不重做壁纸。 */
+    private fun recoverAlbumVisualsIfNeeded() {
+        val lyric = MusicLockscreenManager.lyricView as? LockscreenLyricView
+        val art = AlbumArtResolver.getCached()?.takeIf { !it.isRecycled }
+            ?: lastSystemAlbumBitmap?.takeIf { !it.isRecycled }
+            ?: lastWallpaperAlbumBitmap?.takeIf { !it.isRecycled }
+        val hasArt = art != null
+        val fogReady = lyric?.isFogBackgroundReady() == true
+        val overlayEmpty = !MusicLockscreenManager.hasAlbumArtDisplayed()
+        if (!AlbumVisualRefreshPolicy.shouldRecoverVisualsOnCoalesce(hasArt, fogReady, overlayEmpty)) {
+            return
+        }
+        logI("coalesce recover visuals fogReady=$fogReady overlayEmpty=$overlayEmpty")
+        if (art != null) {
+            MusicLockscreenManager.updateAlbumBitmap(art)
+        }
+        ensureLyricFogReady()
     }
 
     private data class BlurredWallpaperResult(

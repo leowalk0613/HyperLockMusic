@@ -235,17 +235,37 @@ class MediaAlbumClickHook {
                         WallpaperController.markWallpaperStale()
                         return@postDelayed
                     }
-                    val key = AlbumArtResolver.getCachedTrackKey()
-                    if (key != null && key == WallpaperController.currentWallpaperTrackKey()) {
-                        return@postDelayed
-                    }
                     val meta = bindMeta
                         ?: AlbumArtResolver.getBindMetadata()
                         ?: WallpaperController.peekSessionMetadata(appCtx)
                     AlbumArtResolver.refreshFromSessionMetadata(appCtx, meta)
+                    val key = AlbumArtResolver.getCachedTrackKey()
                     val art = AlbumArtResolver.getCached()
-                    if (art != null) {
+                    val lyric = MusicLockscreenManager.lyricView as? LockscreenLyricView
+                    val action = AlbumVisualRefreshPolicy.decideArtRetry(
+                        trackKey = key,
+                        wallpaperTrackKey = WallpaperController.currentWallpaperTrackKey(),
+                        hasCachedArt = art != null && !art.isRecycled,
+                        fogReady = lyric?.isFogBackgroundReady() == true,
+                    )
+                    if (action.refreshAlbumOverlay && art != null) {
                         MusicLockscreenManager.updateAlbumBitmap(art)
+                    }
+                    if (action.refreshFogTint && art != null) {
+                        val copy = try {
+                            art.copy(art.config ?: android.graphics.Bitmap.Config.ARGB_8888, false)
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        if (copy != null) {
+                            lyric?.onWallpaperAlbumReady(copy, key)
+                        }
+                    }
+                    if (action.skipWallpaperRebuild) {
+                        logI(
+                            "art retry visuals-only delay=${delay}ms hasArt=${art != null} key=$key"
+                        )
+                        return@postDelayed
                     }
                     WallpaperController.setMusicWallpaper(appCtx, null, true, meta)
                     logI("art retry refresh done delay=${delay}ms hasArt=${art != null} key=$key")

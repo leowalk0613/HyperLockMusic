@@ -240,6 +240,14 @@ object MusicLockscreenManager {
         }
     }
 
+    fun hasAlbumArtDisplayed(): Boolean {
+        return try {
+            bigAlbumView?.hasAlbumArt() == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     private fun logI(msg: String) {
         logCallback?.invoke(android.util.Log.INFO, tag, msg, null)
     }

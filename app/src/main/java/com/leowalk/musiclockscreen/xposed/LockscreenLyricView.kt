@@ -740,10 +740,13 @@ class LockscreenLyricView(context: Context) : View(context) {
                         !HookUtils.isOnKeyguard(context)
                     ) {
                         if (ownsAlbumCopy && !album.isRecycled) album.recycle()
+                        // pending 抬升 generation 作废了在飞取色：稳定后补一次，避免取色永久空窗
+                        scheduleFogTintRecovery(abandonedGeneration = fogBuildGeneration)
                         return@post
                     }
                     if (expectedKey != null && expectedKey != AlbumArtResolver.getCachedTrackKey()) {
                         if (ownsAlbumCopy && !album.isRecycled) album.recycle()
+                        scheduleFogTintRecovery(abandonedGeneration = fogBuildGeneration)
                         return@post
                     }
                     fogTintColor = tintColor
@@ -766,6 +769,20 @@ class LockscreenLyricView(context: Context) : View(context) {
                 if (ownsAlbumCopy && !album.isRecycled) album.recycle()
             }
         }.start()
+    }
+
+    /**
+     * 取色线程被 generation 作废后：若一段时间无新的 pending，用当前缓存封面再取一次。
+     */
+    private fun scheduleFogTintRecovery(abandonedGeneration: Int) {
+        handler.postDelayed({
+            if (!isMusicLockscreenActive() || !HookUtils.isOnKeyguard(context)) return@postDelayed
+            if (abandonedGeneration != fogBuildGeneration) return@postDelayed
+            if (isFogBackgroundReady()) return@postDelayed
+            val album = AlbumArtResolver.getCached()?.takeIf { !it.isRecycled } ?: return@postDelayed
+            logI("fog tint recovery after abandoned gen=$abandonedGeneration")
+            onWallpaperAlbumReady(null, AlbumArtResolver.getCachedTrackKey())
+        }, 150L)
     }
 
     /** 渐变遮罩是否已生成（沉浸模式仅需专辑取色用于文字染色）。 */

@@ -205,6 +205,13 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         releaseCompositeCache()
     }
 
+    /** overlay 是否持有可绘制封面（切歌空窗 clear 后为 false）。 */
+    fun hasAlbumArt(): Boolean {
+        val bmp = ownedAlbumBitmap
+        if (bmp != null && !bmp.isRecycled) return true
+        return legacyDrawableFallback && albumView.drawable != null
+    }
+
     fun showForMusicLockscreen() {
         if (!ConfigReader.showBigAlbum(context)) {
             visibility = GONE
