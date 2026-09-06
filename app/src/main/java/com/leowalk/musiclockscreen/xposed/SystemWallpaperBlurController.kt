@@ -29,12 +29,13 @@ internal object SystemWallpaperBlurController {
         layer.post { sync(layer.context) }
     }
 
-    /** 音乐锁屏开启时应用系统模糊，关闭时清除。 */
+    /** 音乐锁屏开启且非沉浸专辑时应用系统模糊；沉浸为 Monet 色底，不开模糊遮罩。 */
     fun sync(context: Context? = null) {
         val layer = bgLayerRef?.get()
         val ctx = context ?: layer?.context ?: return
         val want = shouldApply(
             musicLockscreenActive = WallpaperController.isShowing() || MusicLockscreenManager.isShowing,
+            immersiveAlbum = ConfigReader.immersiveAlbum(ctx),
         )
         if (want) {
             val radius = mapSliderToWallpaperBlurRadius(ConfigReader.blurRadius(ctx))
@@ -44,7 +45,9 @@ internal object SystemWallpaperBlurController {
         }
     }
 
-    fun shouldApply(musicLockscreenActive: Boolean): Boolean = musicLockscreenActive
+    fun shouldApply(musicLockscreenActive: Boolean, immersiveAlbum: Boolean = false): Boolean {
+        return musicLockscreenActive && !immersiveAlbum
+    }
 
     /** 设置页 10–200 → ViewRootImpl.setWallpaperBlur 常用 0–100。 */
     fun mapSliderToWallpaperBlurRadius(sliderDp: Float): Int {

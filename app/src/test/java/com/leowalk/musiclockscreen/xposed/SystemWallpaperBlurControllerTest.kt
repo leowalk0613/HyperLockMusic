@@ -9,8 +9,13 @@ class SystemWallpaperBlurControllerTest {
 
     @Test
     fun shouldApply_whenMusicLockscreenActive() {
-        assertTrue(SystemWallpaperBlurController.shouldApply(true))
-        assertFalse(SystemWallpaperBlurController.shouldApply(false))
+        assertTrue(SystemWallpaperBlurController.shouldApply(true, immersiveAlbum = false))
+        assertFalse(SystemWallpaperBlurController.shouldApply(false, immersiveAlbum = false))
+    }
+
+    @Test
+    fun shouldApply_falseWhenImmersiveAlbum() {
+        assertFalse(SystemWallpaperBlurController.shouldApply(true, immersiveAlbum = true))
     }
 
     @Test
