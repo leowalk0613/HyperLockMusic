@@ -54,10 +54,9 @@ class SystemWallpaperBlurControllerTest {
     }
 
     @Test
-    fun bakeBlurRadius_alwaysLight() {
-        val light = SystemWallpaperBlurController.bakeBlurRadius(80f)
-        assertTrue(light < 20f)
-        assertTrue(light >= 3f)
+    fun bakeBlurRadius_disabledWhenMiBlurOwnsBlur() {
+        assertEquals(0f, SystemWallpaperBlurController.bakeBlurRadius(80f), 0f)
+        assertEquals(0f, SystemWallpaperBlurController.bakeBlurRadius(200f), 0f)
     }
 
     @Test

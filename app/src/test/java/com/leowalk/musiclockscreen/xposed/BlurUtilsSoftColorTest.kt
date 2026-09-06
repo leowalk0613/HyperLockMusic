@@ -42,10 +42,8 @@ class BlurUtilsSoftColorTest {
     }
 
     @Test
-    fun softColorDownsample_oldMinClampWouldDistortPortrait() {
-        // Regress the bug: max(24, w*scale) + max(24, h*scale) on 1080x2400 → ~24x24 square.
-        val (sw, sh) = BlurUtils.softColorDownsampleSize(1080, 2400, radius = 100f)
-        assertTrue(sw != sh)
-        assertTrue(sw.toFloat() / sh < 0.6f)
+    fun softColorDownsample_keepsEnoughResolutionAgainstMosaic() {
+        val (sw, sh) = BlurUtils.softColorDownsampleSize(1080, 2400, radius = 14f)
+        assertTrue("max side too small → mosaic: $sw x $sh", maxOf(sw, sh) >= 160)
     }
 }

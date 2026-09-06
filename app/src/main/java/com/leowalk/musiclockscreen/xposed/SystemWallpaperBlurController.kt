@@ -63,9 +63,12 @@ internal object SystemWallpaperBlurController {
         return (t * 100f).toInt().coerceIn(0, 100)
     }
 
-    /** Bitmap softColor 缩小力度（轻铺底；重糊交给 MiBlur）。 */
+    /**
+     * Bitmap 侧不再 softColor 降采样（易呈小方格）；模糊与暗角由锁屏 MiBlur 遮罩完成。
+     * 返回 0 → [BlurUtils.blurWithBigAlbum] 直接铺封面。
+     */
     fun bakeBlurRadius(sliderDp: Float): Float {
-        return (sliderDp * 0.1f).coerceIn(3f, 14f)
+        return 0f
     }
 
     /** Bitmap 暗色只留轻量；重浓度交给 [maskDarkOverlayAlpha]。 */

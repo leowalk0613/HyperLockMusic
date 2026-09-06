@@ -123,8 +123,14 @@ object BlurUtils {
         val blurBaseH = (th.toFloat() * blurBaseW / tw).toInt().coerceAtLeast(1)
         val cover = scaleCenterCrop(blurSource, blurBaseW, blurBaseH)
 
-        val blurred = softColorBlur(cover, radius)
-        cover.recycle()
+        // 重糊交给锁屏 MiBlur 遮罩。Bitmap softColor 过小会呈小方格，故 bake 半径 <1 时直接铺封面。
+        val blurred = if (radius < 1f) {
+            cover
+        } else {
+            softColorBlur(cover, radius).also {
+                if (it !== cover) cover.recycle()
+            }
+        }
 
         val wallpaper = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(wallpaper)
@@ -387,10 +393,11 @@ object BlurUtils {
 
     /**
      * softColor 降采样尺寸：严格按源图纵横比缩放（最长边对齐 targetMaxSide）。
+     * 下限抬高，避免缩到几十像素后放大呈小方格（壁纸主路径已跳过 softColor，此处供其它调用）。
      */
     internal fun softColorDownsampleSize(srcW: Int, srcH: Int, radius: Float): Pair<Int, Int> {
         val r = radius.coerceIn(1f, 150f)
-        val targetMaxSide = (160f - r * 6f).coerceIn(24f, 80f).toInt()
+        val targetMaxSide = (360f - r * 1.2f).coerceIn(160f, 320f).toInt()
         return if (srcW >= srcH) {
             val sw = targetMaxSide
             val sh = max(1, (targetMaxSide.toFloat() * srcH / srcW).roundToInt())
