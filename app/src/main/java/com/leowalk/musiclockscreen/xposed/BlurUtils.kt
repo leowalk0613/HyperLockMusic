@@ -16,7 +16,7 @@ import kotlin.math.min
 /**
  * 模糊工具类
  *
- * 背景 softColor：缩小 → 放大色块（无 StackBlur）；重糊走系统合成器。
+ * 背景 softColor：缩小 → 放大色块；重糊走系统合成器。
  */
 object BlurUtils {
 
@@ -361,8 +361,7 @@ object BlurUtils {
     }
 
     /**
-     * 壁纸 Bitmap 色块铺底：仅缩小再放大做 softColor，**不再 StackBlur**。
-     * 重糊交给 [SystemWallpaperBlurController]（setWallpaperBlur / MiBlur）。
+     * 壁纸 Bitmap 色块铺底：仅缩小再放大做 softColor。
      * [radius] 仍控制缩小力度（越大越小块、越糊）。
      */
     fun softColorBlur(bitmap: Bitmap, radius: Float): Bitmap {
@@ -409,137 +408,5 @@ object BlurUtils {
         val cropped = Bitmap.createBitmap(scaled, x, y, dstW.coerceAtMost(scaledW), dstH.coerceAtMost(scaledH))
         if (scaled != cropped) scaled.recycle()
         return cropped
-    }
-
-    /**
-     * iOS 风格模糊：先放大 → StackBlur → 暗色遮罩
-     */
-    @Deprecated("Use blurWithBigAlbum instead")
-    fun blurIosStyle(bitmap: Bitmap, radius: Float, darkOverlayAlpha: Int = 80): Bitmap {
-        // 1. 先放大到屏幕尺寸（避免边缘发黑，模拟 iOS 的大半径模糊）
-        val screenWidth = 1080 // 目标宽度，实际运行时会自适应
-        val scaleFactor = 2f // 放大倍数
-        val scaled = Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * scaleFactor).toInt(),
-            (bitmap.height * scaleFactor).toInt(),
-            true
-        )
-
-        // 2. StackBlur 模糊
-        val blurred = stackBlur(scaled, radius.toInt())
-
-        // 3. 叠加暗色遮罩
-        val result = Bitmap.createBitmap(blurred.width, blurred.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
-        canvas.drawBitmap(blurred, 0f, 0f, null)
-
-        val paint = Paint().apply {
-            color = Color.argb(darkOverlayAlpha, 0, 0, 0)
-            isAntiAlias = true
-        }
-        canvas.drawRect(0f, 0f, blurred.width.toFloat(), blurred.height.toFloat(), paint)
-
-        scaled.recycle()
-        blurred.recycle()
-
-        return result
-    }
-
-    /**
-     * StackBlur 算法 - 高效的盒式模糊近似高斯模糊
-     * 基于 Mario Klingemann 的 StackBlur 算法
-     */
-    fun stackBlur(bitmap: Bitmap, radius: Int): Bitmap {
-        if (radius <= 0) return bitmap.copy(bitmap.config, true)
-
-        val w = bitmap.width
-        val h = bitmap.height
-        val pixels = IntArray(w * h)
-        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-
-        val resultPixels = IntArray(w * h)
-        stackBlurHorizontal(pixels, resultPixels, w, h, radius)
-        stackBlurVertical(resultPixels, pixels, w, h, radius)
-
-        val result = Bitmap.createBitmap(w, h, bitmap.config ?: Bitmap.Config.ARGB_8888)
-        result.setPixels(pixels, 0, w, 0, 0, w, h)
-        return result
-    }
-
-    private fun stackBlurHorizontal(input: IntArray, output: IntArray, w: Int, h: Int, r: Int) {
-        val widthMinus1 = w - 1
-        val div = r + r + 1
-
-        for (y in 0 until h) {
-            var rSum = 0
-            var gSum = 0
-            var bSum = 0
-            var aSum = 0
-
-            val rowStart = y * w
-
-            // 初始化窗口
-            for (i in -r..r) {
-                val pixel = input[rowStart + (i.coerceIn(0, widthMinus1))]
-                rSum += (pixel shr 16) and 0xFF
-                gSum += (pixel shr 8) and 0xFF
-                bSum += pixel and 0xFF
-                aSum += (pixel shr 24) and 0xFF
-            }
-
-            for (x in 0 until w) {
-                output[rowStart + x] = ((aSum / div) shl 24) or
-                        ((rSum / div) shl 16) or
-                        ((gSum / div) shl 8) or
-                        (bSum / div)
-
-                // 滑动窗口
-                val pixelOut = input[rowStart + ((x - r).coerceIn(0, widthMinus1))]
-                val pixelIn = input[rowStart + ((x + r + 1).coerceIn(0, widthMinus1))]
-
-                rSum += ((pixelIn shr 16) and 0xFF) - ((pixelOut shr 16) and 0xFF)
-                gSum += ((pixelIn shr 8) and 0xFF) - ((pixelOut shr 8) and 0xFF)
-                bSum += (pixelIn and 0xFF) - (pixelOut and 0xFF)
-                aSum += ((pixelIn shr 24) and 0xFF) - ((pixelOut shr 24) and 0xFF)
-            }
-        }
-    }
-
-    private fun stackBlurVertical(input: IntArray, output: IntArray, w: Int, h: Int, r: Int) {
-        val heightMinus1 = h - 1
-        val div = r + r + 1
-
-        for (x in 0 until w) {
-            var rSum = 0
-            var gSum = 0
-            var bSum = 0
-            var aSum = 0
-
-            // 初始化窗口
-            for (i in -r..r) {
-                val pixel = input[(i.coerceIn(0, heightMinus1)) * w + x]
-                rSum += (pixel shr 16) and 0xFF
-                gSum += (pixel shr 8) and 0xFF
-                bSum += pixel and 0xFF
-                aSum += (pixel shr 24) and 0xFF
-            }
-
-            for (y in 0 until h) {
-                output[y * w + x] = ((aSum / div) shl 24) or
-                        ((rSum / div) shl 16) or
-                        ((gSum / div) shl 8) or
-                        (bSum / div)
-
-                // 滑动窗口
-                val pixelOut = input[((y - r).coerceIn(0, heightMinus1)) * w + x]
-                val pixelIn = input[((y + r + 1).coerceIn(0, heightMinus1)) * w + x]
-
-                rSum += ((pixelIn shr 16) and 0xFF) - ((pixelOut shr 16) and 0xFF)
-                gSum += ((pixelIn shr 8) and 0xFF) - ((pixelOut shr 8) and 0xFF)
-                bSum += (pixelIn and 0xFF) - (pixelOut and 0xFF)
-                aSum += ((pixelIn shr 24) and 0xFF) - ((pixelOut shr 24) and 0xFF)
-            }
-        }
     }
 }

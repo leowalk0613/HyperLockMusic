@@ -124,7 +124,6 @@ adb logcat -s HyperLockMusic HyperLockMusic_Lyric HyperLockMusic_Wallpaper Hyper
 - **Android Jetpack（AndroidX）** — 应用层基础组件（Core KTX、AppCompat 等）（https://developer.android.com/jetpack）
 - **Material Components for Android** — 设置页 Material 3 控件与主题（https://github.com/material-components/material-components-android）
 - **Material Color Utilities** — 沉浸封面等场景的 Monet / HCT 取色（https://github.com/material-foundation/material-color-utilities）
-- **StackBlur（Mario Klingemann）** — 专辑壁纸模糊所用的高效盒式模糊算法（Android 移植：[kikoso/android-stackblur](https://github.com/kikoso/android-stackblur)）
 - **HyperLyric** — AOD「完整媒体控件」参考其禁用媒体卡片折叠的实现思路（[limczhh/HyperLyric](https://github.com/limczhh/HyperLyric)）。**AOD 进度条实时更新为本模块自实现**
 
 ## 免责声明

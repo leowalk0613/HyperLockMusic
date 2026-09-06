@@ -55,7 +55,7 @@ internal object SystemWallpaperBlurController {
         return (t * 100f).toInt().coerceIn(0, 100)
     }
 
-    /** Bitmap softColor 缩小力度（不再 StackBlur）。 */
+    /** Bitmap softColor 缩小力度。 */
     fun bakeBlurRadius(sliderDp: Float): Float {
         return (sliderDp * 0.1f).coerceIn(3f, 14f)
     }

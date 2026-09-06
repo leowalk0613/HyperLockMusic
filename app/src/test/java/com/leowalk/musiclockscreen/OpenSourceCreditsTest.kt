@@ -22,9 +22,9 @@ class OpenSourceCreditsTest {
         assertTrue(names.any { it.contains("LSPosed", ignoreCase = true) })
         assertTrue(names.any { it.contains("Material Components", ignoreCase = true) })
         assertTrue(names.any { it.contains("Material Color Utilities", ignoreCase = true) })
-        assertTrue(names.any { it.contains("StackBlur", ignoreCase = true) })
         assertTrue(names.any { it.contains("AndroidX", ignoreCase = true) || it.contains("Jetpack", ignoreCase = true) })
         assertTrue(names.any { it.contains("HyperLyric", ignoreCase = true) })
+        assertFalse(names.any { it.contains("StackBlur", ignoreCase = true) })
     }
 
     @Test
