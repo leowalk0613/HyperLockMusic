@@ -117,6 +117,15 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.lyricAlign = alignModes[index]
             ModuleConfig.push(this)
         })
+        immersiveOnlyBlock!!.addView(M3.switchRow(
+            this,
+            "三行上滑",
+            "显示上一句与下一句；当前行居中更实，邻行更透；超出区域上下裁切。AOD 自动退回单行",
+            ModuleConfig.immersiveLyricStack,
+        ) { checked ->
+            ModuleConfig.immersiveLyricStack = checked
+            ModuleConfig.push(this)
+        })
         immersiveOnlyBlock!!.addView(TextView(this).apply {
             text = "区块大小/底边请到「专辑封面」调整（与大专辑共用）。"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
@@ -160,6 +169,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, card))
         list.addView(M3.card(this, M3.tipContent(this,
             "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
+                "沉浸「三行上滑」仅亮屏生效，AOD 自动退回单行无动画。\n" +
                 "灰显项表示当前歌词样式下不生效。")))
 
         refreshModeUi()
@@ -178,8 +188,8 @@ class LyricStyleActivity : BaseScrollingActivity() {
         modeHint?.text = when {
             !enabled -> "歌词功能已在主界面关闭，样式设置暂不生效。"
             !show -> "显示歌词已关闭，样式设置暂不生效。"
-            immersive -> "当前：沉浸歌词。字号固定；宽度/底边用专辑设置；对齐可用；隐藏背景无效。"
-            else -> "当前：普通歌词。字号/宽度/底边/隐藏背景可用；对齐仅沉浸歌词生效。"
+            immersive -> "当前：沉浸歌词。字号固定；宽度/底边用专辑设置；对齐可用；可开三行上滑；隐藏背景无效。"
+            else -> "当前：普通歌词。字号/宽度/底边/隐藏背景可用；对齐与三行上滑仅沉浸歌词生效。"
         }
     }
 
