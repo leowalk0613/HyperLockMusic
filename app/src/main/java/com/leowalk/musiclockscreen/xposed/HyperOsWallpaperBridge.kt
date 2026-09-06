@@ -20,6 +20,7 @@ object HyperOsWallpaperBridge {
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
     fun bindKeyguardPanel(panelVc: Any) {
+        KeyguardDepthEffectPolicy.bindPanel(panelVc)
         logI("bindKeyguardPanel ok")
     }
 

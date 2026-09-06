@@ -55,6 +55,11 @@ class MainHook : XposedModule() {
                             log(p, t, m, tr)
                         }
                     }
+                    installSafe(param.classLoader, this, "KeyguardDepthEffectHook") {
+                        KeyguardDepthEffectHook.install(param.classLoader, this) { p, t, m, tr ->
+                            log(p, t, m, tr)
+                        }
+                    }
                 }
                 PACKAGE_AOD -> {
                     installSafe(param.classLoader, this, "AodLyricHook") {

@@ -323,6 +323,7 @@ object WallpaperController {
                 }
                 LockscreenNotificationController.forceHideNormalNotifications()
                 MusicLockscreenManager.setShowingState(true)
+                KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
                 (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.ensureLyricsLoaded()
                 updateMusicWallpaperSilently(context, albumDrawable, bestMeta, ignoreCache = true)
                 return true
@@ -370,6 +371,7 @@ object WallpaperController {
 
             LockscreenNotificationController.forceHideNormalNotifications()
             MusicLockscreenManager.setShowingState(true)
+            KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
 
             val lyricView = MusicLockscreenManager.lyricView
             if (lyricView != null) {
@@ -1151,6 +1153,7 @@ object WallpaperController {
             MusicLockscreenManager.updateBlurredBitmap(null)
             MusicLockscreenManager.setShowingState(false)
             MusicLockscreenManager.hideAlbumOverlay()
+            KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
 
             try {
