@@ -432,7 +432,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         val current = stackCurrentLayout ?: return
         val h = height.toFloat()
         val centerY = h * 0.5f
-        val fontLineH = mainPaint.fontMetrics.run { bottom - top }
         val offset = stackScrollOffset
         val currentTop = centerY + offset - current.height * 0.5f
 
@@ -440,13 +439,13 @@ class LockscreenLyricView(context: Context) : View(context) {
         // 允许上一句/下一句被歌词区域上下沿裁切
         canvas.clipRect(0f, 0f, w, h)
 
-        // 当前行永远居中；上一句底边与当前顶边保持固定空隙（与当前换行高度无关）
+        // 当前行永远居中；上一句↔当前 = 翻译↔下一句 = lineGapPx
         val prev = stackPrevLayout
         if (prev != null) {
             val prevTop = ImmersiveLyricStackPolicy.prevTopPx(
                 currentTop = currentTop,
                 prevHeight = prev.height.toFloat(),
-                fontLineHeightPx = fontLineH,
+                gapPx = lineGapPx,
             )
             drawStackLineTop(
                 canvas,
@@ -2434,7 +2433,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun animateStackAdvance() {
         cancelStackAnimator()
         val fontLineH = mainPaint.fontMetrics.run { bottom - top }
-        val step = ImmersiveLyricStackPolicy.scrollStepPx(fontLineH)
+        val step = ImmersiveLyricStackPolicy.scrollStepPx(fontLineH, lineGapPx)
         stackScrollOffset = step
         stackAnimator = ValueAnimator.ofFloat(step, 0f).apply {
             duration = stackAnimMs
