@@ -123,14 +123,10 @@ object BlurUtils {
         val blurBaseH = (th.toFloat() * blurBaseW / tw).toInt().coerceAtLeast(1)
         val cover = scaleCenterCrop(blurSource, blurBaseW, blurBaseH)
 
-        // 重糊交给锁屏 MiBlur 遮罩。Bitmap softColor 过小会呈小方格，故 bake 半径 <1 时直接铺封面。
-        val blurred = if (radius < 1f) {
-            cover
-        } else {
-            softColorBlur(cover, radius).also {
-                if (it !== cover) cover.recycle()
-            }
-        }
+        // softColor 用大采样铺柔化底；锁屏 MiBlur 遮罩再叠一层。勿缩到几十像素（会呈小方格）。
+        val blurred = softColorBlur(cover, radius)
+        if (blurred !== cover) cover.recycle()
+
 
         val wallpaper = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(wallpaper)
@@ -368,8 +364,8 @@ object BlurUtils {
     }
 
     /**
-     * 壁纸 Bitmap softColor：等比缩小再放大。
-     * 宽高必须同比例缩放，禁止对单边单独抬到固定像素（否则竖图会被压成方块再拉回全屏，看起来竖向拉长）。
+     * 壁纸 Bitmap softColor：等比缩小再放大（单次，不做二次缩半以免加重马赛克）。
+     * 最长边保持 ≥160，避免小方格。
      */
     fun softColorBlur(bitmap: Bitmap, radius: Float): Bitmap {
         val w = bitmap.width
@@ -377,17 +373,9 @@ object BlurUtils {
         if (w <= 0 || h <= 0) return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
 
         val (sw, sh) = softColorDownsampleSize(w, h, radius)
-        var work = Bitmap.createScaledBitmap(bitmap, sw, sh, true)
-        // 二次柔化：等比收到一半再拉回
-        val midW = max(1, sw / 2)
-        val midH = max(1, sh / 2)
-        val mid = Bitmap.createScaledBitmap(work, midW, midH, true)
-        work.recycle()
-        work = Bitmap.createScaledBitmap(mid, sw, sh, true)
-        mid.recycle()
-
+        val work = Bitmap.createScaledBitmap(bitmap, sw, sh, true)
         val result = Bitmap.createScaledBitmap(work, w, h, true)
-        work.recycle()
+        if (work !== result) work.recycle()
         return result
     }
 

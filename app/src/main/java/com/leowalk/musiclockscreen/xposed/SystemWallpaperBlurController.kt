@@ -64,11 +64,11 @@ internal object SystemWallpaperBlurController {
     }
 
     /**
-     * Bitmap 侧不再 softColor 降采样（易呈小方格）；模糊与暗角由锁屏 MiBlur 遮罩完成。
-     * 返回 0 → [BlurUtils.blurWithBigAlbum] 直接铺封面。
+     * Bitmap softColor 力度：大采样铺柔化底（配合 [BlurUtils.softColorDownsampleSize] ≥160）。
+     * 锁屏 MiBlur 遮罩继续叠在上面；解锁后只清遮罩，不影响桌面。
      */
     fun bakeBlurRadius(sliderDp: Float): Float {
-        return 0f
+        return (sliderDp * 0.4f).coerceIn(12f, 80f)
     }
 
     /** Bitmap 暗色只留轻量；重浓度交给 [maskDarkOverlayAlpha]。 */
@@ -133,17 +133,23 @@ internal object SystemWallpaperBlurController {
     private fun applyMiBlurMask(bgLayer: ViewGroup, radius: Int, darkOverlay: Int) {
         val mask = bgLayer.findViewWithTag<View>(MASK_TAG) ?: return
         try {
-            val miRadius = (radius * 1.2f).toInt().coerceIn(0, 120)
-            val viaSystem = trySystemContainerPassBlur(mask, miRadius)
-            if (!viaSystem) {
-                invokeBool(mask, "setPassWindowBlurEnabled", true)
-                invokeInt(mask, "setMiBackgroundBlurMode", 1)
-                invokeInt(mask, "setMiBackgroundBlurRadius", miRadius)
+            val miRadius = (radius * 1.35f).toInt().coerceIn(8, 130)
+            // 系统 API 与反射双写：部分机型 setContainerPassBlur 返回 true 但半径未生效
+            trySystemContainerPassBlur(mask, miRadius)
+            invokeBool(mask, "setPassWindowBlurEnabled", true)
+            invokeInt(mask, "setMiBackgroundBlurMode", 1)
+            invokeInt(mask, "setMiBackgroundBlurRadius", miRadius)
+            try {
+                View::class.java.getMethod("disableMiBackgroundContainBelow", Boolean::class.javaPrimitiveType)
+                    .also { it.isAccessible = true }
+                    .invoke(mask, true)
+            } catch (_: Throwable) {
             }
             val a = maskDarkOverlayAlpha(darkOverlay)
             mask.setBackgroundColor(Color.argb(a, 0, 0, 0))
             mask.visibility = View.VISIBLE
             mask.alpha = 1f
+            logI("miMask radius=$miRadius darkA=$a")
         } catch (e: Throwable) {
             logE("applyMiBlurMask failed", e)
         }
