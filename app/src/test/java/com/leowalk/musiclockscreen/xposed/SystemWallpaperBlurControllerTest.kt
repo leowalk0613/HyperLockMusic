@@ -57,22 +57,23 @@ class SystemWallpaperBlurControllerTest {
     fun bakeBlurRadius_alwaysLight() {
         val light = SystemWallpaperBlurController.bakeBlurRadius(80f)
         assertTrue(light < 20f)
-        assertTrue(light >= 4f)
+        assertTrue(light >= 3f)
     }
 
     @Test
-    fun bakeDarkOverlay_scalesWithSlider() {
+    fun bakeDarkOverlay_staysLight_maskCarriesDensity() {
         val baked = SystemWallpaperBlurController.bakeDarkOverlay(140)
-        assertTrue(baked < 140)
-        assertTrue(baked <= 160)
-        assertTrue(baked > 50)
+        assertTrue(baked <= 60)
+        assertTrue(baked > 0)
+        assertTrue(baked < SystemWallpaperBlurController.maskDarkOverlayAlpha(140))
         assertEquals(0, SystemWallpaperBlurController.bakeDarkOverlay(0))
     }
 
     @Test
-    fun maskDarkOverlayAlpha_legacyHelper() {
+    fun maskDarkOverlayAlpha_scalesWithSlider() {
         val mask = SystemWallpaperBlurController.maskDarkOverlayAlpha(140)
         assertTrue(mask <= 180)
-        assertTrue(mask > 0)
+        assertTrue(mask > 50)
     }
 }
+

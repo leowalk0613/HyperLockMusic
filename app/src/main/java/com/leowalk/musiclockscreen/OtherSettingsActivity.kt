@@ -110,7 +110,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, titleCard))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "模糊强度控制壁纸 softColor 色块柔化；暗色画在 Bitmap 上（已去掉全屏 MiBlur，避免十字暗纹）。重新开关音乐锁屏后生效。\n\n" +
+            "模糊强度与暗色主要由锁屏层 MiBlur 遮罩控制（不糊共享壁纸，解锁后自动清除，不影响桌面）。Bitmap 仅轻量 softColor 铺底。重新开关音乐锁屏后生效。\n\n" +
                 "禁用息屏壁纸缩放对大专辑、沉浸封面与仅歌词模式均生效。\n\n" +
                 "AOD 完整媒体控件需重启系统界面后生效。\n\n" +
                 "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行副标题叠在标题下方。\n\n" +

@@ -4,11 +4,13 @@ import android.content.Context
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import java.lang.ref.WeakReference
 
 /**
- * 音乐锁屏壁纸模糊：Bitmap softColor 铺底 + 均匀暗色。
- * 不用 ViewRootImpl.setWallpaperBlur / 全屏 MiBackgroundBlur——易出十字暗纹并可能糊到桌面。
+ * 音乐锁屏壁纸模糊：仅用锁屏层上的 MiBackgroundBlur 遮罩。
+ * 不用 [ViewRootImpl.setWallpaperBlur]——会糊到共享壁纸表面并泄漏到桌面。
+ * 离开锁屏（!onKeyguard）立即清遮罩并移除 View。
  */
 internal object SystemWallpaperBlurController {
 
@@ -29,20 +31,21 @@ internal object SystemWallpaperBlurController {
     }
 
     /**
-     * 离开锁屏时清掉可能残留的系统壁纸 blur / 遮罩；锁屏内不再启用全屏 MiBlur。
+     * 仅在锁屏 + 音乐锁屏 + 非沉浸专辑时开遮罩；离开锁屏立即清掉，避免影响桌面。
      */
     fun sync(context: Context? = null) {
         val layer = bgLayerRef?.get()
-        val ctx = context ?: layer?.context
-        clear(layer)
-        if (ctx != null && shouldApply(
-                musicLockscreenActive = WallpaperController.isShowing() || MusicLockscreenManager.isShowing,
-                immersiveAlbum = ConfigReader.immersiveAlbum(ctx),
-                onKeyguard = HookUtils.isOnKeyguard(ctx),
-            )
-        ) {
-            appliedRadius = mapSliderToWallpaperBlurRadius(ConfigReader.blurRadius(ctx))
-            logI("softColor-only mode radius=$appliedRadius (no MiBlur mask)")
+        val ctx = context ?: layer?.context ?: return
+        val want = shouldApply(
+            musicLockscreenActive = WallpaperController.isShowing() || MusicLockscreenManager.isShowing,
+            immersiveAlbum = ConfigReader.immersiveAlbum(ctx),
+            onKeyguard = HookUtils.isOnKeyguard(ctx),
+        )
+        if (want) {
+            val radius = mapSliderToWallpaperBlurRadius(ConfigReader.blurRadius(ctx))
+            apply(ctx, layer, radius)
+        } else {
+            clear(layer)
         }
     }
 
@@ -54,25 +57,36 @@ internal object SystemWallpaperBlurController {
         return musicLockscreenActive && !immersiveAlbum && onKeyguard
     }
 
-    /** 设置页 10–200 → 内部半径映射 0–100（驱动 softColor 力度）。 */
+    /** 设置页 10–200 → MiBlur 半径映射 0–100。 */
     fun mapSliderToWallpaperBlurRadius(sliderDp: Float): Int {
         val t = ((sliderDp - 10f) / 190f).coerceIn(0f, 1f)
         return (t * 100f).toInt().coerceIn(0, 100)
     }
 
-    /** Bitmap softColor 缩小力度。 */
+    /** Bitmap softColor 缩小力度（轻铺底；重糊交给 MiBlur）。 */
     fun bakeBlurRadius(sliderDp: Float): Float {
-        return (sliderDp * 0.12f).coerceIn(4f, 18f)
+        return (sliderDp * 0.1f).coerceIn(3f, 14f)
     }
 
-    /** Bitmap 暗色：MiBlur 遮罩已关，暗角主要画在 Bitmap 上。 */
+    /** Bitmap 暗色只留轻量；重浓度交给 [maskDarkOverlayAlpha]。 */
     fun bakeDarkOverlay(slider: Int): Int {
-        return (slider * 0.55f).toInt().coerceIn(0, 160)
+        return (slider * 0.22f).toInt().coerceIn(0, 60)
     }
 
-    /** @deprecated 遮罩已停用，保留供兼容测试。 */
+    /** MiBlur 遮罩黑层 alpha（合成器侧主暗角）。 */
     fun maskDarkOverlayAlpha(slider: Int): Int {
         return (slider * 0.72f).toInt().coerceIn(0, 180)
+    }
+
+    private fun apply(ctx: Context, layer: ViewGroup?, radius: Int) {
+        if (layer != null) {
+            // 确保共享壁纸表面无 blur 残留
+            setWallpaperBlurOnView(layer, 0)
+            ensureMask(layer)
+            applyMiBlurMask(layer, radius, ConfigReader.darkOverlay(ctx))
+        }
+        appliedRadius = radius
+        logI("apply miMask radius=$radius mask=${layer != null}")
     }
 
     private fun clear(layer: ViewGroup?) {
@@ -81,7 +95,7 @@ internal object SystemWallpaperBlurController {
             clearMiBlurMask(layer)
         }
         appliedRadius = -1
-        logI("cleared system blur/mask")
+        logI("cleared miMask (desktop safe)")
     }
 
     private fun setWallpaperBlurOnView(view: View, radius: Int): Boolean {
@@ -95,6 +109,40 @@ internal object SystemWallpaperBlurController {
         } catch (e: Throwable) {
             logE("setWallpaperBlur failed", e)
             false
+        }
+    }
+
+    private fun ensureMask(bgLayer: ViewGroup) {
+        if (bgLayer.findViewWithTag<View>(MASK_TAG) != null) return
+        val mask = FrameLayout(bgLayer.context).apply {
+            tag = MASK_TAG
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        bgLayer.addView(mask, 0)
+    }
+
+    private fun applyMiBlurMask(bgLayer: ViewGroup, radius: Int, darkOverlay: Int) {
+        val mask = bgLayer.findViewWithTag<View>(MASK_TAG) ?: return
+        try {
+            val miRadius = (radius * 1.2f).toInt().coerceIn(0, 120)
+            val viaSystem = trySystemContainerPassBlur(mask, miRadius)
+            if (!viaSystem) {
+                invokeBool(mask, "setPassWindowBlurEnabled", true)
+                invokeInt(mask, "setMiBackgroundBlurMode", 1)
+                invokeInt(mask, "setMiBackgroundBlurRadius", miRadius)
+            }
+            val a = maskDarkOverlayAlpha(darkOverlay)
+            mask.setBackgroundColor(Color.argb(a, 0, 0, 0))
+            mask.visibility = View.VISIBLE
+            mask.alpha = 1f
+        } catch (e: Throwable) {
+            logE("applyMiBlurMask failed", e)
         }
     }
 
@@ -114,6 +162,22 @@ internal object SystemWallpaperBlurController {
         try {
             bgLayer.removeView(mask)
         } catch (_: Throwable) {
+        }
+    }
+
+    /** SystemUI 进程内优先走 [com.miui.clock.utils.MiuiBlurUtils]。 */
+    private fun trySystemContainerPassBlur(view: View, radius: Int): Boolean {
+        return try {
+            val cls = Class.forName("com.miui.clock.utils.MiuiBlurUtils")
+            val m = cls.getMethod(
+                "setContainerPassBlur",
+                View::class.java,
+                Int::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType,
+            )
+            (m.invoke(null, view, radius, false) as? Boolean) == true
+        } catch (_: Throwable) {
+            false
         }
     }
 
