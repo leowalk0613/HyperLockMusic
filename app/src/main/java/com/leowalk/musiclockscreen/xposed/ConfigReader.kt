@@ -40,6 +40,7 @@ object ConfigReader {
     private var cachedTitleBracketMode: String = "default"
     private var cachedAodFullMedia: Boolean = true
     private var cachedDisableWallpaperScale: Boolean = true
+    private var cachedSystemWallpaperBlur: Boolean = false
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
     private var cachedMediaListenerReady: Boolean = false
@@ -250,6 +251,21 @@ object ConfigReader {
         return cachedDisableWallpaperScale
     }
 
+    /** 系统壁纸模糊遮罩（实验） */
+    fun systemWallpaperBlur(context: Context): Boolean {
+        refreshConfigIfNeeded(context)
+        return cachedSystemWallpaperBlur
+    }
+
+    /** 生成壁纸 Bitmap 时使用的模糊半径（系统糊开启时减轻）。 */
+    fun wallpaperBakeBlurRadius(context: Context): Float {
+        refreshConfigIfNeeded(context)
+        return SystemWallpaperBlurController.bakeBlurRadius(
+            cachedBlurRadius,
+            cachedSystemWallpaperBlur,
+        )
+    }
+
     fun musicWhitelistEnabled(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         return cachedWhitelistEnabled
@@ -329,6 +345,7 @@ object ConfigReader {
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
                 val disableWallpaperScaleIdx = cursor.getColumnIndex("disable_wallpaper_scale")
+                val systemWallpaperBlurIdx = cursor.getColumnIndex("system_wallpaper_blur")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
                 val mediaListenerReadyIdx = cursor.getColumnIndex("media_listener_ready")
@@ -408,6 +425,9 @@ object ConfigReader {
                 }
                 if (disableWallpaperScaleIdx >= 0) {
                     cachedDisableWallpaperScale = cursor.getInt(disableWallpaperScaleIdx) == 1
+                }
+                if (systemWallpaperBlurIdx >= 0) {
+                    cachedSystemWallpaperBlur = cursor.getInt(systemWallpaperBlurIdx) == 1
                 }
                 if (whitelistEnabledIdx >= 0) {
                     cachedWhitelistEnabled = cursor.getInt(whitelistEnabledIdx) == 1

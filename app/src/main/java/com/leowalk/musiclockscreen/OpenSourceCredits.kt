@@ -36,12 +36,12 @@ object OpenSourceCredits {
         ),
         Entry(
             name = "StackBlur（Mario Klingemann）",
-            role = "专辑壁纸模糊所用的高效盒式模糊算法",
-            url = "http://www.quasimondo.com/StackBlurForCanvas/StackBlurDemo.html",
+            role = "专辑壁纸模糊所用的高效盒式模糊算法（Android 移植）",
+            url = "https://github.com/kikoso/android-stackblur",
         ),
         Entry(
             name = "HyperLyric",
-            role = "AOD「完整媒体控件」参考其禁用媒体卡片折叠的实现思路",
+            role = "AOD「完整媒体控件」参考其禁用媒体卡片折叠的实现思路；AOD 进度条实时更新为本模块自实现",
             url = "https://github.com/limczhh/HyperLyric",
         ),
     )

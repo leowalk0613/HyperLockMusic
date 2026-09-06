@@ -81,6 +81,7 @@ class KeyguardOverlayHook {
                             MediaFollowController.bindBackgroundLayer(bgLayer)
                             KeyguardWallpaperScaleHook.bindScreenEvents(bgLayer.context)
                             KeyguardSleepTransition.bindScreenEvents(bgLayer.context)
+                            SystemWallpaperBlurController.bindBackgroundLayer(bgLayer)
                             KeepScreenController.bindLayer(bgLayer)
                             LockscreenClockController.sync()
                         }
@@ -130,6 +131,7 @@ class KeyguardOverlayHook {
         NumStateViewController.logCallback = callback
         WallpaperController.logCallback = callback
         HyperOsWallpaperBridge.logCallback = callback
+        SystemWallpaperBlurController.logCallback = callback
         AlbumArtResolver.logCallback = callback
         NetEaseAlbumArtSource.logCallback = callback
         NetEaseSongIdResolver.logCallback = callback

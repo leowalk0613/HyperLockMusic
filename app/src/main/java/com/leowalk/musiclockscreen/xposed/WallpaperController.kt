@@ -226,7 +226,7 @@ object WallpaperController {
             ) ?: return null
             BlurUtils.blurWithBigAlbum(
                 blurSource = albumBmp,
-                radius = ConfigReader.blurRadius(context),
+                radius = ConfigReader.wallpaperBakeBlurRadius(context),
                 darkOverlayAlpha = ConfigReader.darkOverlay(context),
                 showBigAlbum = false,
                 targetWidth = tw,
@@ -324,6 +324,7 @@ object WallpaperController {
                 LockscreenNotificationController.forceHideNormalNotifications()
                 MusicLockscreenManager.setShowingState(true)
                 KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
+                SystemWallpaperBlurController.sync(context)
                 (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.ensureLyricsLoaded()
                 updateMusicWallpaperSilently(context, albumDrawable, bestMeta, ignoreCache = true)
                 return true
@@ -372,6 +373,7 @@ object WallpaperController {
             LockscreenNotificationController.forceHideNormalNotifications()
             MusicLockscreenManager.setShowingState(true)
             KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
+            SystemWallpaperBlurController.sync(context)
 
             val lyricView = MusicLockscreenManager.lyricView
             if (lyricView != null) {
@@ -673,7 +675,7 @@ object WallpaperController {
     ): BlurredWallpaperResult? {
         val trackKey = AlbumArtResolver.getCachedTrackKey()
         if (trackKey == null || trackKey != dualCacheTrackKey) return null
-        val blur = ConfigReader.blurRadius(context)
+        val blur = ConfigReader.wallpaperBakeBlurRadius(context)
         val dark = ConfigReader.darkOverlay(context)
         if (blur != dualCacheBlurRadius || dark != dualCacheDarkOverlay) return null
         if (bakeImmersive) {
@@ -721,7 +723,7 @@ object WallpaperController {
         } else {
             null
         }
-        val radius = ConfigReader.blurRadius(context)
+        val radius = ConfigReader.wallpaperBakeBlurRadius(context)
         val dark = ConfigReader.darkOverlay(context)
         val centerY = ConfigReader.immersiveAlbumCenterY(context)
         val blurAlbum = sharpAlbum ?: systemAlbum
@@ -1070,6 +1072,7 @@ object WallpaperController {
             onCommitted = {
                 if (hadMask) hideTransitionMask()
                 if (!copy.isRecycled) copy.recycle()
+                SystemWallpaperBlurController.sync(appCtx)
                 val settleDelay = settleDelayMs ?: when {
                     hadMask -> MASK_SETTLE_MS + MASK_FADE_MS
                     notifyLyricOnSettle -> 0L
@@ -1080,6 +1083,7 @@ object WallpaperController {
                         albumForLyric?.takeIf { !it.isRecycled }?.recycle()
                         return@postDelayed
                     }
+                    SystemWallpaperBlurController.sync(appCtx)
                     if (HookUtils.canApplyLockWallpaper(appCtx) ||
                         (isMusicWallpaperSet && HookUtils.isOnKeyguard(appCtx))
                     ) {
@@ -1155,6 +1159,7 @@ object WallpaperController {
             MusicLockscreenManager.hideAlbumOverlay()
             // 原壁纸尚未写回：先 hold 景深压制，等 setBitmap onCommitted 再 release
             KeyguardDepthEffectPolicy.beginRestoreHold()
+            SystemWallpaperBlurController.sync(context)
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
 
             try {
@@ -1199,10 +1204,12 @@ object WallpaperController {
                 },
                 onCommitted = {
                     KeyguardDepthEffectPolicy.onOriginalWallpaperRestored()
+                    SystemWallpaperBlurController.sync(appCtx)
                     hideTransitionMask(MASK_SETTLE_EXIT_MS)
                 },
                 onCancelled = {
                     KeyguardDepthEffectPolicy.onOriginalWallpaperRestored()
+                    SystemWallpaperBlurController.sync(appCtx)
                     logI("restore apply cancelled epoch=$restoreEpoch")
                 }
             )
