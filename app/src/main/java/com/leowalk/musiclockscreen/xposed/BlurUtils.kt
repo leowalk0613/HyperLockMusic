@@ -12,6 +12,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * 模糊工具类
@@ -361,24 +362,19 @@ object BlurUtils {
     }
 
     /**
-     * 壁纸 Bitmap softColor：温和缩小再放大，避免过小尺寸插值出十字暗纹。
-     * [radius] 越大，采样越小（更糊），但最短边不低于 24px。
+     * 壁纸 Bitmap softColor：等比缩小再放大。
+     * 宽高必须同比例缩放，禁止对单边单独抬到固定像素（否则竖图会被压成方块再拉回全屏，看起来竖向拉长）。
      */
     fun softColorBlur(bitmap: Bitmap, radius: Float): Bitmap {
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
 
-        val r = radius.coerceIn(1f, 150f)
-        val targetMaxSide = (160f - r * 6f).coerceIn(24f, 80f).toInt()
-        val scale = targetMaxSide.toFloat() / max(w, h)
-        val sw = max(24, (w * scale).toInt())
-        val sh = max(24, (h * scale).toInt())
-
+        val (sw, sh) = softColorDownsampleSize(w, h, radius)
         var work = Bitmap.createScaledBitmap(bitmap, sw, sh, true)
-        // 二次柔化：收到一半再拉回（最短边 ≥16），比一次缩到极小更不易出条纹
-        val midW = max(16, sw / 2)
-        val midH = max(16, sh / 2)
+        // 二次柔化：等比收到一半再拉回
+        val midW = max(1, sw / 2)
+        val midH = max(1, sh / 2)
         val mid = Bitmap.createScaledBitmap(work, midW, midH, true)
         work.recycle()
         work = Bitmap.createScaledBitmap(mid, sw, sh, true)
@@ -387,6 +383,23 @@ object BlurUtils {
         val result = Bitmap.createScaledBitmap(work, w, h, true)
         work.recycle()
         return result
+    }
+
+    /**
+     * softColor 降采样尺寸：严格按源图纵横比缩放（最长边对齐 targetMaxSide）。
+     */
+    internal fun softColorDownsampleSize(srcW: Int, srcH: Int, radius: Float): Pair<Int, Int> {
+        val r = radius.coerceIn(1f, 150f)
+        val targetMaxSide = (160f - r * 6f).coerceIn(24f, 80f).toInt()
+        return if (srcW >= srcH) {
+            val sw = targetMaxSide
+            val sh = max(1, (targetMaxSide.toFloat() * srcH / srcW).roundToInt())
+            sw to sh
+        } else {
+            val sh = targetMaxSide
+            val sw = max(1, (targetMaxSide.toFloat() * srcW / srcH).roundToInt())
+            sw to sh
+        }
     }
 
     /** 居中裁剪缩放，用于模糊底图与大专辑 */
