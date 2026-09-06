@@ -433,7 +433,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         val h = height.toFloat()
         val centerY = h * 0.5f
         val fontLineH = mainPaint.fontMetrics.run { bottom - top }
-        val gap = ImmersiveLyricStackPolicy.fixedGapPx(fontLineH)
         val offset = stackScrollOffset
         val currentTop = centerY + offset - current.height * 0.5f
 
@@ -459,8 +458,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
         drawStackLineTop(canvas, current, hPaddingPx, currentTop, 1f)
 
-        // 翻译紧贴当前行下方；下一句再在翻译下面（可被底边裁切）
-        var belowTop = currentTop + current.height + gap
+        // 当前行 ↔ 翻译：沿用原来的 lineGapPx；下一句跟在翻译下（可被底边裁切）
+        var belowTop = currentTop + current.height + lineGapPx
         val secondary = stackCurrentSecondaryLayout
         if (secondary != null) {
             drawStackLineTop(
@@ -470,7 +469,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 belowTop,
                 0.72f,
             )
-            belowTop += secondary.height + gap
+            belowTop += secondary.height + lineGapPx
         }
         val next = stackNextLayout
         if (next != null) {
