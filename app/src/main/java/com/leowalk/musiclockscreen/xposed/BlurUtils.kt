@@ -361,8 +361,8 @@ object BlurUtils {
     }
 
     /**
-     * 壁纸 Bitmap 色块铺底：仅缩小再放大做 softColor。
-     * [radius] 仍控制缩小力度（越大越小块、越糊）。
+     * 壁纸 Bitmap softColor：温和缩小再放大，避免过小尺寸插值出十字暗纹。
+     * [radius] 越大，采样越小（更糊），但最短边不低于 24px。
      */
     fun softColorBlur(bitmap: Bitmap, radius: Float): Bitmap {
         val w = bitmap.width
@@ -370,24 +370,19 @@ object BlurUtils {
         if (w <= 0 || h <= 0) return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
 
         val r = radius.coerceIn(1f, 150f)
-        val targetMaxSide = (200f - r * 8f).coerceIn(24f, 96f).toInt()
-        val downScale = targetMaxSide.toFloat() / max(w, h)
-        val sw = max(1, (w * downScale).toInt())
-        val sh = max(1, (h * downScale).toInt())
+        val targetMaxSide = (160f - r * 6f).coerceIn(24f, 80f).toInt()
+        val scale = targetMaxSide.toFloat() / max(w, h)
+        val sw = max(24, (w * scale).toInt())
+        val sh = max(24, (h * scale).toInt())
 
         var work = Bitmap.createScaledBitmap(bitmap, sw, sh, true)
-
-        val shrink = when {
-            r >= 12f -> 0.28f
-            r >= 6f -> 0.4f
-            else -> 0.55f
-        }
-        val tinyW = max(1, (sw * shrink).toInt())
-        val tinyH = max(1, (sh * shrink).toInt())
-        val tiny = Bitmap.createScaledBitmap(work, tinyW, tinyH, true)
+        // 二次柔化：收到一半再拉回（最短边 ≥16），比一次缩到极小更不易出条纹
+        val midW = max(16, sw / 2)
+        val midH = max(16, sh / 2)
+        val mid = Bitmap.createScaledBitmap(work, midW, midH, true)
         work.recycle()
-        work = Bitmap.createScaledBitmap(tiny, sw, sh, true)
-        tiny.recycle()
+        work = Bitmap.createScaledBitmap(mid, sw, sh, true)
+        mid.recycle()
 
         val result = Bitmap.createScaledBitmap(work, w, h, true)
         work.recycle()
