@@ -141,6 +141,20 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.swapLyric = checked
             ModuleConfig.push(this)
         })
+        sharedBlock!!.addView(sectionLabel("切行动画（AOD 不生效）"))
+        val transitionLabels = listOf("淡入淡出", "左滑", "右滑", "上滑", "下滑")
+        val transitionModes = listOf(
+            ModuleConfig.LYRIC_TRANSITION_FADE,
+            ModuleConfig.LYRIC_TRANSITION_SLIDE_LEFT,
+            ModuleConfig.LYRIC_TRANSITION_SLIDE_RIGHT,
+            ModuleConfig.LYRIC_TRANSITION_SLIDE_UP,
+            ModuleConfig.LYRIC_TRANSITION_SLIDE_DOWN,
+        )
+        val transitionIndex = transitionModes.indexOf(ModuleConfig.lyricTransition).coerceAtLeast(0)
+        sharedBlock!!.addView(M3.segmentGroup(this, transitionLabels, transitionIndex, 3) { index ->
+            ModuleConfig.lyricTransition = transitionModes[index]
+            ModuleConfig.push(this)
+        })
         card.addView(sharedBlock)
 
         list.addView(M3.card(this, card))

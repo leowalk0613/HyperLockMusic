@@ -30,6 +30,7 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
     private const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
     private const val KEY_LYRIC_ALIGN = "lyric_align" // left / center / right
+    private const val KEY_LYRIC_TRANSITION = "lyric_transition" // fade / slide_*
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     /** 沉浸封面竖直中心占屏高百分比（与大专辑底边 [KEY_ALBUM_OFFSET_Y] 互不共用） */
     private const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
@@ -53,6 +54,12 @@ object ModuleConfig {
     const val LYRIC_ALIGN_LEFT = "left"
     const val LYRIC_ALIGN_CENTER = "center"
     const val LYRIC_ALIGN_RIGHT = "right"
+
+    const val LYRIC_TRANSITION_FADE = "fade"
+    const val LYRIC_TRANSITION_SLIDE_LEFT = "slide_left"
+    const val LYRIC_TRANSITION_SLIDE_RIGHT = "slide_right"
+    const val LYRIC_TRANSITION_SLIDE_UP = "slide_up"
+    const val LYRIC_TRANSITION_SLIDE_DOWN = "slide_down"
 
     /** 默认音乐应用白名单包名 */
     val DEFAULT_WHITELIST: List<String> = listOf(
@@ -86,6 +93,7 @@ object ModuleConfig {
     private const val DEFAULT_IMMERSIVE_LYRIC = true
     private const val DEFAULT_LYRIC_HIDE_BACKGROUND = false
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
+    private const val DEFAULT_LYRIC_TRANSITION = LYRIC_TRANSITION_FADE
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_IMMERSIVE_ALBUM_CENTER_Y = 38f
     private const val DEFAULT_IMMERSIVE_ALBUM_EDGE_GRADIENT = true
@@ -185,6 +193,12 @@ object ModuleConfig {
     var lyricAlign: String
         get() = getPrefs().getString(KEY_LYRIC_ALIGN, DEFAULT_LYRIC_ALIGN) ?: DEFAULT_LYRIC_ALIGN
         set(value) = getPrefs().edit().putString(KEY_LYRIC_ALIGN, value).apply()
+
+    /** 锁屏歌词切行：fade / slide_left / slide_right / slide_up / slide_down（AOD 不播） */
+    var lyricTransition: String
+        get() = getPrefs().getString(KEY_LYRIC_TRANSITION, DEFAULT_LYRIC_TRANSITION)
+            ?: DEFAULT_LYRIC_TRANSITION
+        set(value) = getPrefs().edit().putString(KEY_LYRIC_TRANSITION, value).apply()
 
     /** 沉浸专辑：Monet 取色铺底 + 完整封面 */
     var immersiveAlbum: Boolean
@@ -319,6 +333,7 @@ object ModuleConfig {
                 put("immersive_lyric", if (immersiveLyric) 1 else 0)
                 put("lyric_hide_background", if (lyricHideBackground) 1 else 0)
                 put("lyric_align", lyricAlign)
+                put("lyric_transition", lyricTransition)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("immersive_album_center_y", immersiveAlbumCenterY)
                 put("immersive_album_edge_gradient", if (immersiveAlbumEdgeGradient) 1 else 0)

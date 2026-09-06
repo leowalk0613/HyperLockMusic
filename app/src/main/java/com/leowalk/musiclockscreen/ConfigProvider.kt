@@ -36,6 +36,7 @@ class ConfigProvider : ContentProvider() {
         const val KEY_IMMERSIVE_LYRIC = "immersive_lyric"
         const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
         const val KEY_LYRIC_ALIGN = "lyric_align"
+        const val KEY_LYRIC_TRANSITION = "lyric_transition"
         const val KEY_IMMERSIVE_ALBUM = "immersive_album"
         const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
         const val KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT = "immersive_album_edge_gradient"
@@ -101,6 +102,7 @@ class ConfigProvider : ContentProvider() {
                 KEY_IMMERSIVE_LYRIC,
                 KEY_LYRIC_HIDE_BACKGROUND,
                 KEY_LYRIC_ALIGN,
+                KEY_LYRIC_TRANSITION,
                 KEY_IMMERSIVE_ALBUM,
                 KEY_IMMERSIVE_ALBUM_CENTER_Y,
                 KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT,
@@ -139,6 +141,8 @@ class ConfigProvider : ContentProvider() {
                 if (prefs.getBoolean(KEY_LYRIC_HIDE_BACKGROUND, false)) 1 else 0,
                 prefs.getString(KEY_LYRIC_ALIGN, ModuleConfig.LYRIC_ALIGN_LEFT)
                     ?: ModuleConfig.LYRIC_ALIGN_LEFT,
+                prefs.getString(KEY_LYRIC_TRANSITION, ModuleConfig.LYRIC_TRANSITION_FADE)
+                    ?: ModuleConfig.LYRIC_TRANSITION_FADE,
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) 1 else 0,
                 prefs.getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, 38f),
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT, true)) 1 else 0,
@@ -231,6 +235,9 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_LYRIC_ALIGN)) {
                     editor.putString(KEY_LYRIC_ALIGN, values.getAsString(KEY_LYRIC_ALIGN))
+                }
+                if (values.containsKey(KEY_LYRIC_TRANSITION)) {
+                    editor.putString(KEY_LYRIC_TRANSITION, values.getAsString(KEY_LYRIC_TRANSITION))
                 }
                 if (values.containsKey(KEY_IMMERSIVE_ALBUM)) {
                     editor.putBoolean(KEY_IMMERSIVE_ALBUM, values.getAsInteger(KEY_IMMERSIVE_ALBUM) == 1)

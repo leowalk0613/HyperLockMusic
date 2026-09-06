@@ -58,13 +58,15 @@ class LockscreenLyricView(context: Context) : View(context) {
     private val immersiveMaxSecondLines = 2
     /** 沉浸歌词文字混入专辑主色的比例 */
     private val immersiveTintWeight = 0.28f
-    /** 沉浸歌词切行：淡出 / 淡入时长（合计 250ms，避免系统限帧卡顿） */
-    private val immersiveFadeOutMs = 125L
-    private val immersiveFadeInMs = 125L
+    /** 锁屏歌词切行：淡出 / 淡入时长（合计 250ms） */
+    private val lineFadeOutMs = 125L
+    private val lineFadeInMs = 125L
 
-    private var immersiveContentAlpha = 1f
-    private var immersiveFadeAnimator: ValueAnimator? = null
-    private val immersiveFadeInterpolator = LinearInterpolator()
+    private var lineContentAlpha = 1f
+    private var lineContentTx = 0f
+    private var lineContentTy = 0f
+    private var lineTransitionAnimator: ValueAnimator? = null
+    private val lineTransitionInterpolator = LinearInterpolator()
 
     // ============================================================
     // 绘制相关
@@ -147,6 +149,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var cfgImmersiveLyric: Boolean = false
     private var cfgLyricHideBackground: Boolean = false
     private var cfgLyricAlign: String = "left"
+    private var cfgLyricTransition: String = LyricLineTransitionPolicy.FADE
 
     // 通知中心/QS 是否展开（展开时歌词应隐藏，只显示在锁屏）
     @Volatile
@@ -300,16 +303,23 @@ class LockscreenLyricView(context: Context) : View(context) {
         val h = height.toFloat()
         if (w <= 0 || h <= 0) return
 
-        // 1. 渐变遮罩（普通模式且未接 MiBlur；MiBlur 生效时只留字形透色）
+        // 1. 渐变遮罩（普通模式且未接 MiBlur；MiBlur 生效时只留字形透色）— 不参与切行动画
         if (!cfgImmersiveLyric && !immersiveMiBlurActive) {
             drawFogBackground(canvas, w, h)
         }
 
         val contentWidth = w - hPaddingPx * 2
 
-        // 2. 歌词内容
+        // 2. 歌词内容（切行动画只作用在文字层）
+        if (lineContentAlpha <= 0.001f) return
+        val layerPaint = Paint().apply {
+            alpha = (lineContentAlpha * 255f).toInt().coerceIn(0, 255)
+        }
+        val layer = canvas.saveLayer(0f, 0f, w, h, layerPaint)
+        canvas.translate(lineContentTx, lineContentTy)
         drawContent(canvas, w, contentWidth,
             currentMainText, currentSecondText, hasSecondLine, mainStaticLayout)
+        canvas.restoreToCount(layer)
     }
 
     /**
@@ -366,10 +376,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         canvas: Canvas, w: Float, contentWidth: Float,
         mainText: String, secondText: String, hasSecond: Boolean
     ) {
-        if (immersiveContentAlpha <= 0.001f) return
-        val alphaByte = (immersiveContentAlpha * 255f).toInt().coerceIn(0, 255)
-        if (alphaByte == 0) return
-
         val mainLayout = mainStaticLayout ?: return
         val h = height.toFloat()
 
@@ -380,9 +386,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         val totalH = mainH + gap + secondH
 
         val startY = vPaddingPx + ((h - vPaddingPx * 2f - totalH) / 2f).coerceAtLeast(0f)
-
-        val layerPaint = Paint().apply { alpha = alphaByte }
-        val layer = canvas.saveLayer(0f, 0f, w, h, layerPaint)
 
         canvas.save()
         canvas.translate(hPaddingPx, startY)
@@ -395,8 +398,6 @@ class LockscreenLyricView(context: Context) : View(context) {
             secondLayout.draw(canvas)
             canvas.restore()
         }
-
-        canvas.restoreToCount(layer)
     }
 
     private fun rebuildImmersiveLayouts() {
@@ -631,7 +632,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 立即清屏，避免切歌/无词时残留上一首可见文本。 */
     private fun purgeDisplayedLyrics(resetProviderSnapshot: Boolean = false) {
-        cancelImmersiveLineFade()
+        cancelLineTransition()
         cachedLines = null
         cachedCtx = null
         hasLyric = false
@@ -685,7 +686,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (!hasLyric && visibility == GONE && cachedLines == null && currentMainText.isEmpty()) {
             return
         }
-        cancelImmersiveLineFade()
+        cancelLineTransition()
         cachedLines = null
         cachedCtx = null
         hasLyric = false
@@ -801,7 +802,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 关闭音乐锁屏时彻底清理歌词状态 */
     fun resetForMusicLockscreenOff() {
-        cancelImmersiveLineFade()
+        cancelLineTransition()
         clearImmersiveMiBlur()
         fogBuildGeneration++
         showFogBackground = false
@@ -823,7 +824,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 解锁离开锁屏：仅隐藏，保留数据供再次锁屏恢复 */
     fun onLeftKeyguard() {
-        cancelImmersiveLineFade()
+        cancelLineTransition()
         clearImmersiveMiBlur()
         animate().cancel()
         translationY = 0f
@@ -968,6 +969,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxImmersive = cursor.getColumnIndex("immersive_lyric")
                 val idxHideBg = cursor.getColumnIndex("lyric_hide_background")
                 val idxAlign = cursor.getColumnIndex("lyric_align")
+                val idxTransition = cursor.getColumnIndex("lyric_transition")
 
                 if (idxEnabled >= 0) {
                     cfgLyricEnabled = cursor.getInt(idxEnabled) != 0
@@ -1021,6 +1023,11 @@ class LockscreenLyricView(context: Context) : View(context) {
                     if (newAlign != cfgLyricAlign) styleChanged = true
                     cfgLyricAlign = newAlign
                 }
+                if (idxTransition >= 0) {
+                    cfgLyricTransition = LyricLineTransitionPolicy.normalize(
+                        cursor.getString(idxTransition)
+                    )
+                }
                 if (positionChanged) MediaFollowController.requestReflow()
 
                 cursor.close()
@@ -1044,7 +1051,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun applyLyricStyle() {
-        cancelImmersiveLineFade()
+        cancelLineTransition()
         val density = resources.displayMetrics.density
 
         if (cfgImmersiveLyric) {
@@ -2172,16 +2179,13 @@ class LockscreenLyricView(context: Context) : View(context) {
         val hasSecondChanged = hasSecondLine != displayHasSecond
 
         if (mainChanged || secondChanged || hasSecondChanged) {
-            val useImmersiveFade = cfgImmersiveLyric &&
-                mainChanged &&
+            val wantAnim = mainChanged &&
                 shouldDisplayLyric() &&
-                HookUtils.isScreenInteractive(context)
-            if (useImmersiveFade) {
-                crossfadeImmersiveLineChange(displayMain, displaySecond, displayHasSecond)
+                LyricLineTransitionPolicy.shouldAnimate(HookUtils.isScreenInteractive(context))
+            if (wantAnim) {
+                animateLineChange(displayMain, displaySecond, displayHasSecond)
             } else {
-                if (cfgImmersiveLyric && mainChanged) {
-                    cancelImmersiveLineFade()
-                }
+                cancelLineTransition()
                 applyLyricContentImmediate(displayMain, displaySecond, displayHasSecond)
             }
             finalizeLyricDisplayAfterContentUpdate()
@@ -2204,66 +2208,85 @@ class LockscreenLyricView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun cancelImmersiveLineFade(resetAlpha: Boolean = true) {
-        immersiveFadeAnimator?.cancel()
-        immersiveFadeAnimator = null
-        if (resetAlpha) immersiveContentAlpha = 1f
+    private fun cancelLineTransition(resetTransform: Boolean = true) {
+        lineTransitionAnimator?.cancel()
+        lineTransitionAnimator = null
+        if (resetTransform) {
+            lineContentAlpha = 1f
+            lineContentTx = 0f
+            lineContentTy = 0f
+        }
     }
 
-    /** 沉浸歌词切行：先淡出再换词淡入，总时长 250ms。 */
-    private fun crossfadeImmersiveLineChange(main: String, second: String, hasSecond: Boolean) {
-        cancelImmersiveLineFade(resetAlpha = false)
+    private fun applyLineTransform(t: LyricLineTransitionPolicy.Transform) {
+        lineContentAlpha = t.alpha
+        lineContentTx = t.tx
+        lineContentTy = t.ty
+        invalidate()
+    }
 
-        fun startFadeIn() {
-            immersiveFadeAnimator = ValueAnimator.ofFloat(immersiveContentAlpha, 1f).apply {
-                duration = (immersiveFadeInMs * (1f - immersiveContentAlpha)).toLong()
-                    .coerceIn(40L, immersiveFadeInMs)
-                interpolator = immersiveFadeInterpolator
+    private fun lineSlidePx(): Float {
+        return 48f * resources.displayMetrics.density
+    }
+
+    /** 切行：先离场再换词入场；AOD 不走此路径。 */
+    private fun animateLineChange(main: String, second: String, hasSecond: Boolean) {
+        cancelLineTransition(resetTransform = false)
+        val mode = LyricLineTransitionPolicy.normalize(cfgLyricTransition)
+        val slide = lineSlidePx()
+
+        fun startEnter() {
+            lineTransitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = lineFadeInMs
+                interpolator = lineTransitionInterpolator
                 addUpdateListener {
-                    immersiveContentAlpha = it.animatedValue as Float
-                    invalidate()
+                    val p = it.animatedValue as Float
+                    applyLineTransform(
+                        LyricLineTransitionPolicy.enterTransform(mode, p, slide)
+                    )
                 }
                 addListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
-                        immersiveFadeAnimator = null
-                        immersiveContentAlpha = 1f
+                        lineTransitionAnimator = null
+                        applyLineTransform(LyricLineTransitionPolicy.Transform(1f, 0f, 0f))
                     }
 
                     override fun onAnimationCancel(animation: Animator) {
-                        immersiveFadeAnimator = null
+                        lineTransitionAnimator = null
                     }
                 })
                 start()
             }
         }
 
-        fun swapAndFadeIn() {
+        fun swapAndEnter() {
             applyLyricContentImmediate(main, second, hasSecond)
-            immersiveContentAlpha = 0f
-            startFadeIn()
+            applyLineTransform(LyricLineTransitionPolicy.enterTransform(mode, 0f, slide))
+            startEnter()
         }
 
-        if (immersiveContentAlpha <= 0.05f) {
-            swapAndFadeIn()
+        if (lineContentAlpha <= 0.05f) {
+            swapAndEnter()
             return
         }
 
-        immersiveFadeAnimator = ValueAnimator.ofFloat(immersiveContentAlpha, 0f).apply {
-            duration = (immersiveFadeOutMs * immersiveContentAlpha).toLong()
-                .coerceIn(40L, immersiveFadeOutMs)
-            interpolator = immersiveFadeInterpolator
+        lineTransitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = (lineFadeOutMs * lineContentAlpha).toLong().coerceIn(40L, lineFadeOutMs)
+            interpolator = lineTransitionInterpolator
             addUpdateListener {
-                immersiveContentAlpha = it.animatedValue as Float
-                invalidate()
+                val p = it.animatedValue as Float
+                applyLineTransform(
+                    LyricLineTransitionPolicy.exitTransform(mode, p, slide)
+                )
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    immersiveFadeAnimator = null
-                    swapAndFadeIn()
+                    lineTransitionAnimator = null
+                    swapAndEnter()
                 }
 
                 override fun onAnimationCancel(animation: Animator) {
-                    immersiveFadeAnimator = null
+                    lineTransitionAnimator = null
                 }
             })
             start()

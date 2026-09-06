@@ -30,6 +30,7 @@ object ConfigReader {
     private var cachedImmersiveLyric: Boolean = true
     private var cachedLyricHideBackground: Boolean = false
     private var cachedLyricAlign: String = "left"
+    private var cachedLyricTransition: String = "fade"
     private var cachedKeepLockScreenOn: Boolean = false
     private var cachedImmersiveAlbum: Boolean = false
     private var cachedImmersiveAlbumCenterY: Float = 38f
@@ -177,6 +178,11 @@ object ConfigReader {
     fun lyricAlign(context: Context): String {
         refreshConfigIfNeeded(context)
         return cachedLyricAlign
+    }
+
+    fun lyricTransition(context: Context): String {
+        refreshConfigIfNeeded(context)
+        return cachedLyricTransition
     }
 
     fun keepLockScreenOn(context: Context): Boolean {
@@ -331,6 +337,7 @@ object ConfigReader {
                 val immersiveLyricIdx = cursor.getColumnIndex("immersive_lyric")
                 val lyricHideBackgroundIdx = cursor.getColumnIndex("lyric_hide_background")
                 val lyricAlignIdx = cursor.getColumnIndex("lyric_align")
+                val lyricTransitionIdx = cursor.getColumnIndex("lyric_transition")
                 val keepLockScreenOnIdx = cursor.getColumnIndex("keep_lockscreen_on")
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val immersiveAlbumCenterYIdx = cursor.getColumnIndex("immersive_album_center_y")
@@ -390,6 +397,9 @@ object ConfigReader {
                 }
                 if (lyricAlignIdx >= 0) {
                     cachedLyricAlign = cursor.getString(lyricAlignIdx) ?: "left"
+                }
+                if (lyricTransitionIdx >= 0) {
+                    cachedLyricTransition = cursor.getString(lyricTransitionIdx) ?: "fade"
                 }
                 if (keepLockScreenOnIdx >= 0) {
                     cachedKeepLockScreenOn = cursor.getInt(keepLockScreenOnIdx) == 1
