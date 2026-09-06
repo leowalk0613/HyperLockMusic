@@ -1153,7 +1153,8 @@ object WallpaperController {
             MusicLockscreenManager.updateBlurredBitmap(null)
             MusicLockscreenManager.setShowingState(false)
             MusicLockscreenManager.hideAlbumOverlay()
-            KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
+            // 原壁纸尚未写回：先 hold 景深压制，等 setBitmap onCommitted 再 release
+            KeyguardDepthEffectPolicy.beginRestoreHold()
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.resetForMusicLockscreenOff()
 
             try {
@@ -1197,9 +1198,11 @@ object WallpaperController {
                     }
                 },
                 onCommitted = {
+                    KeyguardDepthEffectPolicy.onOriginalWallpaperRestored()
                     hideTransitionMask(MASK_SETTLE_EXIT_MS)
                 },
                 onCancelled = {
+                    KeyguardDepthEffectPolicy.onOriginalWallpaperRestored()
                     logI("restore apply cancelled epoch=$restoreEpoch")
                 }
             )

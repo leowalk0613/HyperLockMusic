@@ -11,13 +11,8 @@ import java.lang.ref.WeakReference
 /**
  * 音乐锁屏开启时临时停用 HyperOS 官方壁纸景深（抠图层 / 视频景深），避免盖住音乐壁纸。
  *
- * 依据反编译：
- * - `Settings.Secure wallpaper_effect_type_2 == 2` → depthEffectEnable
- * - [KeyguardDepthInteractor] `deductedImageView` / `isActualDisplayDepth`
- * - [KeyguardPanelViewController] `keyguardForegroundLayer` / `updateShowDepthState`
- * - 视频：`VideoDepthSurfaceHolder` + `isDepthVideoEnable`
- *
- * 不改写系统设置，仅在内存态压制显示；退出音乐锁屏后按 Secure 设置恢复。
+ * 原则：只隐藏，不销毁 drawable / VideoDepthSurface；退出后按 suppress 前现场状态恢复。
+ * 原壁纸 setBitmap 完成后再 release，避免过早 parse 失败。
  */
 internal object KeyguardDepthEffectPolicy {
 
@@ -28,9 +23,15 @@ internal object KeyguardDepthEffectPolicy {
     @Volatile
     private var suppressed = false
 
-    /** suppress 前记下的景深开关，release 时优先用（避免 hook 干扰读设置）。 */
+    /** suppress 前是否应显示景深（字段 / 可见性 / 设置）。 */
     @Volatile
     private var savedDepthEnable: Boolean? = null
+
+    /**
+     * 音乐锁屏已关、原壁纸尚未 setBitmap 完成：继续压制，避免 restore 过早。
+     */
+    @Volatile
+    private var holdUntilWallpaperRestored = false
 
     @Volatile
     private var panelRef: WeakReference<Any>? = null
@@ -55,19 +56,46 @@ internal object KeyguardDepthEffectPolicy {
     /** 纯决策：音乐锁屏激活时压制景深。 */
     fun shouldSuppressDepth(musicLockscreenActive: Boolean): Boolean = musicLockscreenActive
 
-    fun shouldSuppress(): Boolean = shouldSuppressDepth(isMusicLockscreenActive())
+    fun shouldSuppress(): Boolean {
+        if (holdUntilWallpaperRestored) return true
+        return shouldSuppressDepth(isMusicLockscreenActive())
+    }
 
     fun isSuppressed(): Boolean = suppressed
 
-    /** 与音乐锁屏状态对齐：开启则 suppress，关闭则 release。 */
+    fun isHoldingUntilWallpaperRestored(): Boolean = holdUntilWallpaperRestored
+
+    /** 与音乐锁屏状态对齐：开启则 suppress；关闭时若未 hold 则 release。 */
     fun syncWithMusicLockscreen() {
-        if (shouldSuppress()) suppress() else release()
+        if (shouldSuppressDepth(isMusicLockscreenActive())) {
+            holdUntilWallpaperRestored = false
+            suppress()
+        } else if (!holdUntilWallpaperRestored) {
+            release()
+        }
+    }
+
+    /**
+     * 关闭音乐锁屏、即将异步恢复原壁纸：先继续压制，等 [onOriginalWallpaperRestored]。
+     */
+    fun beginRestoreHold() {
+        holdUntilWallpaperRestored = true
+        suppressed = true
+        applySuppressToPanel()
+        logI("depth restore hold")
+    }
+
+    /** 原锁屏壁纸 setBitmap 已提交：解除 hold 并恢复景深。 */
+    fun onOriginalWallpaperRestored() {
+        holdUntilWallpaperRestored = false
+        release()
     }
 
     fun suppress() {
         val panel = panelRef?.get()
         if (!suppressed && panel != null) {
-            savedDepthEnable = readDepthEffectSetting(panel)
+            savedDepthEnable = captureDepthWasEnabled(panel)
+            logI("savedDepthEnable=$savedDepthEnable")
         }
         suppressed = true
         applySuppressToPanel()
@@ -75,14 +103,18 @@ internal object KeyguardDepthEffectPolicy {
     }
 
     fun release() {
-        if (!suppressed && panelRef?.get() == null) return
+        if (!suppressed && panelRef?.get() == null) {
+            holdUntilWallpaperRestored = false
+            return
+        }
         suppressed = false
+        holdUntilWallpaperRestored = false
         restorePanelDepthFromSettings()
+        logI("depth released savedWas=${savedDepthEnable}")
         savedDepthEnable = null
-        logI("depth released")
     }
 
-    /** Hook 回弹时再刷一遍隐藏（不改 suppressed 标记）。 */
+    /** Hook 回弹时再刷一遍隐藏。 */
     fun reapplyIfSuppressed() {
         if (!shouldSuppress()) return
         suppressed = true
@@ -92,17 +124,56 @@ internal object KeyguardDepthEffectPolicy {
     fun reset() {
         suppressed = false
         savedDepthEnable = null
+        holdUntilWallpaperRestored = false
         applying = false
         panelRef = null
     }
 
-    /** 测试用：写入 savedDepthEnable。 */
     internal fun setSavedDepthEnableForTest(value: Boolean?) {
         savedDepthEnable = value
     }
 
-    /** 测试用。 */
     internal fun savedDepthEnableForTest(): Boolean? = savedDepthEnable
+
+    /** 纯函数：是否应视为「曾经开着景深」以便恢复。 */
+    fun shouldRestoreDepth(
+        panelDepthEnable: Boolean,
+        interactorDepthEnable: Boolean,
+        actualDisplayDepth: Boolean,
+        depthVideoEnable: Boolean,
+        deductedVisibleWithDrawable: Boolean,
+        settingsDepthType: Int,
+    ): Boolean {
+        return panelDepthEnable ||
+            interactorDepthEnable ||
+            actualDisplayDepth ||
+            depthVideoEnable ||
+            deductedVisibleWithDrawable ||
+            isDepthEffectType(settingsDepthType)
+    }
+
+    private fun captureDepthWasEnabled(panel: Any): Boolean {
+        val interactor = getField(panel, "keyguardDepthInteractor")
+        val image = interactor?.let { getField(it, "deductedImageView") as? ImageView }
+        val deductedVisibleWithDrawable =
+            image != null &&
+                image.visibility == View.VISIBLE &&
+                image.drawable != null
+        return shouldRestoreDepth(
+            panelDepthEnable = getBooleanField(panel, "depthEffectEnable") == true,
+            interactorDepthEnable = interactor?.let {
+                getBooleanField(it, "depthEffectEnableInner")
+            } == true,
+            actualDisplayDepth = interactor?.let {
+                getBooleanField(it, "isActualDisplayDepth")
+            } == true,
+            depthVideoEnable = interactor?.let {
+                getBooleanField(it, "depthVideoEnable")
+            } == true,
+            deductedVisibleWithDrawable = deductedVisibleWithDrawable,
+            settingsDepthType = readDepthEffectType(panel),
+        )
+    }
 
     private fun applySuppressToPanel() {
         if (applying) return
@@ -114,14 +185,15 @@ internal object KeyguardDepthEffectPolicy {
             setBooleanField(interactor, "depthEffectEnableInner", false)
             setBooleanField(interactor, "isActualDisplayDepth", false)
 
-            hideDeductedImage(interactor)
+            // 只隐藏，不 clear drawable / 不 removeVideoDepthSurface，否则无法恢复
+            hideDeductedImage(interactor, clearDrawable = false)
             hideForegroundLayer(panel, interactor)
             hideVideoDepth(interactor)
-            forceDepthAlphaZero(interactor)
+            forceDepthAlpha(interactor, 0f)
 
             invokeNoArg(panel, "updateShowDepthState")
             invokeNoArg(panel, "updateKeyguardElementsVisibility")
-            hideDeductedImage(interactor)
+            hideDeductedImage(interactor, clearDrawable = false)
             hideForegroundLayer(panel, interactor)
             hideVideoDepth(interactor)
         } catch (e: Throwable) {
@@ -136,21 +208,38 @@ internal object KeyguardDepthEffectPolicy {
         val panel = panelRef?.get() ?: return
         applying = true
         try {
-            val enabled = savedDepthEnable ?: readDepthEffectSetting(panel)
-            setBooleanField(panel, "depthEffectEnable", enabled)
+            val restore = savedDepthEnable
+                ?: (captureDepthWasEnabled(panel) || readDepthEffectSetting(panel))
+            logI("restore depth enable=$restore (saved=$savedDepthEnable)")
+
+            setBooleanField(panel, "depthEffectEnable", restore)
             val interactor = getField(panel, "keyguardDepthInteractor")
             if (interactor != null) {
-                setBooleanField(interactor, "depthEffectEnableInner", enabled)
-                if (enabled) {
+                setBooleanField(interactor, "depthEffectEnableInner", restore)
+                if (restore) {
+                    setBooleanField(interactor, "isActualDisplayDepth", true)
+                    showDeductedImage(interactor)
+                    showForegroundLayer(panel, interactor)
+                    showVideoDepth(interactor)
+                    forceDepthAlpha(interactor, 1f)
                     invokeNoArg(interactor, "updateDeductedImageView")
                     invokeNoArg(interactor, "updateVideoDepthSurface")
                 } else {
-                    hideDeductedImage(interactor)
+                    hideDeductedImage(interactor, clearDrawable = false)
                     hideVideoDepth(interactor)
                 }
             }
             invokeNoArg(panel, "updateShowDepthState")
             invokeNoArg(panel, "updateKeyguardElementsVisibility")
+            if (restore && interactor != null) {
+                // updateShowDepthState 可能按层级信息再次关掉，强制再亮一次
+                setBooleanField(interactor, "isActualDisplayDepth", true)
+                showDeductedImage(interactor)
+                showForegroundLayer(panel, interactor)
+                showVideoDepth(interactor)
+                forceDepthAlpha(interactor, 1f)
+                invokeNoArg(panel, "updateKeyguardElementsVisibility")
+            }
         } catch (e: Throwable) {
             logE("restorePanelDepthFromSettings error", e)
         } finally {
@@ -158,27 +247,28 @@ internal object KeyguardDepthEffectPolicy {
         }
     }
 
-    /** 直接读 Secure 设置，绕过 getDepthEffectEnable hook。 */
     fun readDepthEffectSetting(panel: Any): Boolean {
+        return isDepthEffectType(readDepthEffectType(panel))
+    }
+
+    private fun readDepthEffectType(panel: Any): Int {
         try {
             val ctx = getField(panel, "context") as? Context
             if (ctx != null) {
-                val type = Settings.Secure.getInt(
+                return Settings.Secure.getInt(
                     ctx.contentResolver,
                     SETTING_WALLPAPER_EFFECT_TYPE_2,
                     0
                 )
-                return type == DEPTH_EFFECT_TYPE
             }
         } catch (_: Throwable) {
         }
-        return getBooleanField(panel, "depthEffectEnable") ?: false
+        return 0
     }
 
-    /** 纯函数：effect type → 是否景深。 */
     fun isDepthEffectType(effectType: Int): Boolean = effectType == DEPTH_EFFECT_TYPE
 
-    private fun forceDepthAlphaZero(interactor: Any) {
+    private fun forceDepthAlpha(interactor: Any, alpha: Float) {
         try {
             val animConfigClass = Class.forName("miuix.animation.base.AnimConfig")
             tryInvoke(
@@ -189,36 +279,38 @@ internal object KeyguardDepthEffectPolicy {
                     animConfigClass,
                     Boolean::class.javaPrimitiveType!!
                 ),
-                arrayOf(0f, null, false)
+                arrayOf(alpha, null, false)
             )
-        } catch (_: Throwable) {
-            // Folme setTo 已在 hideDeductedImage 里兜底
-        }
-    }
-
-    private fun hideDeductedImage(interactor: Any) {
-        val image = getField(interactor, "deductedImageView") as? ImageView ?: return
-        image.visibility = View.INVISIBLE
-        image.alpha = 0f
-        try {
-            image.setImageDrawable(null)
         } catch (_: Throwable) {
         }
         val folme = getField(interactor, "deductedTranslateAlphaFolmeAnimator")
         if (folme != null) {
             try {
                 val viewProperty = Class.forName("miuix.animation.property.ViewProperty")
-                val alpha = viewProperty.getField("TRANSITION_ALPHA").get(null)
+                val prop = viewProperty.getField("TRANSITION_ALPHA").get(null)
                 folme.javaClass.getMethod("setTo", Any::class.java, Any::class.java)
-                    .invoke(folme, alpha, 0f)
+                    .invoke(folme, prop, alpha)
             } catch (_: Throwable) {
-                try {
-                    folme.javaClass.getMethod("setTo", String::class.java, Any::class.java)
-                        .invoke(folme, "transitionAlpha", 0f)
-                } catch (_: Throwable) {
-                }
             }
         }
+    }
+
+    private fun hideDeductedImage(interactor: Any, clearDrawable: Boolean) {
+        val image = getField(interactor, "deductedImageView") as? ImageView ?: return
+        image.visibility = View.INVISIBLE
+        image.alpha = 0f
+        if (clearDrawable) {
+            try {
+                image.setImageDrawable(null)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun showDeductedImage(interactor: Any) {
+        val image = getField(interactor, "deductedImageView") as? ImageView ?: return
+        image.visibility = View.VISIBLE
+        image.alpha = 1f
     }
 
     private fun hideForegroundLayer(panel: Any, interactor: Any) {
@@ -228,6 +320,13 @@ internal object KeyguardDepthEffectPolicy {
         layer.visibility = View.INVISIBLE
     }
 
+    private fun showForegroundLayer(panel: Any, interactor: Any) {
+        val layer = (getField(panel, "keyguardForegroundLayer") as? ViewGroup)
+            ?: (getField(interactor, "keyguardForegroundLayer") as? ViewGroup)
+            ?: return
+        layer.visibility = View.VISIBLE
+    }
+
     private fun hideVideoDepth(interactor: Any) {
         val holder = getField(interactor, "videoDepthSurfaceHolder") ?: return
         try {
@@ -235,8 +334,13 @@ internal object KeyguardDepthEffectPolicy {
             (getField(holder, "foregroundTextureView") as? TextureView)?.visibility = View.INVISIBLE
         } catch (_: Throwable) {
         }
+    }
+
+    private fun showVideoDepth(interactor: Any) {
+        val holder = getField(interactor, "videoDepthSurfaceHolder") ?: return
         try {
-            invokeNoArg(interactor, "removeVideoDepthSurface")
+            (getField(holder, "backgroundTextureView") as? TextureView)?.visibility = View.VISIBLE
+            (getField(holder, "foregroundTextureView") as? TextureView)?.visibility = View.VISIBLE
         } catch (_: Throwable) {
         }
     }

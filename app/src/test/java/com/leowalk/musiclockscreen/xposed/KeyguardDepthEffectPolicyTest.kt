@@ -31,9 +31,60 @@ class KeyguardDepthEffectPolicyTest {
     }
 
     @Test
+    fun shouldRestoreDepth_whenPanelFieldWasOnEvenIfSettingsZero() {
+        assertTrue(
+            KeyguardDepthEffectPolicy.shouldRestoreDepth(
+                panelDepthEnable = true,
+                interactorDepthEnable = false,
+                actualDisplayDepth = false,
+                depthVideoEnable = false,
+                deductedVisibleWithDrawable = false,
+                settingsDepthType = 0,
+            )
+        )
+    }
+
+    @Test
+    fun shouldRestoreDepth_whenDeductedLayerVisible() {
+        assertTrue(
+            KeyguardDepthEffectPolicy.shouldRestoreDepth(
+                panelDepthEnable = false,
+                interactorDepthEnable = false,
+                actualDisplayDepth = false,
+                depthVideoEnable = false,
+                deductedVisibleWithDrawable = true,
+                settingsDepthType = 0,
+            )
+        )
+    }
+
+    @Test
+    fun shouldRestoreDepth_falseWhenNothingEnabled() {
+        assertFalse(
+            KeyguardDepthEffectPolicy.shouldRestoreDepth(
+                panelDepthEnable = false,
+                interactorDepthEnable = false,
+                actualDisplayDepth = false,
+                depthVideoEnable = false,
+                deductedVisibleWithDrawable = false,
+                settingsDepthType = 0,
+            )
+        )
+    }
+
+    @Test
+    fun beginRestoreHold_keepsSuppressUntilWallpaperRestored() {
+        KeyguardDepthEffectPolicy.beginRestoreHold()
+        assertTrue(KeyguardDepthEffectPolicy.isHoldingUntilWallpaperRestored())
+        assertTrue(KeyguardDepthEffectPolicy.shouldSuppress())
+        KeyguardDepthEffectPolicy.onOriginalWallpaperRestored()
+        assertFalse(KeyguardDepthEffectPolicy.isHoldingUntilWallpaperRestored())
+        assertFalse(KeyguardDepthEffectPolicy.isSuppressed())
+    }
+
+    @Test
     fun reset_clearsSuppressedAndSaved() {
         KeyguardDepthEffectPolicy.setSavedDepthEnableForTest(true)
-        // suppress without panel is still allowed for flag
         KeyguardDepthEffectPolicy.suppress()
         assertTrue(KeyguardDepthEffectPolicy.isSuppressed())
         KeyguardDepthEffectPolicy.reset()
