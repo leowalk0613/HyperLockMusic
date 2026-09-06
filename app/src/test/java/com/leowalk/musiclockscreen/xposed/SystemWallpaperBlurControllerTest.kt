@@ -9,13 +9,42 @@ class SystemWallpaperBlurControllerTest {
 
     @Test
     fun shouldApply_whenMusicLockscreenActive() {
-        assertTrue(SystemWallpaperBlurController.shouldApply(true, immersiveAlbum = false))
-        assertFalse(SystemWallpaperBlurController.shouldApply(false, immersiveAlbum = false))
+        assertTrue(
+            SystemWallpaperBlurController.shouldApply(
+                musicLockscreenActive = true,
+                immersiveAlbum = false,
+                onKeyguard = true,
+            )
+        )
+        assertFalse(
+            SystemWallpaperBlurController.shouldApply(
+                musicLockscreenActive = false,
+                immersiveAlbum = false,
+                onKeyguard = true,
+            )
+        )
     }
 
     @Test
     fun shouldApply_falseWhenImmersiveAlbum() {
-        assertFalse(SystemWallpaperBlurController.shouldApply(true, immersiveAlbum = true))
+        assertFalse(
+            SystemWallpaperBlurController.shouldApply(
+                musicLockscreenActive = true,
+                immersiveAlbum = true,
+                onKeyguard = true,
+            )
+        )
+    }
+
+    @Test
+    fun shouldApply_falseWhenNotOnKeyguard() {
+        assertFalse(
+            SystemWallpaperBlurController.shouldApply(
+                musicLockscreenActive = true,
+                immersiveAlbum = false,
+                onKeyguard = false,
+            )
+        )
     }
 
     @Test

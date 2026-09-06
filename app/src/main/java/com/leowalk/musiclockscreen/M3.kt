@@ -449,40 +449,59 @@ object M3 {
     }
 
     /**
-     * 分段单选按钮组：每行 columns 个，跨行单选。
-     * 同一行内等分宽度，缩小内边距以保证短文案完整显示。
+     * 分段单选按钮组：每行 [columns] 个，**整组只能选一个**（跨行互斥）。
+     * 不用每行独立的 MaterialButtonToggleGroup（其 selectionRequired 会强制每行各留一个选中）。
      */
     fun segmentGroup(ctx: Context, labels: List<String>, selectedIndex: Int, columns: Int,
                      onSelect: (Int) -> Unit): LinearLayout {
         val root = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         val buttons = mutableListOf<com.google.android.material.button.MaterialButton>()
-        val rows = (labels.size + columns - 1) / columns
-        for (r in 0 until rows) {
-            val group = com.google.android.material.button.MaterialButtonToggleGroup(ctx).apply {
-                isSingleSelection = true
-                isSelectionRequired = true
+        val cols = columns.coerceAtLeast(1)
+        val rows = (labels.size + cols - 1) / cols
+        var suppress = false
+
+        fun applyExclusive(index: Int) {
+            suppress = true
+            try {
+                for (j in buttons.indices) {
+                    buttons[j].isChecked = j == index
+                }
+            } finally {
+                suppress = false
             }
-            val end = minOf((r + 1) * columns, labels.size)
-            for (i in r * columns until end) {
+        }
+
+        for (r in 0 until rows) {
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dp(ctx, 4f) }
+            }
+            val end = minOf((r + 1) * cols, labels.size)
+            for (i in r * cols until end) {
                 val btn = segmentButton(ctx, labels[i], i == selectedIndex)
                 val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                group.addView(btn, lp)
+                row.addView(btn, lp)
                 buttons.add(btn)
-            }
-            group.addOnButtonCheckedListener { _, checkedId, isChecked ->
-                if (!isChecked) return@addOnButtonCheckedListener
-                for (i in buttons.indices) {
-                    if (buttons[i].id == checkedId) {
-                        onSelect(i)
-                        for (j in buttons.indices) buttons[j].isChecked = j == i
-                        break
-                    }
+                btn.setOnClickListener {
+                    if (suppress) return@setOnClickListener
+                    val idx = buttons.indexOf(btn)
+                    if (idx < 0) return@setOnClickListener
+                    applyExclusive(idx)
+                    onSelect(idx)
                 }
             }
-            group.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { bottomMargin = dp(ctx, 4f) }
-            root.addView(group)
+            // 行末不足 columns 时补空位，保持等分
+            val pad = cols - (end - r * cols)
+            repeat(pad) {
+                row.addView(View(ctx), LinearLayout.LayoutParams(0, 0, 1f))
+            }
+            root.addView(row)
+        }
+        if (selectedIndex in buttons.indices) {
+            applyExclusive(selectedIndex)
         }
         return root
     }

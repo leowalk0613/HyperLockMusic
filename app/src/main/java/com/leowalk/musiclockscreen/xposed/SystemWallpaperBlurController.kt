@@ -8,8 +8,8 @@ import android.widget.FrameLayout
 import java.lang.ref.WeakReference
 
 /**
- * 音乐锁屏壁纸模糊：用系统 [ViewRootImpl.setWallpaperBlur] + MiBackgroundBlur 遮罩。
- * Bitmap 侧只做轻量 softColor，重糊交给合成器。
+ * 音乐锁屏壁纸模糊：仅用锁屏层上的 MiBackgroundBlur 遮罩。
+ * 不用 [ViewRootImpl.setWallpaperBlur]——会糊到共享壁纸表面并泄漏到桌面。
  */
 internal object SystemWallpaperBlurController {
 
@@ -29,13 +29,16 @@ internal object SystemWallpaperBlurController {
         layer.post { sync(layer.context) }
     }
 
-    /** 音乐锁屏开启且非沉浸专辑时应用系统模糊；沉浸为 Monet 色底，不开模糊遮罩。 */
+    /**
+     * 仅在锁屏 + 音乐锁屏 + 非沉浸专辑时开遮罩；离开锁屏立即清掉，避免影响桌面。
+     */
     fun sync(context: Context? = null) {
         val layer = bgLayerRef?.get()
         val ctx = context ?: layer?.context ?: return
         val want = shouldApply(
             musicLockscreenActive = WallpaperController.isShowing() || MusicLockscreenManager.isShowing,
             immersiveAlbum = ConfigReader.immersiveAlbum(ctx),
+            onKeyguard = HookUtils.isOnKeyguard(ctx),
         )
         if (want) {
             val radius = mapSliderToWallpaperBlurRadius(ConfigReader.blurRadius(ctx))
@@ -45,11 +48,15 @@ internal object SystemWallpaperBlurController {
         }
     }
 
-    fun shouldApply(musicLockscreenActive: Boolean, immersiveAlbum: Boolean = false): Boolean {
-        return musicLockscreenActive && !immersiveAlbum
+    fun shouldApply(
+        musicLockscreenActive: Boolean,
+        immersiveAlbum: Boolean = false,
+        onKeyguard: Boolean = true,
+    ): Boolean {
+        return musicLockscreenActive && !immersiveAlbum && onKeyguard
     }
 
-    /** 设置页 10–200 → ViewRootImpl.setWallpaperBlur 常用 0–100。 */
+    /** 设置页 10–200 → MiBlur 半径映射 0–100。 */
     fun mapSliderToWallpaperBlurRadius(sliderDp: Float): Int {
         val t = ((sliderDp - 10f) / 190f).coerceIn(0f, 1f)
         return (t * 100f).toInt().coerceIn(0, 100)
@@ -71,14 +78,14 @@ internal object SystemWallpaperBlurController {
     }
 
     private fun apply(ctx: Context, layer: ViewGroup?, radius: Int) {
-        var wallpaperOk = false
         if (layer != null) {
-            wallpaperOk = setWallpaperBlurOnView(layer, radius)
+            // 确保共享壁纸表面无 blur 残留
+            setWallpaperBlurOnView(layer, 0)
             ensureMask(layer)
             applyMiBlurMask(layer, radius, ConfigReader.darkOverlay(ctx))
         }
         appliedRadius = radius
-        logI("apply radius=$radius wallpaperBlur=$wallpaperOk mask=${layer != null}")
+        logI("apply miMask radius=$radius mask=${layer != null}")
     }
 
     private fun clear(layer: ViewGroup?) {

@@ -50,6 +50,7 @@ object StatusBarStateHook {
                                 MusicLockscreenManager.lyricView?.setShadeOpen(true)
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
                                 LockscreenClockController.sync()
+                                SystemWallpaperBlurController.sync()
                                 val ctx = MusicLockscreenManager.lyricView?.context
                                 if (ctx != null && !HookUtils.isOnKeyguard(ctx)) {
                                     LockscreenNotificationController.releaseToSystemUi()
@@ -73,6 +74,7 @@ object StatusBarStateHook {
                                     val ctx = MusicLockscreenManager.lyricView?.context
                                     if (ctx != null) {
                                         WallpaperController.refreshMusicWallpaper(ctx)
+                                        SystemWallpaperBlurController.sync(ctx)
                                     }
                                     logI("keyguard shown -> resume music lockscreen UI")
                                 }
