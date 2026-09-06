@@ -70,11 +70,25 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
-    fun fixedStep_independentOfLayoutHeight() {
-        val a = ImmersiveLyricStackPolicy.fixedStepPx(40f)
-        val b = ImmersiveLyricStackPolicy.fixedStepPx(40f)
-        assertEquals(a, b, 0.001f)
-        assertTrue(a > 40f)
+    fun fixedGap_prevBottomToCurrentTop_constant() {
+        val fontH = 40f
+        val gap = ImmersiveLyricStackPolicy.fixedGapPx(fontH)
+        // 当前 1 行 vs 2 行高时，上一句底边到当前顶边的空隙应相同
+        val currentTop1 = 200f
+        val currentTop2 = 200f // 顶边对齐比较时顶边相同则空隙相同
+        val prevH = 40f
+        val prevTop1 = ImmersiveLyricStackPolicy.prevTopPx(currentTop1, prevH, fontH)
+        val prevTop2 = ImmersiveLyricStackPolicy.prevTopPx(currentTop2, prevH, fontH)
+        assertEquals(gap, currentTop1 - (prevTop1 + prevH), 0.001f)
+        assertEquals(gap, currentTop2 - (prevTop2 + prevH), 0.001f)
+        assertEquals(prevTop1, prevTop2, 0.001f)
+    }
+
+    @Test
+    fun scrollStep_includesLineAndGap() {
+        val fontH = 40f
+        val step = ImmersiveLyricStackPolicy.scrollStepPx(fontH)
+        assertEquals(fontH + ImmersiveLyricStackPolicy.fixedGapPx(fontH), step, 0.001f)
     }
 
     @Test

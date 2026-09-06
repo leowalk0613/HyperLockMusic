@@ -433,30 +433,34 @@ class LockscreenLyricView(context: Context) : View(context) {
         val h = height.toFloat()
         val centerY = h * 0.5f
         val fontLineH = mainPaint.fontMetrics.run { bottom - top }
-        val step = ImmersiveLyricStackPolicy.fixedStepPx(fontLineH)
+        val gap = ImmersiveLyricStackPolicy.fixedGapPx(fontLineH)
         val offset = stackScrollOffset
+        val currentTop = centerY + offset - current.height * 0.5f
 
         canvas.save()
         // 允许上一句/下一句被歌词区域上下沿裁切
         canvas.clipRect(0f, 0f, w, h)
 
-        // 当前行永远居中；上一句在上方固定槽距（单行）
-        drawStackLine(
-            canvas,
-            stackPrevLayout,
-            hPaddingPx,
-            centerY - step + offset,
-            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
-        )
-        drawStackLine(
-            canvas,
-            current,
-            hPaddingPx,
-            centerY + offset,
-            1f,
-        )
+        // 当前行永远居中；上一句底边与当前顶边保持固定空隙（与当前换行高度无关）
+        val prev = stackPrevLayout
+        if (prev != null) {
+            val prevTop = ImmersiveLyricStackPolicy.prevTopPx(
+                currentTop = currentTop,
+                prevHeight = prev.height.toFloat(),
+                fontLineHeightPx = fontLineH,
+            )
+            drawStackLineTop(
+                canvas,
+                prev,
+                hPaddingPx,
+                prevTop,
+                ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
+            )
+        }
+        drawStackLineTop(canvas, current, hPaddingPx, currentTop, 1f)
+
         // 翻译紧贴当前行下方；下一句再在翻译下面（可被底边裁切）
-        var belowTop = centerY + offset + current.height * 0.5f + lineGapPx
+        var belowTop = currentTop + current.height + gap
         val secondary = stackCurrentSecondaryLayout
         if (secondary != null) {
             drawStackLineTop(
@@ -466,7 +470,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 belowTop,
                 0.72f,
             )
-            belowTop += secondary.height + lineGapPx
+            belowTop += secondary.height + gap
         }
         val next = stackNextLayout
         if (next != null) {
@@ -479,20 +483,6 @@ class LockscreenLyricView(context: Context) : View(context) {
             )
         }
         canvas.restore()
-    }
-
-    private fun drawStackLine(
-        canvas: Canvas,
-        layout: StaticLayout?,
-        x: Float,
-        centerY: Float,
-        alphaScale: Float,
-    ) {
-        if (layout == null || layout.height <= 0) return
-        val text = layout.text?.toString().orEmpty()
-        if (text.isBlank()) return
-        val top = centerY - layout.height * 0.5f
-        drawStackLineTop(canvas, layout, x, top, alphaScale)
     }
 
     private fun drawStackLineTop(
@@ -2445,7 +2435,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun animateStackAdvance() {
         cancelStackAnimator()
         val fontLineH = mainPaint.fontMetrics.run { bottom - top }
-        val step = ImmersiveLyricStackPolicy.fixedStepPx(fontLineH)
+        val step = ImmersiveLyricStackPolicy.scrollStepPx(fontLineH)
         stackScrollOffset = step
         stackAnimator = ValueAnimator.ofFloat(step, 0f).apply {
             duration = stackAnimMs
