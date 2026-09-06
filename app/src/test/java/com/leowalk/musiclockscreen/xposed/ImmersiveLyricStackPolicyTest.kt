@@ -40,7 +40,7 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
-    fun resolveTriplet_neighborsAndSwap() {
+    fun resolveTriplet_keepsSecondaryTranslation() {
         val lines = listOf(
             ImmersiveLyricStackPolicy.LineText("A", "a"),
             ImmersiveLyricStackPolicy.LineText("B", "b"),
@@ -49,21 +49,32 @@ class ImmersiveLyricStackPolicyTest {
         val raw = ImmersiveLyricStackPolicy.resolveTriplet(lines, 1, swapEnabled = false)
         assertEquals("A", raw.prev)
         assertEquals("B", raw.current)
+        assertEquals("b", raw.currentSecondary)
         assertEquals("C", raw.next)
 
         val swapped = ImmersiveLyricStackPolicy.resolveTriplet(lines, 1, swapEnabled = true)
         assertEquals("a", swapped.prev)
         assertEquals("b", swapped.current)
+        assertEquals("B", swapped.currentSecondary)
         assertEquals("c", swapped.next)
     }
 
     @Test
-    fun resolveTriplet_edges() {
+    fun resolveTriplet_noSecondaryWithoutTranslation() {
         val lines = listOf(ImmersiveLyricStackPolicy.LineText("Only"))
-        val t = ImmersiveLyricStackPolicy.resolveTriplet(lines, 0, swapEnabled = false)
+        val t = ImmersiveLyricStackPolicy.resolveTriplet(lines, 0, swapEnabled = true)
         assertEquals("", t.prev)
         assertEquals("Only", t.current)
+        assertEquals("", t.currentSecondary)
         assertEquals("", t.next)
+    }
+
+    @Test
+    fun fixedStep_independentOfLayoutHeight() {
+        val a = ImmersiveLyricStackPolicy.fixedStepPx(40f)
+        val b = ImmersiveLyricStackPolicy.fixedStepPx(40f)
+        assertEquals(a, b, 0.001f)
+        assertTrue(a > 40f)
     }
 
     @Test

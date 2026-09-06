@@ -120,7 +120,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         immersiveOnlyBlock!!.addView(M3.switchRow(
             this,
             "三行上滑",
-            "显示上一句与下一句；当前行居中更实，邻行更透；超出区域上下裁切。AOD 自动退回单行",
+            "仅沉浸歌词：上一句/当前/下一句，当前行居中并显示翻译；邻行更透，上下裁切。AOD 退回单行。共用切行动画在关闭本项时对所有模式生效",
             ModuleConfig.immersiveLyricStack,
         ) { checked ->
             ModuleConfig.immersiveLyricStack = checked
@@ -169,7 +169,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, card))
         list.addView(M3.card(this, M3.tipContent(this,
             "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
-                "沉浸「三行上滑」仅亮屏生效，AOD 自动退回单行无动画。\n" +
+                "「三行上滑」为沉浸独立开关；下方切行动画在未开三行上滑时对普通与沉浸通用。AOD 均不播动画。\n" +
                 "灰显项表示当前歌词样式下不生效。")))
 
         refreshModeUi()
@@ -188,8 +188,8 @@ class LyricStyleActivity : BaseScrollingActivity() {
         modeHint?.text = when {
             !enabled -> "歌词功能已在主界面关闭，样式设置暂不生效。"
             !show -> "显示歌词已关闭，样式设置暂不生效。"
-            immersive -> "当前：沉浸歌词。字号固定；宽度/底边用专辑设置；对齐可用；可开三行上滑；隐藏背景无效。"
-            else -> "当前：普通歌词。字号/宽度/底边/隐藏背景可用；对齐与三行上滑仅沉浸歌词生效。"
+            immersive -> "当前：沉浸歌词。可开三行上滑；关闭后切行动画生效。"
+            else -> "当前：普通歌词。切行动画通用；三行上滑仅沉浸可用。"
         }
     }
 
