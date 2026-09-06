@@ -9,12 +9,14 @@ import android.view.View
 import java.lang.reflect.Method
 
 /**
- * HyperOS / MIUI 锁屏时钟同款「透壁纸高斯模糊染色」View API（隐藏方法反射）。
- * 对照 SystemUI `com.miui.clock.utils.MiuiBlurUtils`。
+ * HyperOS / MIUI 锁屏时钟同款「透壁纸高斯模糊染色」。
+ * 优先委托 SystemUI 内 [com.miui.clock.utils.MiuiBlurUtils]，失败再走 View 隐藏方法反射。
  */
 object HyperMiBlurHelper {
 
     private const val TAG = "HyperLockMusic_MiBlur"
+
+    private const val SYSTEM_MIUI_BLUR = "com.miui.clock.utils.MiuiBlurUtils"
 
     private val setPassWindowBlurEnabled: Method? by lazy {
         resolveView("setPassWindowBlurEnabled", Boolean::class.javaPrimitiveType!!)
@@ -47,18 +49,17 @@ object HyperMiBlurHelper {
 
     /** 设备是否声明支持 background blur，且用户开关打开。 */
     fun isSupported(context: Context): Boolean {
+        if (systemMiuiBlurClass() != null) return true
         if (setMiViewBlurMode == null || setMiBackgroundBlendColors == null) {
             return false
         }
         if (!systemPropBoolean("persist.sys.background_blur_supported", false) &&
             systemPropInt("persist.sys.background_blur_version", 0) <= 0
         ) {
-            // 部分机型只暴露 View 方法；方法在就允许尝试
             logI("prop blur unsupported, but View APIs present — allow try")
         }
         return try {
             Settings.Secure.getInt(context.contentResolver, "background_blur_enable", 0) == 1 ||
-                // 时钟在部分 ROM 上即使 secure 为 0 仍可用；API 在则放行，失败再降级
                 setMiViewBlurMode != null
         } catch (_: Throwable) {
             setMiViewBlurMode != null
@@ -86,6 +87,113 @@ object HyperMiBlurHelper {
         overColor: Int = 0
     ): Boolean {
         if (!isSupported(view.context)) return false
+        if (trySystemApplyTextBlend(
+                view, blendColor, primaryColor, colorDark,
+                enablePassBlurOnSelf, passBlurRadius, blendAlpha, labAlpha, overColor,
+            )
+        ) {
+            return true
+        }
+        return applyTextBlendReflect(
+            view, blendColor, primaryColor, colorDark,
+            enablePassBlurOnSelf, passBlurRadius, blendAlpha, labAlpha, overColor,
+        )
+    }
+
+    fun clearTextBlend(view: View) {
+        if (trySystemClearTextBlend(view)) return
+        try {
+            invoke(clearMiBackgroundBlendColor, view)
+            invoke(setMiViewBlurMode, view, 0)
+            invoke(setMiBackgroundBlurMode, view, 0)
+            invoke(setMiBackgroundBlurRadius, view, 0)
+            invoke(setPassWindowBlurEnabled, view, false)
+            logI("clearTextBlend ok")
+        } catch (e: Throwable) {
+            logE("clearTextBlend failed", e)
+        }
+    }
+
+    /** 单测 / 诊断：能否加载系统 MiuiBlurUtils。 */
+    fun canUseSystemMiuiBlurUtils(): Boolean = systemMiuiBlurClass() != null
+
+    private fun systemMiuiBlurClass(): Class<*>? {
+        return try {
+            Class.forName(SYSTEM_MIUI_BLUR)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun trySystemApplyTextBlend(
+        view: View,
+        blendColor: Int,
+        primaryColor: Int,
+        colorDark: Boolean,
+        enablePassBlurOnSelf: Boolean,
+        passBlurRadius: Int,
+        blendAlpha: Int,
+        labAlpha: Int,
+        overColor: Int,
+    ): Boolean {
+        val cls = systemMiuiBlurClass() ?: return false
+        return try {
+            if (enablePassBlurOnSelf) {
+                val setContainer = cls.getMethod(
+                    "setContainerPassBlur",
+                    View::class.java,
+                    Int::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType,
+                )
+                setContainer.invoke(null, view, passBlurRadius, false)
+            }
+            val setMember = cls.getMethod(
+                "setMemberBlendColors",
+                View::class.java,
+                Boolean::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType,
+            )
+            setMember.invoke(
+                null, view, colorDark, blendColor,
+                blendAlpha.coerceIn(0, 255), labAlpha.coerceIn(0, 255),
+                primaryColor, overColor,
+            )
+            logI("applyTextBlend via MiuiBlurUtils")
+            true
+        } catch (e: Throwable) {
+            logE("system MiuiBlurUtils apply failed, fallback reflect", e)
+            false
+        }
+    }
+
+    private fun trySystemClearTextBlend(view: View): Boolean {
+        val cls = systemMiuiBlurClass() ?: return false
+        return try {
+            cls.getMethod("clearMiBackgroundBlendColor", View::class.java).invoke(null, view)
+            cls.getMethod("clearContainerPassBlur", View::class.java).invoke(null, view)
+            logI("clearTextBlend via MiuiBlurUtils")
+            true
+        } catch (e: Throwable) {
+            logE("system MiuiBlurUtils clear failed", e)
+            false
+        }
+    }
+
+    private fun applyTextBlendReflect(
+        view: View,
+        blendColor: Int,
+        primaryColor: Int,
+        colorDark: Boolean,
+        enablePassBlurOnSelf: Boolean,
+        passBlurRadius: Int,
+        blendAlpha: Int,
+        labAlpha: Int,
+        overColor: Int,
+    ): Boolean {
         return try {
             if (enablePassBlurOnSelf) {
                 invoke(setPassWindowBlurEnabled, view, true)
@@ -106,7 +214,6 @@ object HyperMiBlurHelper {
             val colors = ArrayList<Point>(5).apply {
                 add(Point(blend, 101))
                 add(Point(lab, if (colorDark) 105 else 103))
-                // origin / primary（BACKGROUND_BLUR_VERSION>=2 路径）
                 add(Point(primaryColor, 1000))
                 if (overColor != 0) {
                     add(Point(overColor, 3))
@@ -114,7 +221,7 @@ object HyperMiBlurHelper {
             }
             invoke(setMiBackgroundBlendColors, view, colors)
             logI(
-                "applyTextBlend ok blend=#${Integer.toHexString(blend)} " +
+                "applyTextBlend reflect ok blend=#${Integer.toHexString(blend)} " +
                     "primary=#${Integer.toHexString(primaryColor)} dark=$colorDark " +
                     "labA=$labAlpha over=#${Integer.toHexString(overColor)}"
             )
@@ -122,19 +229,6 @@ object HyperMiBlurHelper {
         } catch (e: Throwable) {
             logE("applyTextBlend failed", e)
             false
-        }
-    }
-
-    fun clearTextBlend(view: View) {
-        try {
-            invoke(clearMiBackgroundBlendColor, view)
-            invoke(setMiViewBlurMode, view, 0)
-            invoke(setMiBackgroundBlurMode, view, 0)
-            invoke(setMiBackgroundBlurRadius, view, 0)
-            invoke(setPassWindowBlurEnabled, view, false)
-            logI("clearTextBlend ok")
-        } catch (e: Throwable) {
-            logE("clearTextBlend failed", e)
         }
     }
 

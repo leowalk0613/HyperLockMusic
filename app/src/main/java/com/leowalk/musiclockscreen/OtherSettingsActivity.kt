@@ -14,7 +14,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
         blurCard.addView(M3.title(this, "壁纸模糊"))
         blurCard.addView(M3.sliderRow(
             this, "模糊强度", 10f, 200f, ModuleConfig.blurRadius,
-            { "${it.toInt()} dp" }
+            { "${it.toInt()}" }
         ) { v ->
             ModuleConfig.blurRadius = v
             ModuleConfig.push(this)
@@ -24,15 +24,6 @@ class OtherSettingsActivity : BaseScrollingActivity() {
             { "${it.toInt()}" }
         ) { v ->
             ModuleConfig.darkOverlay = v.toInt()
-            ModuleConfig.push(this)
-        })
-        blurCard.addView(M3.switchRow(
-            this,
-            "系统壁纸模糊",
-            "用 HyperOS 壁纸模糊/遮罩代替 StackBlur 重糊（实验，重新开关音乐锁屏生效）",
-            ModuleConfig.systemWallpaperBlur
-        ) { checked ->
-            ModuleConfig.systemWallpaperBlur = checked
             ModuleConfig.push(this)
         })
         list.addView(M3.card(this, blurCard))
@@ -119,7 +110,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
         list.addView(M3.card(this, titleCard))
 
         list.addView(M3.card(this, M3.tipContent(this,
-            "模糊强度作用于进入音乐锁屏时新生成的壁纸；开启「系统壁纸模糊」时强度主要控制合成器模糊半径，Bitmap 仅轻量 softColor。\n\n" +
+            "模糊强度控制 HyperOS 系统壁纸模糊；暗色遮罩主要走合成器 MiBlur，Bitmap 仅 softColor 色块。重新开关音乐锁屏后生效。\n\n" +
                 "禁用息屏壁纸缩放对大专辑、沉浸封面与仅歌词模式均生效。\n\n" +
                 "AOD 完整媒体控件需重启系统界面后生效。\n\n" +
                 "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行副标题叠在标题下方。\n\n" +

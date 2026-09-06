@@ -44,7 +44,6 @@ class ConfigProvider : ContentProvider() {
         const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
         const val KEY_AOD_FULL_MEDIA = "aod_full_media"
         const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
-        const val KEY_SYSTEM_WALLPAPER_BLUR = "system_wallpaper_blur"
         const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
@@ -110,7 +109,6 @@ class ConfigProvider : ContentProvider() {
                 KEY_MINIMAL_CLOCK_TOP_Y,
                 KEY_AOD_FULL_MEDIA,
                 KEY_DISABLE_WALLPAPER_SCALE,
-                KEY_SYSTEM_WALLPAPER_BLUR,
                 KEY_KEEP_LOCKSCREEN_ON,
                 KEY_TITLE_BRACKET_MODE,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
@@ -149,7 +147,6 @@ class ConfigProvider : ContentProvider() {
                 prefs.getFloat(KEY_MINIMAL_CLOCK_TOP_Y, 10f),
                 if (prefs.getBoolean(KEY_AOD_FULL_MEDIA, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_DISABLE_WALLPAPER_SCALE, true)) 1 else 0,
-                if (prefs.getBoolean(KEY_SYSTEM_WALLPAPER_BLUR, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_KEEP_LOCKSCREEN_ON, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
@@ -266,12 +263,6 @@ class ConfigProvider : ContentProvider() {
                     editor.putBoolean(
                         KEY_DISABLE_WALLPAPER_SCALE,
                         values.getAsInteger(KEY_DISABLE_WALLPAPER_SCALE) == 1
-                    )
-                }
-                if (values.containsKey(KEY_SYSTEM_WALLPAPER_BLUR)) {
-                    editor.putBoolean(
-                        KEY_SYSTEM_WALLPAPER_BLUR,
-                        values.getAsInteger(KEY_SYSTEM_WALLPAPER_BLUR) == 1
                     )
                 }
                 if (values.containsKey(KEY_KEEP_LOCKSCREEN_ON)) {

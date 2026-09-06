@@ -41,7 +41,6 @@ object ModuleConfig {
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
     private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
     private const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
-    private const val KEY_SYSTEM_WALLPAPER_BLUR = "system_wallpaper_blur"
     private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
     private const val KEY_MUSIC_WHITELIST_ENABLED = "music_whitelist_enabled"
     private const val KEY_MUSIC_WHITELIST = "music_whitelist"
@@ -96,7 +95,6 @@ object ModuleConfig {
     private const val DEFAULT_TITLE_BRACKET_MODE = TITLE_BRACKET_DEFAULT
     private const val DEFAULT_AOD_FULL_MEDIA = false
     private const val DEFAULT_DISABLE_WALLPAPER_SCALE = true
-    private const val DEFAULT_SYSTEM_WALLPAPER_BLUR = false
     private const val DEFAULT_KEEP_LOCKSCREEN_ON = false
     private const val DEFAULT_MUSIC_WHITELIST_ENABLED = false
 
@@ -246,11 +244,6 @@ object ModuleConfig {
         get() = getPrefs().getBoolean(KEY_DISABLE_WALLPAPER_SCALE, DEFAULT_DISABLE_WALLPAPER_SCALE)
         set(value) = getPrefs().edit().putBoolean(KEY_DISABLE_WALLPAPER_SCALE, value).apply()
 
-    /** 用系统壁纸模糊/遮罩代替 StackBlur 重糊（实验） */
-    var systemWallpaperBlur: Boolean
-        get() = getPrefs().getBoolean(KEY_SYSTEM_WALLPAPER_BLUR, DEFAULT_SYSTEM_WALLPAPER_BLUR)
-        set(value) = getPrefs().edit().putBoolean(KEY_SYSTEM_WALLPAPER_BLUR, value).apply()
-
     /** 音乐锁屏时保持常亮 */
     var keepLockScreenOn: Boolean
         get() = getPrefs().getBoolean(KEY_KEEP_LOCKSCREEN_ON, DEFAULT_KEEP_LOCKSCREEN_ON)
@@ -334,7 +327,6 @@ object ModuleConfig {
                 put("minimal_clock_top_y", minimalClockTopY)
                 put("aod_full_media", if (aodFullMedia) 1 else 0)
                 put("disable_wallpaper_scale", if (disableWallpaperScale) 1 else 0)
-                put("system_wallpaper_blur", if (systemWallpaperBlur) 1 else 0)
                 put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)

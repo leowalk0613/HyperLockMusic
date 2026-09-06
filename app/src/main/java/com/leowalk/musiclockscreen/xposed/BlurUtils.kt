@@ -16,7 +16,7 @@ import kotlin.math.min
 /**
  * 模糊工具类
  *
- * 背景采用「缩小 → 轻量模糊 → 放大」得到柔和色块，避免大半径 StackBlur 的横竖条纹。
+ * 背景 softColor：缩小 → 放大色块（无 StackBlur）；重糊走系统合成器。
  */
 object BlurUtils {
 
@@ -361,17 +361,17 @@ object BlurUtils {
     }
 
     /**
-     * 柔和色块模糊：先大幅缩小再放大，低分辨率下做小半径多遍模糊。
-     * 避免在全尺寸图上做大半径 separable blur 产生的横/竖条纹。
-     * 壁纸背景与歌词雾状背景共用此算法。
+     * 壁纸 Bitmap 色块铺底：仅缩小再放大做 softColor，**不再 StackBlur**。
+     * 重糊交给 [SystemWallpaperBlurController]（setWallpaperBlur / MiBlur）。
+     * [radius] 仍控制缩小力度（越大越小块、越糊）。
      */
     fun softColorBlur(bitmap: Bitmap, radius: Float): Bitmap {
         val w = bitmap.width
         val h = bitmap.height
-        if (w <= 0 || h <= 0) return bitmap.copy(bitmap.config, true)
+        if (w <= 0 || h <= 0) return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
 
-        val r = radius.coerceIn(4f, 150f)
-        val targetMaxSide = (240f - r * 1.5f).coerceIn(36f, 128f).toInt()
+        val r = radius.coerceIn(1f, 150f)
+        val targetMaxSide = (200f - r * 8f).coerceIn(24f, 96f).toInt()
         val downScale = targetMaxSide.toFloat() / max(w, h)
         val sw = max(1, (w * downScale).toInt())
         val sh = max(1, (h * downScale).toInt())
@@ -379,9 +379,9 @@ object BlurUtils {
         var work = Bitmap.createScaledBitmap(bitmap, sw, sh, true)
 
         val shrink = when {
-            r >= 70f -> 0.3f
-            r >= 40f -> 0.45f
-            else -> 0.6f
+            r >= 12f -> 0.28f
+            r >= 6f -> 0.4f
+            else -> 0.55f
         }
         val tinyW = max(1, (sw * shrink).toInt())
         val tinyH = max(1, (sh * shrink).toInt())
@@ -389,14 +389,6 @@ object BlurUtils {
         work.recycle()
         work = Bitmap.createScaledBitmap(tiny, sw, sh, true)
         tiny.recycle()
-
-        val passes = if (r >= 50f) 3 else 2
-        val passRadius = max(2, min(8, (r / 22f).toInt()))
-        repeat(passes) {
-            val next = stackBlur(work, passRadius)
-            work.recycle()
-            work = next
-        }
 
         val result = Bitmap.createScaledBitmap(work, w, h, true)
         work.recycle()

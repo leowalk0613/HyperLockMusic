@@ -1,12 +1,14 @@
 package com.leowalk.musiclockscreen.xposed
 
+import android.app.WallpaperColors
 import android.graphics.Bitmap
+import android.graphics.Color
 import com.materialkolor.hct.Hct
 import com.materialkolor.quantize.QuantizerCelebi
 
 /**
- * 沉浸铺底：系统封面 Celebi 量化后选种子色，**原样铺底**（不做 HCT 改色）。
- * 加权 = 占比 × 彩度，避免大面积灰底盖过真正的主色；全灰封面仍会落到灰。
+ * 沉浸铺底种子色：优先系统 [WallpaperColors.fromBitmap]，失败再 Celebi 量化。
+ * 种子原样使用（不做 HCT 改色）。
  */
 object MonetPalette {
 
@@ -27,10 +29,36 @@ object MonetPalette {
     fun extractDarkWallpaper(album: Bitmap): WallpaperTones = extractWallpaper(album)
 
     /**
-     * 从专辑取色。返回量化簇中心原色，不改 hue/tone。
-     * 用 population×chroma 加权，减少「灰底当主色」的情况。
+     * 从专辑取色。优先系统 WallpaperColors；否则 Celebi 簇中心（占比×彩度加权）。
      */
     fun extractSeedColor(album: Bitmap): Int {
+        try {
+            if (album.isRecycled || album.width <= 0 || album.height <= 0) {
+                return FALLBACK_SEED
+            }
+        } catch (_: Throwable) {
+            return FALLBACK_SEED
+        }
+        seedFromWallpaperColors(album)?.let { return it }
+        return seedFromCelebi(album)
+    }
+
+    /** 系统取色；JVM 单测 / 失败时返回 null。 */
+    fun seedFromWallpaperColors(album: Bitmap): Int? {
+        return try {
+            val colors = WallpaperColors.fromBitmap(album)
+            pickMostChromatic(
+                colors.primaryColor.toArgb(),
+                colors.secondaryColor?.toArgb(),
+                colors.tertiaryColor?.toArgb(),
+            )
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Celebi 回退路径（单测可直接覆盖）。 */
+    fun seedFromCelebi(album: Bitmap): Int {
         if (album.width <= 0 || album.height <= 0 || album.isRecycled) {
             return FALLBACK_SEED
         }
@@ -38,7 +66,6 @@ object MonetPalette {
         return try {
             val pixels = IntArray(sample.width * sample.height)
             sample.getPixels(pixels, 0, sample.width, 0, 0, sample.width, sample.height)
-            // 色数少一点，簇中心更干净，少混成脏灰
             val quantized = QuantizerCelebi.quantize(pixels, MAX_COLORS)
             if (quantized.isEmpty()) return FALLBACK_SEED
 
@@ -52,6 +79,28 @@ object MonetPalette {
         } finally {
             if (sample !== album) sample.recycle()
         }
+    }
+
+    /** 在候选色里选彩度最高的，避免 WallpaperColors 主色偏灰。 */
+    fun pickMostChromatic(vararg candidates: Int?): Int {
+        var best = FALLBACK_SEED
+        var bestScore = -1.0
+        for (c in candidates) {
+            if (c == null) continue
+            val chroma = try {
+                Hct.fromInt(c).chroma
+            } catch (_: Throwable) {
+                val r = Color.red(c)
+                val g = Color.green(c)
+                val b = Color.blue(c)
+                (maxOf(r, g, b) - minOf(r, g, b)).toDouble()
+            }
+            if (chroma > bestScore) {
+                bestScore = chroma
+                best = c
+            }
+        }
+        return best
     }
 
     private const val SAMPLE_SIZE = 128

@@ -8,8 +8,8 @@ import android.widget.FrameLayout
 import java.lang.ref.WeakReference
 
 /**
- * 音乐锁屏用系统壁纸模糊（[ViewRootImpl.setWallpaperBlur] + 可选 MiBackgroundBlur 遮罩）。
- * 开启后壁纸 Bitmap 只做轻量 softColor，重糊交给合成器。
+ * 音乐锁屏壁纸模糊：用系统 [ViewRootImpl.setWallpaperBlur] + MiBackgroundBlur 遮罩。
+ * Bitmap 侧只做轻量 softColor，重糊交给合成器。
  */
 internal object SystemWallpaperBlurController {
 
@@ -29,12 +29,11 @@ internal object SystemWallpaperBlurController {
         layer.post { sync(layer.context) }
     }
 
-    /** 与音乐锁屏 / 开关对齐。 */
+    /** 音乐锁屏开启时应用系统模糊，关闭时清除。 */
     fun sync(context: Context? = null) {
         val layer = bgLayerRef?.get()
         val ctx = context ?: layer?.context ?: return
         val want = shouldApply(
-            systemBlurEnabled = ConfigReader.systemWallpaperBlur(ctx),
             musicLockscreenActive = WallpaperController.isShowing() || MusicLockscreenManager.isShowing,
         )
         if (want) {
@@ -45,9 +44,7 @@ internal object SystemWallpaperBlurController {
         }
     }
 
-    fun shouldApply(systemBlurEnabled: Boolean, musicLockscreenActive: Boolean): Boolean {
-        return systemBlurEnabled && musicLockscreenActive
-    }
+    fun shouldApply(musicLockscreenActive: Boolean): Boolean = musicLockscreenActive
 
     /** 设置页 10–200 → ViewRootImpl.setWallpaperBlur 常用 0–100。 */
     fun mapSliderToWallpaperBlurRadius(sliderDp: Float): Int {
@@ -55,10 +52,19 @@ internal object SystemWallpaperBlurController {
         return (t * 100f).toInt().coerceIn(0, 100)
     }
 
-    /** 开系统糊时 Bitmap 侧只保留轻量 softColor，避免双重糊死。 */
-    fun bakeBlurRadius(sliderDp: Float, systemBlurEnabled: Boolean): Float {
-        if (!systemBlurEnabled) return sliderDp
+    /** Bitmap softColor 缩小力度（不再 StackBlur）。 */
+    fun bakeBlurRadius(sliderDp: Float): Float {
         return (sliderDp * 0.1f).coerceIn(3f, 14f)
+    }
+
+    /** Bitmap 暗色只留轻量；重浓度交给 [maskDarkOverlayAlpha]。 */
+    fun bakeDarkOverlay(slider: Int): Int {
+        return (slider * 0.22f).toInt().coerceIn(0, 60)
+    }
+
+    /** MiBlur 遮罩黑层 alpha（合成器侧主暗角）。 */
+    fun maskDarkOverlayAlpha(slider: Int): Int {
+        return (slider * 0.72f).toInt().coerceIn(0, 180)
     }
 
     private fun apply(ctx: Context, layer: ViewGroup?, radius: Int) {
@@ -113,11 +119,14 @@ internal object SystemWallpaperBlurController {
     private fun applyMiBlurMask(bgLayer: ViewGroup, radius: Int, darkOverlay: Int) {
         val mask = bgLayer.findViewWithTag<View>(MASK_TAG) ?: return
         try {
-            invokeBool(mask, "setPassWindowBlurEnabled", true)
-            invokeInt(mask, "setMiBackgroundBlurMode", 1)
             val miRadius = (radius * 1.2f).toInt().coerceIn(0, 120)
-            invokeInt(mask, "setMiBackgroundBlurRadius", miRadius)
-            val a = (darkOverlay * 0.35f).toInt().coerceIn(0, 120)
+            val viaSystem = trySystemContainerPassBlur(mask, miRadius)
+            if (!viaSystem) {
+                invokeBool(mask, "setPassWindowBlurEnabled", true)
+                invokeInt(mask, "setMiBackgroundBlurMode", 1)
+                invokeInt(mask, "setMiBackgroundBlurRadius", miRadius)
+            }
+            val a = maskDarkOverlayAlpha(darkOverlay)
             mask.setBackgroundColor(Color.argb(a, 0, 0, 0))
             mask.visibility = View.VISIBLE
             mask.alpha = 1f
@@ -129,13 +138,41 @@ internal object SystemWallpaperBlurController {
     private fun clearMiBlurMask(bgLayer: ViewGroup) {
         val mask = bgLayer.findViewWithTag<View>(MASK_TAG) ?: return
         try {
-            invokeInt(mask, "setMiBackgroundBlurRadius", 0)
-            invokeInt(mask, "setMiBackgroundBlurMode", 0)
-            invokeBool(mask, "setPassWindowBlurEnabled", false)
+            if (!trySystemClearContainerPassBlur(mask)) {
+                invokeInt(mask, "setMiBackgroundBlurRadius", 0)
+                invokeInt(mask, "setMiBackgroundBlurMode", 0)
+                invokeBool(mask, "setPassWindowBlurEnabled", false)
+            }
             mask.setBackgroundColor(Color.TRANSPARENT)
             mask.visibility = View.GONE
         } catch (e: Throwable) {
             logE("clearMiBlurMask failed", e)
+        }
+    }
+
+    /** SystemUI 进程内优先走 [com.miui.clock.utils.MiuiBlurUtils]。 */
+    private fun trySystemContainerPassBlur(view: View, radius: Int): Boolean {
+        return try {
+            val cls = Class.forName("com.miui.clock.utils.MiuiBlurUtils")
+            val m = cls.getMethod(
+                "setContainerPassBlur",
+                View::class.java,
+                Int::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType,
+            )
+            (m.invoke(null, view, radius, false) as? Boolean) == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun trySystemClearContainerPassBlur(view: View): Boolean {
+        return try {
+            val cls = Class.forName("com.miui.clock.utils.MiuiBlurUtils")
+            cls.getMethod("clearContainerPassBlur", View::class.java).invoke(null, view)
+            true
+        } catch (_: Throwable) {
+            false
         }
     }
 

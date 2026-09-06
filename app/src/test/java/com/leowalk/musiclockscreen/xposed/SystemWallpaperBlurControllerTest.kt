@@ -8,10 +8,9 @@ import org.junit.Test
 class SystemWallpaperBlurControllerTest {
 
     @Test
-    fun shouldApply_requiresSwitchAndMusicLockscreen() {
-        assertTrue(SystemWallpaperBlurController.shouldApply(true, true))
-        assertFalse(SystemWallpaperBlurController.shouldApply(false, true))
-        assertFalse(SystemWallpaperBlurController.shouldApply(true, false))
+    fun shouldApply_whenMusicLockscreenActive() {
+        assertTrue(SystemWallpaperBlurController.shouldApply(true))
+        assertFalse(SystemWallpaperBlurController.shouldApply(false))
     }
 
     @Test
@@ -21,9 +20,26 @@ class SystemWallpaperBlurControllerTest {
     }
 
     @Test
-    fun bakeBlurRadius_lightWhenSystemBlurOn() {
-        val light = SystemWallpaperBlurController.bakeBlurRadius(80f, true)
+    fun bakeBlurRadius_alwaysLight() {
+        val light = SystemWallpaperBlurController.bakeBlurRadius(80f)
         assertTrue(light < 20f)
-        assertEquals(80f, SystemWallpaperBlurController.bakeBlurRadius(80f, false), 0.01f)
+        assertTrue(light >= 3f)
+    }
+
+    @Test
+    fun bakeDarkOverlay_lighterThanSlider() {
+        val baked = SystemWallpaperBlurController.bakeDarkOverlay(140)
+        assertTrue(baked < 140)
+        assertTrue(baked <= 60)
+        assertEquals(0, SystemWallpaperBlurController.bakeDarkOverlay(0))
+    }
+
+    @Test
+    fun maskDarkOverlayAlpha_strongerThanBake() {
+        val slider = 140
+        val bake = SystemWallpaperBlurController.bakeDarkOverlay(slider)
+        val mask = SystemWallpaperBlurController.maskDarkOverlayAlpha(slider)
+        assertTrue(mask > bake)
+        assertTrue(mask <= 180)
     }
 }

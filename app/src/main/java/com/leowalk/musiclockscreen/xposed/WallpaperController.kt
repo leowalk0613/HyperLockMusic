@@ -227,7 +227,7 @@ object WallpaperController {
             BlurUtils.blurWithBigAlbum(
                 blurSource = albumBmp,
                 radius = ConfigReader.wallpaperBakeBlurRadius(context),
-                darkOverlayAlpha = ConfigReader.darkOverlay(context),
+                darkOverlayAlpha = ConfigReader.wallpaperBakeDarkOverlay(context),
                 showBigAlbum = false,
                 targetWidth = tw,
                 targetHeight = th
@@ -743,7 +743,7 @@ object WallpaperController {
                 largeBmp = BlurUtils.blurWithBigAlbum(
                     blurSource = blurAlbum,
                     radius = radius,
-                    darkOverlayAlpha = dark,
+                    darkOverlayAlpha = SystemWallpaperBlurController.bakeDarkOverlay(dark),
                     showBigAlbum = false,
                     targetWidth = tw,
                     targetHeight = th,
