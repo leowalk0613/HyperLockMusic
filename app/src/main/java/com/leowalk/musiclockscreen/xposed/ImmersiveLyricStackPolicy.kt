@@ -10,10 +10,7 @@ internal object ImmersiveLyricStackPolicy {
     /** 邻行相对当前行的不透明度（更透）。 */
     const val NEIGHBOR_ALPHA = 0.28f
 
-    /**
-     * 槽位间距相对「单行字高」的固定倍率（不跟换行后的 layout 高度变）。
-     * 保证上一句 / 当前 / 下一句中心距恒定。
-     */
+    /** 上一句相对当前行中心的固定上偏移（字高倍率）；下一句跟在翻译下方，可被底边裁切。 */
     const val FIXED_STEP_RATIO = 1.85f
 
     fun shouldUseStack(

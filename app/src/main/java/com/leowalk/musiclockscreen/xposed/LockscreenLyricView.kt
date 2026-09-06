@@ -437,8 +437,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         val offset = stackScrollOffset
 
         canvas.save()
+        // 允许上一句/下一句被歌词区域上下沿裁切
         canvas.clipRect(0f, 0f, w, h)
 
+        // 当前行永远居中；上一句在上方固定槽距（单行）
         drawStackLine(
             canvas,
             stackPrevLayout,
@@ -453,25 +455,29 @@ class LockscreenLyricView(context: Context) : View(context) {
             centerY + offset,
             1f,
         )
+        // 翻译紧贴当前行下方；下一句再在翻译下面（可被底边裁切）
+        var belowTop = centerY + offset + current.height * 0.5f + lineGapPx
         val secondary = stackCurrentSecondaryLayout
         if (secondary != null) {
-            // 翻译贴在当前行下方；槽位间距仍用固定 step，不随换行高度变
-            val secTop = centerY + offset + current.height * 0.5f + lineGapPx
             drawStackLineTop(
                 canvas,
                 secondary,
                 hPaddingPx,
-                secTop,
+                belowTop,
                 0.72f,
             )
+            belowTop += secondary.height + lineGapPx
         }
-        drawStackLine(
-            canvas,
-            stackNextLayout,
-            hPaddingPx,
-            centerY + step + offset,
-            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
-        )
+        val next = stackNextLayout
+        if (next != null) {
+            drawStackLineTop(
+                canvas,
+                next,
+                hPaddingPx,
+                belowTop,
+                ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
+            )
+        }
         canvas.restore()
     }
 
@@ -522,9 +528,9 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun rebuildStackLayouts(contentW: Int = (computeLyricWidthPx() - hPaddingPx * 2).toInt().coerceAtLeast(1)) {
-        // 邻行透明度在 draw 时用 saveLayer 施加；槽距用字高固定，layout 限 2 行避免撑破
+        // 上一句 / 下一句只显示一行；当前行可两行；翻译单独一层
         stackPrevLayout = if (stackPrevText.isNotBlank()) {
-            buildImmersiveLayout(stackPrevText, mainPaint, contentW, maxLines = 2)
+            buildImmersiveLayout(stackPrevText, mainPaint, contentW, maxLines = 1)
         } else null
         stackCurrentLayout = buildImmersiveLayout(
             stackCurrentText.ifBlank { " " },
@@ -541,7 +547,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             )
         } else null
         stackNextLayout = if (stackNextText.isNotBlank()) {
-            buildImmersiveLayout(stackNextText, mainPaint, contentW, maxLines = 2)
+            buildImmersiveLayout(stackNextText, mainPaint, contentW, maxLines = 1)
         } else null
     }
 
