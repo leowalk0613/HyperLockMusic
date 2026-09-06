@@ -364,28 +364,36 @@ object BlurUtils {
     }
 
     /**
-     * 壁纸 Bitmap softColor：等比缩小再放大（单次，不做二次缩半以免加重马赛克）。
-     * 最长边保持 ≥160，避免小方格。
+     * 壁纸 softColor：金字塔降采样 → 小图 box blur → 金字塔放大。
+     * 比「一次缩到极大再拉回」糊得多，又比极小单次缩放更少马赛克感。
      */
     fun softColorBlur(bitmap: Bitmap, radius: Float): Bitmap {
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
 
-        val (sw, sh) = softColorDownsampleSize(w, h, radius)
-        val work = Bitmap.createScaledBitmap(bitmap, sw, sh, true)
-        val result = Bitmap.createScaledBitmap(work, w, h, true)
-        if (work !== result) work.recycle()
+        val r = radius.coerceIn(1f, 150f)
+        val (tw, th) = softColorDownsampleSize(w, h, r)
+
+        var work = pyramidDown(bitmap, tw, th)
+        val boxR = (r / 18f).toInt().coerceIn(2, 6)
+        val passes = if (r >= 40f) 3 else 2
+        repeat(passes) {
+            val next = boxBlur(work, boxR)
+            if (next !== work) work.recycle()
+            work = next
+        }
+        val result = pyramidUp(work, w, h)
+        if (result !== work) work.recycle()
         return result
     }
 
     /**
-     * softColor 降采样尺寸：严格按源图纵横比缩放（最长边对齐 targetMaxSide）。
-     * 下限抬高，避免缩到几十像素后放大呈小方格（壁纸主路径已跳过 softColor，此处供其它调用）。
+     * softColor 目标尺寸：最长边约 40–90（明显发糊），保持纵横比。
      */
     internal fun softColorDownsampleSize(srcW: Int, srcH: Int, radius: Float): Pair<Int, Int> {
         val r = radius.coerceIn(1f, 150f)
-        val targetMaxSide = (360f - r * 1.2f).coerceIn(160f, 320f).toInt()
+        val targetMaxSide = (100f - r * 0.7f).coerceIn(40f, 90f).toInt()
         return if (srcW >= srcH) {
             val sw = targetMaxSide
             val sh = max(1, (targetMaxSide.toFloat() * srcH / srcW).roundToInt())
@@ -395,6 +403,100 @@ object BlurUtils {
             val sw = max(1, (targetMaxSide.toFloat() * srcW / srcH).roundToInt())
             sw to sh
         }
+    }
+
+    /** 逐级减半再落到目标尺寸，减轻一次缩太狠的色块感。 */
+    private fun pyramidDown(src: Bitmap, dstW: Int, dstH: Int): Bitmap {
+        var work = src
+        var owned = false
+        while (work.width > dstW * 2 || work.height > dstH * 2) {
+            val nw = max(dstW, work.width / 2)
+            val nh = max(dstH, work.height / 2)
+            val next = Bitmap.createScaledBitmap(work, nw, nh, true)
+            if (owned) work.recycle()
+            work = next
+            owned = true
+        }
+        if (work.width != dstW || work.height != dstH) {
+            val next = Bitmap.createScaledBitmap(work, dstW, dstH, true)
+            if (owned) work.recycle()
+            work = next
+            owned = true
+        }
+        return if (owned) work else Bitmap.createScaledBitmap(src, dstW, dstH, true)
+    }
+
+    /** 逐级放大回全尺寸。 */
+    private fun pyramidUp(src: Bitmap, dstW: Int, dstH: Int): Bitmap {
+        var work = src
+        var owned = false
+        while (work.width * 2 < dstW || work.height * 2 < dstH) {
+            val nw = min(dstW, max(1, work.width * 2))
+            val nh = min(dstH, max(1, work.height * 2))
+            if (nw == work.width && nh == work.height) break
+            val next = Bitmap.createScaledBitmap(work, nw, nh, true)
+            if (owned) work.recycle()
+            work = next
+            owned = true
+        }
+        if (work.width != dstW || work.height != dstH) {
+            val next = Bitmap.createScaledBitmap(work, dstW, dstH, true)
+            if (owned) work.recycle()
+            return next
+        }
+        return if (owned) work else src.copy(src.config ?: Bitmap.Config.ARGB_8888, true)
+    }
+
+    /** 小图可分离 box blur（横+竖各一遍）。 */
+    private fun boxBlur(src: Bitmap, radius: Int): Bitmap {
+        val r = radius.coerceIn(1, 8)
+        val w = src.width
+        val h = src.height
+        if (w <= 1 || h <= 1) return src.copy(src.config ?: Bitmap.Config.ARGB_8888, true)
+
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val tmp = IntArray(w * h)
+
+        val div = r * 2 + 1
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                var a = 0
+                var red = 0
+                var green = 0
+                var blue = 0
+                for (dx in -r..r) {
+                    val p = pixels[row + (x + dx).coerceIn(0, w - 1)]
+                    a += p ushr 24
+                    red += (p shr 16) and 0xFF
+                    green += (p shr 8) and 0xFF
+                    blue += p and 0xFF
+                }
+                tmp[row + x] =
+                    ((a / div) shl 24) or ((red / div) shl 16) or ((green / div) shl 8) or (blue / div)
+            }
+        }
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var a = 0
+                var red = 0
+                var green = 0
+                var blue = 0
+                for (dy in -r..r) {
+                    val p = tmp[(y + dy).coerceIn(0, h - 1) * w + x]
+                    a += p ushr 24
+                    red += (p shr 16) and 0xFF
+                    green += (p shr 8) and 0xFF
+                    blue += p and 0xFF
+                }
+                pixels[y * w + x] =
+                    ((a / div) shl 24) or ((red / div) shl 16) or ((green / div) shl 8) or (blue / div)
+            }
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        return out
     }
 
     /** 居中裁剪缩放，用于模糊底图与大专辑 */

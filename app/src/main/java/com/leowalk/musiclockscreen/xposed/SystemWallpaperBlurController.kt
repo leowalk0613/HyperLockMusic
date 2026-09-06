@@ -64,16 +64,16 @@ internal object SystemWallpaperBlurController {
     }
 
     /**
-     * Bitmap softColor 力度：大采样铺柔化底（配合 [BlurUtils.softColorDownsampleSize] ≥160）。
-     * 锁屏 MiBlur 遮罩继续叠在上面；解锁后只清遮罩，不影响桌面。
+     * Bitmap softColor 力度（金字塔 + box blur）；锁屏 MiBlur 再叠一层。
+     * 解锁只清 MiBlur，壁纸 Bitmap 本身已糊，桌面不受遮罩影响。
      */
     fun bakeBlurRadius(sliderDp: Float): Float {
-        return (sliderDp * 0.4f).coerceIn(12f, 80f)
+        return sliderDp.coerceIn(10f, 200f)
     }
 
-    /** Bitmap 暗色只留轻量；重浓度交给 [maskDarkOverlayAlpha]。 */
+    /** Bitmap 暗色：略加强，避免只剩清晰底图。 */
     fun bakeDarkOverlay(slider: Int): Int {
-        return (slider * 0.22f).toInt().coerceIn(0, 60)
+        return (slider * 0.4f).toInt().coerceIn(0, 100)
     }
 
     /** MiBlur 遮罩黑层 alpha（合成器侧主暗角）。 */

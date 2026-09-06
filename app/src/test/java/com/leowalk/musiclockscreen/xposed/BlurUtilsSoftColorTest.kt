@@ -42,8 +42,10 @@ class BlurUtilsSoftColorTest {
     }
 
     @Test
-    fun softColorDownsample_keepsEnoughResolutionAgainstMosaic() {
-        val (sw, sh) = BlurUtils.softColorDownsampleSize(1080, 2400, radius = 14f)
-        assertTrue("max side too small → mosaic: $sw x $sh", maxOf(sw, sh) >= 160)
+    fun softColorDownsample_strongEnoughToLookBlurred() {
+        val (sw, sh) = BlurUtils.softColorDownsampleSize(1080, 2400, radius = 80f)
+        assertTrue("max side too large → looks sharp: $sw x $sh", maxOf(sw, sh) <= 90)
+        assertTrue("max side too small → mosaic: $sw x $sh", maxOf(sw, sh) >= 40)
+        assertTrue(sw != sh)
     }
 }
