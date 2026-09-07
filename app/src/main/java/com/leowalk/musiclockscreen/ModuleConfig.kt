@@ -16,7 +16,7 @@ object ModuleConfig {
     private const val KEY_ALBUM_SIZE = "album_size"
     private const val KEY_ALBUM_OFFSET_Y = "album_offset_y"
     private const val KEY_ALBUM_CORNER = "album_corner"
-    /** 后台拉网易云高清替换前景专辑（非本地超分） */
+    /** 后台拉官方高清替换前景专辑（非本地超分；网易云 / QQ 音乐） */
     private const val KEY_ALBUM_NETWORK_HD = "album_sr_enhance"
 
     // 歌词相关
@@ -149,7 +149,7 @@ object ModuleConfig {
         get() = getPrefs().getFloat(KEY_ALBUM_CORNER, DEFAULT_ALBUM_CORNER)
         set(value) = getPrefs().edit().putFloat(KEY_ALBUM_CORNER, value).apply()
 
-    /** 后台拉网易云高清替换前景大专辑（模糊背景仍用系统封面） */
+    /** 后台拉官方高清替换前景大专辑（网易云 / QQ；模糊背景仍用系统封面） */
     var albumNetworkHd: Boolean
         get() = getPrefs().getBoolean(KEY_ALBUM_NETWORK_HD, DEFAULT_ALBUM_NETWORK_HD)
         set(value) = getPrefs().edit().putBoolean(KEY_ALBUM_NETWORK_HD, value).apply()
