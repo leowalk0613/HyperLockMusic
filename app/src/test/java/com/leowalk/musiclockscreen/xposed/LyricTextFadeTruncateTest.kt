@@ -14,30 +14,38 @@ class LyricTextFadeTruncateTest {
     }
 
     @Test
-    fun layoutHasEllipsis_whenAnyLineTruncated() {
-        val counts = intArrayOf(0, 3, 0)
+    fun needsEndFadeForClippedLayout_whenTextRemains() {
         assertTrue(
-            LyricTextFadeTruncate.layoutHasEllipsis(counts.size) { counts[it] }
+            LyricTextFadeTruncate.needsEndFadeForClippedLayout(
+                unrestrictedLineCount = 2,
+                clippedLineCount = 2,
+                maxLines = 2,
+                clippedTextEndOffset = 8,
+                fullTextLength = 20,
+            )
         )
+    }
+
+    @Test
+    fun needsEndFadeForClippedLayout_falseWhenFullyShown() {
         assertFalse(
-            LyricTextFadeTruncate.layoutHasEllipsis(2) { 0 }
+            LyricTextFadeTruncate.needsEndFadeForClippedLayout(
+                unrestrictedLineCount = 2,
+                clippedLineCount = 2,
+                maxLines = 3,
+                clippedTextEndOffset = 10,
+                fullTextLength = 10,
+            )
         )
     }
 
     @Test
-    fun fadeWidth_scalesWithTextSize() {
-        val a = LyricTextFadeTruncate.fadeWidthPx(40f)
-        val b = LyricTextFadeTruncate.fadeWidthPx(20f)
-        assertTrue(a > b)
-        assertEquals(40f * LyricTextFadeTruncate.FADE_EM, a, 0.01f)
+    fun lastCodePointStart_forBmpChar() {
+        assertEquals(2, LyricTextFadeTruncate.lastCodePointStart("abc", 0, 3))
     }
 
     @Test
-    fun fadeStartX_isBeforeTextRight() {
-        val start = LyricTextFadeTruncate.fadeStartX(0f, 200f, 40f)
-        assertTrue(start < 200f)
-        assertTrue(start > 0f)
-        // 约 2.2em
-        assertEquals(200f - 40f * LyricTextFadeTruncate.FADE_EM, start, 0.01f)
+    fun fadeStartX_coversLastGlyph() {
+        assertEquals(150f, LyricTextFadeTruncate.fadeStartX(0f, 200f, 50f), 0.01f)
     }
 }
