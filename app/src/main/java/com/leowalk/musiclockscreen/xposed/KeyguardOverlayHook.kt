@@ -135,6 +135,8 @@ class KeyguardOverlayHook {
         AlbumArtResolver.logCallback = callback
         NetEaseAlbumArtSource.logCallback = callback
         NetEaseSongIdResolver.logCallback = callback
+        QqMusicAlbumArtSource.logCallback = callback
+        QqMusicSongIdResolver.logCallback = callback
         TransitionAnimator.logCallback = callback
         SystemNotificationAnimator.logCallback = callback
         MediaFollowController.logCallback = callback

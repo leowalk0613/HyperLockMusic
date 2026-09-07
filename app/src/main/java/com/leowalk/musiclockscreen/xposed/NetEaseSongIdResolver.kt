@@ -39,16 +39,31 @@ object NetEaseSongIdResolver {
         metadata: MediaMetadata?,
         mediaData: Any?
     ): Long? {
+        val pkg = packageFromMediaData(mediaData)
+        if (pkg != null && pkg != PKG) {
+            // QQ 等也会塞数字 MEDIA_ID；无网易云 share 时不要误认
+            val fromShare = mediaData?.let { parseShareContent(extractMiuiFocusMediaJson(it)) }
+            if (fromShare != null) {
+                logI("song id from mediaData share (pkg=$pkg): $fromShare")
+                return fromShare
+            }
+            logI("skip netease id for package=$pkg")
+            return null
+        }
+
         val fromMediaData = mediaData?.let { parseShareContent(extractMiuiFocusMediaJson(it)) }
         if (fromMediaData != null) {
             logI("song id from mediaData: $fromMediaData")
             return fromMediaData
         }
 
-        val fromMeta = parseMediaId(metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID))
-        if (fromMeta != null) {
-            logI("song id from metadata: $fromMeta")
-            return fromMeta
+        // 仅在已确认网易云会话时使用裸 MEDIA_ID（避免 QQ songid 被当成网易云）
+        if (pkg == PKG) {
+            val fromMeta = parseMediaId(metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID))
+            if (fromMeta != null) {
+                logI("song id from metadata: $fromMeta")
+                return fromMeta
+            }
         }
 
         if (context != null) {
@@ -62,6 +77,16 @@ object NetEaseSongIdResolver {
 
         logI("no netease song id")
         return null
+    }
+
+    private fun packageFromMediaData(mediaData: Any?): String? {
+        if (mediaData == null) return null
+        return try {
+            val field = mediaData.javaClass.getDeclaredField("packageName").apply { isAccessible = true }
+            (field.get(mediaData) as? String)?.takeIf { it.isNotEmpty() }
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /** 调试：列出各来源 ID（可能不一致） */

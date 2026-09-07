@@ -513,7 +513,9 @@ object AlbumArtResolver {
         // 可信 trackKey：候选已在 collectBest 做过 poison 过滤，直接取最大，
         // 避免旧曲残留小图当 visualRef 把新封面 skip unverified 后「回退」成旧小图
         if (trackKey != null &&
-            (trackKey.startsWith("netease:") || trackKey.startsWith("id:"))
+            (trackKey.startsWith("netease:") ||
+                trackKey.startsWith("qqmusic:") ||
+                trackKey.startsWith("id:"))
         ) {
             return valid.maxByOrNull { it.width * it.height }
         }
@@ -589,6 +591,13 @@ object AlbumArtResolver {
     }
 
     private fun computeTrackKey(context: Context?, metadata: MediaMetadata?, mediaData: Any?): String? {
+        val pkg = packageFromMediaData(mediaData)
+        if (pkg == QqMusicSongIdResolver.PKG) {
+            QqMusicSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
+                return QqMusicSongIdResolver.trackKey(it)
+            }
+        }
+
         NetEaseSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
             return NetEaseSongIdResolver.trackKey(it)
         }

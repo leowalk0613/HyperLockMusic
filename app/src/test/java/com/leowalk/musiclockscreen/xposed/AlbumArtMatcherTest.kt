@@ -38,4 +38,10 @@ class AlbumArtMatcherTest {
         assertEquals("netease:12345", NetEaseSongIdResolver.trackKey(12345L))
         assertEquals(12345L, NetEaseSongIdResolver.parseSongIdFromTrackKey("netease:12345"))
     }
+
+    @Test
+    fun trackKeyPrefix_isQqMusic() {
+        assertEquals("qqmusic:375040598", QqMusicSongIdResolver.trackKey(375040598L))
+        assertEquals(375040598L, QqMusicSongIdResolver.parseSongIdFromTrackKey("qqmusic:375040598"))
+    }
 }

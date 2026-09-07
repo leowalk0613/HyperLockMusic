@@ -31,6 +31,8 @@ class MediaAlbumClickHook {
         AlbumArtResolver.logCallback = WallpaperController.logCallback
         NetEaseAlbumArtSource.logCallback = WallpaperController.logCallback
         NetEaseSongIdResolver.logCallback = WallpaperController.logCallback
+        QqMusicAlbumArtSource.logCallback = WallpaperController.logCallback
+        QqMusicSongIdResolver.logCallback = WallpaperController.logCallback
 
         try {
             logI("install start")

@@ -839,7 +839,7 @@ object WallpaperController {
     }
 
     /**
-     * 系统封面已显示后：后台拉网易云高清，只替换前景大专辑；模糊背景仍用系统封面。
+     * 系统封面已显示后：后台拉官方高清（网易云 / QQ 音乐），只替换前景大专辑；模糊背景仍用系统封面。
      */
     private fun scheduleNetworkAlbumEnhance(
         context: Context,
@@ -879,7 +879,7 @@ object WallpaperController {
         logI("album network enhance scheduled ${album.width}x${album.height} track=$trackKey")
         Thread {
             try {
-                val enhanced = NetEaseAlbumArtSource.fetchVerifiedHighRes(
+                val enhanced = fetchNetworkHighResAlbum(
                     appCtx, album, metadata, mediaData, trackKey
                 )
                 if (enhanced == null || enhanced.isRecycled) {
@@ -924,6 +924,52 @@ object WallpaperController {
                 if (!album.isRecycled) album.recycle()
             }
         }.start()
+    }
+
+    /** 按 trackKey / 包名分发到 QQ 或网易云官方封面源。 */
+    private fun fetchNetworkHighResAlbum(
+        context: Context,
+        reference: Bitmap,
+        metadata: MediaMetadata?,
+        mediaData: Any?,
+        trackKey: String?,
+    ): Bitmap? {
+        val pkg = try {
+            mediaData?.javaClass?.getDeclaredField("packageName")?.apply { isAccessible = true }
+                ?.get(mediaData) as? String
+        } catch (_: Throwable) {
+            null
+        }
+        when {
+            trackKey?.startsWith(QqMusicSongIdResolver.TRACK_PREFIX) == true ||
+                pkg == QqMusicSongIdResolver.PKG -> {
+                return QqMusicAlbumArtSource.fetchVerifiedHighRes(
+                    context, reference, metadata, mediaData, trackKey
+                )
+            }
+            trackKey?.startsWith("netease:") == true ||
+                pkg == "com.netease.cloudmusic" -> {
+                return NetEaseAlbumArtSource.fetchVerifiedHighRes(
+                    context, reference, metadata, mediaData, trackKey
+                )
+            }
+        }
+        // 裸 id:：先试 QQ 官方 songid，再回退网易云
+        val bareId = trackKey
+            ?.takeIf { it.startsWith("id:") }
+            ?.removePrefix("id:")
+            ?.toLongOrNull()
+        if (bareId != null) {
+            QqMusicAlbumArtSource.fetchVerifiedHighRes(
+                context, reference, metadata, mediaData, QqMusicSongIdResolver.trackKey(bareId)
+            )?.let { return it }
+            NetEaseAlbumArtSource.fetchVerifiedHighRes(
+                context, reference, metadata, mediaData, NetEaseSongIdResolver.trackKey(bareId)
+            )?.let { return it }
+        }
+        return NetEaseAlbumArtSource.fetchVerifiedHighRes(
+            context, reference, metadata, mediaData, trackKey
+        )
     }
 
     /**
