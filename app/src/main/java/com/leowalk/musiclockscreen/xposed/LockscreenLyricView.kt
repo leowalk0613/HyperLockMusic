@@ -17,7 +17,6 @@ import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
-import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -78,10 +77,17 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var stackCurrentLayout: StaticLayout? = null
     private var stackCurrentSecondaryLayout: StaticLayout? = null
     private var stackNextLayout: StaticLayout? = null
+    private var stackPrevEndFade = false
+    private var stackCurrentEndFade = false
+    private var stackCurrentSecondaryEndFade = false
+    private var stackNextEndFade = false
+    private var mainLayoutEndFade = false
+    private var immersiveSecondEndFade = false
     private var stackScrollOffset = 0f
     private var stackAnimator: ValueAnimator? = null
     private var lastStackLineIndex = -1
     private val stackAnimMs = 280L
+    private val endFadeMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     // ============================================================
     // 绘制相关
@@ -426,13 +432,18 @@ class LockscreenLyricView(context: Context) : View(context) {
 
         canvas.save()
         canvas.translate(hPaddingPx, startY)
-        mainLayout.draw(canvas)
+        drawStaticLayoutWithOptionalEndFade(canvas, mainLayout, mainLayoutEndFade, mainPaint.textSize)
         canvas.restore()
 
         if (secondLayout != null) {
             canvas.save()
             canvas.translate(hPaddingPx, startY + mainH + gap)
-            secondLayout.draw(canvas)
+            drawStaticLayoutWithOptionalEndFade(
+                canvas,
+                secondLayout,
+                immersiveSecondEndFade,
+                secondPaint.textSize,
+            )
             canvas.restore()
         }
     }
@@ -471,9 +482,19 @@ class LockscreenLyricView(context: Context) : View(context) {
                 hPaddingPx,
                 prevTop,
                 ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
+                stackPrevEndFade,
+                mainPaint.textSize,
             )
         }
-        drawStackLineTop(canvas, current, hPaddingPx, currentTop, 1f)
+        drawStackLineTop(
+            canvas,
+            current,
+            hPaddingPx,
+            currentTop,
+            1f,
+            stackCurrentEndFade,
+            mainPaint.textSize,
+        )
 
         // 当前行 ↔ 翻译：沿用原来的 lineGapPx；下一句跟在翻译下（可被底边裁切）
         var belowTop = currentTop + current.height + lineGapPx
@@ -485,6 +506,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                 hPaddingPx,
                 belowTop,
                 0.72f,
+                stackCurrentSecondaryEndFade,
+                secondPaint.textSize,
             )
             belowTop += secondary.height + lineGapPx
         }
@@ -496,6 +519,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                 hPaddingPx,
                 belowTop,
                 ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
+                stackNextEndFade,
+                mainPaint.textSize,
             )
         }
         canvas.restore()
@@ -507,6 +532,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         x: Float,
         top: Float,
         alphaScale: Float,
+        endFade: Boolean,
+        textSizePx: Float,
     ) {
         val layerAlpha = (alphaScale * lineContentAlpha * 255f).toInt().coerceIn(0, 255)
         val layerPaint = Paint().apply { alpha = layerAlpha }
@@ -518,7 +545,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             layerPaint,
         )
         canvas.translate(x, top)
-        layout.draw(canvas)
+        drawStaticLayoutWithOptionalEndFade(canvas, layout, endFade, textSizePx)
         canvas.restoreToCount(save)
     }
 
@@ -535,26 +562,45 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun rebuildStackLayouts(contentW: Int = (computeLyricWidthPx() - hPaddingPx * 2).toInt().coerceAtLeast(1)) {
         // 上一句 / 下一句只显示一行；当前行可两行；翻译单独一层
-        stackPrevLayout = if (stackPrevText.isNotBlank()) {
-            buildImmersiveLayout(stackPrevText, mainPaint, contentW, maxLines = 1)
-        } else null
-        stackCurrentLayout = buildImmersiveLayout(
-            stackCurrentText.ifBlank { " " },
-            mainPaint,
-            contentW,
-            maxLines = 2,
-        )
-        stackCurrentSecondaryLayout = if (stackCurrentSecondaryText.isNotBlank()) {
-            buildImmersiveLayout(
+        if (stackPrevText.isNotBlank()) {
+            val built = buildImmersiveLayout(stackPrevText, mainPaint, contentW, maxLines = 1)
+            stackPrevLayout = built.layout
+            stackPrevEndFade = built.endFade
+        } else {
+            stackPrevLayout = null
+            stackPrevEndFade = false
+        }
+        run {
+            val built = buildImmersiveLayout(
+                stackCurrentText.ifBlank { " " },
+                mainPaint,
+                contentW,
+                maxLines = 2,
+            )
+            stackCurrentLayout = built.layout
+            stackCurrentEndFade = built.endFade
+        }
+        if (stackCurrentSecondaryText.isNotBlank()) {
+            val built = buildImmersiveLayout(
                 stackCurrentSecondaryText,
                 secondPaint,
                 contentW,
                 maxLines = immersiveMaxSecondLines,
             )
-        } else null
-        stackNextLayout = if (stackNextText.isNotBlank()) {
-            buildImmersiveLayout(stackNextText, mainPaint, contentW, maxLines = 1)
-        } else null
+            stackCurrentSecondaryLayout = built.layout
+            stackCurrentSecondaryEndFade = built.endFade
+        } else {
+            stackCurrentSecondaryLayout = null
+            stackCurrentSecondaryEndFade = false
+        }
+        if (stackNextText.isNotBlank()) {
+            val built = buildImmersiveLayout(stackNextText, mainPaint, contentW, maxLines = 1)
+            stackNextLayout = built.layout
+            stackNextEndFade = built.endFade
+        } else {
+            stackNextLayout = null
+            stackNextEndFade = false
+        }
     }
 
     private fun rebuildImmersiveLayouts() {
@@ -566,13 +612,18 @@ class LockscreenLyricView(context: Context) : View(context) {
         val contentW = (block - hPaddingPx * 2).toInt().coerceAtLeast(1)
         val main = currentMainText.ifBlank { " " }
         val maxMain = computeImmersiveMaxMainLines(hasSecondLine, block)
-        mainStaticLayout = buildImmersiveLayout(main, mainPaint, contentW, maxMain)
-        immersiveSecondStaticLayout = if (hasSecondLine && currentSecondText.isNotBlank()) {
-            buildImmersiveLayout(
+        val mainBuilt = buildImmersiveLayout(main, mainPaint, contentW, maxMain)
+        mainStaticLayout = mainBuilt.layout
+        mainLayoutEndFade = mainBuilt.endFade
+        if (hasSecondLine && currentSecondText.isNotBlank()) {
+            val secondBuilt = buildImmersiveLayout(
                 currentSecondText, secondPaint, contentW, immersiveMaxSecondLines
             )
+            immersiveSecondStaticLayout = secondBuilt.layout
+            immersiveSecondEndFade = secondBuilt.endFade
         } else {
-            null
+            immersiveSecondStaticLayout = null
+            immersiveSecondEndFade = false
         }
     }
 
@@ -591,81 +642,167 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
+    private data class ImmersiveLayoutBuild(
+        val layout: StaticLayout,
+        val endFade: Boolean,
+    )
+
     private fun buildImmersiveLayout(
         text: String, paint: Paint, contentWidth: Int, maxLines: Int
-    ): StaticLayout {
+    ): ImmersiveLayoutBuild {
         val tp = TextPaint(paint).apply { textAlign = Paint.Align.LEFT }
         val alignment = when (cfgLyricAlign) {
             "center" -> Layout.Alignment.ALIGN_CENTER
             "right" -> Layout.Alignment.ALIGN_OPPOSITE
             else -> Layout.Alignment.ALIGN_NORMAL
         }
-        return StaticLayout.Builder
-            .obtain(text.ifBlank { " " }, 0, text.length, tp, contentWidth)
+        val raw = text.ifBlank { " " }
+        val full = StaticLayout.Builder
+            .obtain(raw, 0, raw.length, tp, contentWidth)
+            .setAlignment(alignment)
+            .setLineSpacing(0f, 1f)
+            .setIncludePad(true)
+            .setMaxLines(Int.MAX_VALUE)
+            .build()
+        // 不用 TruncateAt.END（省略号），超宽/超行用末端渐隐
+        val layout = StaticLayout.Builder
+            .obtain(raw, 0, raw.length, tp, contentWidth)
             .setAlignment(alignment)
             .setLineSpacing(0f, 1f)
             .setIncludePad(true)
             .setMaxLines(maxLines)
-            .setEllipsize(TextUtils.TruncateAt.END)
             .build()
+        val lastW = if (layout.lineCount > 0) {
+            layout.getLineWidth(layout.lineCount - 1)
+        } else {
+            0f
+        }
+        val endFade = LyricTextFadeTruncate.needsEndFadeForClippedLayout(
+            unrestrictedLineCount = full.lineCount,
+            clippedLineCount = layout.lineCount,
+            maxLines = maxLines,
+            lastLineWidthPx = lastW,
+            contentWidthPx = contentWidth.toFloat(),
+        )
+        return ImmersiveLayoutBuild(layout, endFade)
+    }
+
+    /** StaticLayout 末端水平渐隐（替代 …）。坐标系已是 layout 本地。 */
+    private fun drawStaticLayoutWithOptionalEndFade(
+        canvas: Canvas,
+        layout: StaticLayout,
+        endFade: Boolean,
+        textSizePx: Float,
+    ) {
+        if (!endFade || layout.width <= 0 || layout.height <= 0) {
+            layout.draw(canvas)
+            return
+        }
+        val w = layout.width.toFloat()
+        val h = layout.height.toFloat()
+        val fadeInset = LyricTextFadeTruncate.fadeStartInsetPx(textSizePx, w)
+        val last = (layout.lineCount - 1).coerceAtLeast(0)
+        val top = layout.getLineTop(last).toFloat()
+        val bottom = layout.getLineBottom(last).toFloat()
+        val layer = canvas.saveLayer(0f, 0f, w, h, null)
+        layout.draw(canvas)
+        endFadeMaskPaint.shader = LinearGradient(
+            w - fadeInset, 0f, w, 0f,
+            intArrayOf(Color.WHITE, Color.TRANSPARENT),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        endFadeMaskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+        canvas.drawRect(w - fadeInset, top, w, bottom, endFadeMaskPaint)
+        endFadeMaskPaint.xfermode = null
+        endFadeMaskPaint.shader = null
+        canvas.restoreToCount(layer)
     }
 
     private fun drawTextCentered(
         canvas: Canvas, text: String, centerX: Float, y: Float,
         paint: Paint, maxWidthPx: Int
     ) {
-        var displayText = text.ifBlank { " " }
+        val raw = text.ifBlank { " " }
         val originalAlign = paint.textAlign
         paint.textAlign = Paint.Align.LEFT
 
-        val textWidth = paint.measureText(displayText)
-        val x: Float
-
+        val textWidth = paint.measureText(raw)
         if (textWidth <= maxWidthPx) {
-            x = centerX - textWidth / 2f
-        } else {
-            val ellipsis = "…"
-            val ellipsisW = paint.measureText(ellipsis)
-            val targetW = maxWidthPx - ellipsisW
-            var end = paint.breakText(displayText, true, targetW, null)
-            if (end > 0) {
-                displayText = displayText.substring(0, end) + ellipsis
-            }
-            val finalWidth = paint.measureText(displayText)
-            x = centerX - finalWidth / 2f
+            val x = centerX - textWidth / 2f
+            canvas.drawText(raw, x, y, paint)
+            paint.textAlign = originalAlign
+            return
         }
 
-        canvas.drawText(displayText, x, y, paint)
+        // 超宽：截取可贴入宽度的字符，末端渐隐（无省略号）
+        val count = paint.breakText(raw, true, maxWidthPx.toFloat(), null).coerceAtLeast(1)
+        val shown = raw.substring(0, count.coerceAtMost(raw.length))
+        val shownW = paint.measureText(shown)
+        val x = centerX - shownW / 2f
+        drawTextWithEndFade(canvas, shown, x, y, paint, maxWidthPx.toFloat())
         paint.textAlign = originalAlign
-    }
-
-    private fun ellipsizeText(text: String, paint: Paint, maxWidthPx: Int): String {
-        val raw = text.ifBlank { " " }
-        if (paint.measureText(raw) <= maxWidthPx) return raw
-        val textPaint = if (paint is TextPaint) paint else TextPaint(paint)
-        return TextUtils.ellipsize(
-            raw, textPaint, maxWidthPx.toFloat(), TextUtils.TruncateAt.END
-        ).toString()
     }
 
     private fun drawTextAligned(
         canvas: Canvas, text: String, viewWidth: Float, y: Float,
         paint: Paint, maxWidthPx: Int
     ) {
-        val displayText = ellipsizeText(text, paint, maxWidthPx)
+        val raw = text.ifBlank { " " }
         val originalAlign = paint.textAlign
         paint.textAlign = Paint.Align.LEFT
-
-        val textWidth = paint.measureText(displayText)
         val contentWidth = maxWidthPx.toFloat()
+        val textWidth = paint.measureText(raw)
+        if (textWidth <= contentWidth) {
+            val x = when (cfgLyricAlign) {
+                "center" -> hPaddingPx + (contentWidth - textWidth) / 2f
+                "right" -> hPaddingPx + contentWidth - textWidth
+                else -> hPaddingPx
+            }
+            canvas.drawText(raw, x, y, paint)
+            paint.textAlign = originalAlign
+            return
+        }
+        val count = paint.breakText(raw, true, contentWidth, null).coerceAtLeast(1)
+        val shown = raw.substring(0, count.coerceAtMost(raw.length))
+        val shownW = paint.measureText(shown)
         val x = when (cfgLyricAlign) {
-            "center" -> hPaddingPx + (contentWidth - textWidth) / 2f
-            "right" -> hPaddingPx + contentWidth - textWidth
+            "center" -> hPaddingPx + (contentWidth - shownW) / 2f
+            "right" -> hPaddingPx + contentWidth - shownW
             else -> hPaddingPx
         }
-
-        canvas.drawText(displayText, x, y, paint)
+        drawTextWithEndFade(canvas, shown, x, y, paint, contentWidth)
         paint.textAlign = originalAlign
+    }
+
+    private fun drawTextWithEndFade(
+        canvas: Canvas,
+        text: String,
+        x: Float,
+        y: Float,
+        paint: Paint,
+        maxWidthPx: Float,
+    ) {
+        val fm = paint.fontMetrics
+        val left = x
+        val right = x + maxWidthPx
+        val top = y + fm.top
+        val bottom = y + fm.bottom
+        val fadeInset = LyricTextFadeTruncate.fadeStartInsetPx(paint.textSize, maxWidthPx)
+        val layer = canvas.saveLayer(left, top, right, bottom, null)
+        canvas.clipRect(left, top, right, bottom)
+        canvas.drawText(text, x, y, paint)
+        endFadeMaskPaint.shader = LinearGradient(
+            right - fadeInset, 0f, right, 0f,
+            intArrayOf(Color.WHITE, Color.TRANSPARENT),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        endFadeMaskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+        canvas.drawRect(right - fadeInset, top, right, bottom, endFadeMaskPaint)
+        endFadeMaskPaint.xfermode = null
+        endFadeMaskPaint.shader = null
+        canvas.restoreToCount(layer)
     }
 
     /**
