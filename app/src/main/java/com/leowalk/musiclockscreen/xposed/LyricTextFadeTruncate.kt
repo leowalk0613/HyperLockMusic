@@ -2,11 +2,28 @@ package com.leowalk.musiclockscreen.xposed
 
 /**
  * 歌词超长截断：不显示省略号，只让「最后一个能显示的字」透明度渐隐。
+ *
+ * 注意：StaticLayout 的 setMaxLines  alone 不会裁掉后续行；必须自行按行截字符再建 layout。
  */
 internal object LyricTextFadeTruncate {
 
     fun needsEndFade(textWidthPx: Float, maxWidthPx: Float): Boolean {
         return textWidthPx > maxWidthPx + 0.5f
+    }
+
+    /**
+     * 取满布局中前 [maxLines] 行能覆盖到的文字结束下标（exclusive）。
+     * [lineEndAt] 对应 [android.text.Layout.getLineEnd]。
+     */
+    fun visibleTextEndOffset(
+        fullTextLength: Int,
+        unrestrictedLineCount: Int,
+        maxLines: Int,
+        lineEndAt: (line: Int) -> Int,
+    ): Int {
+        if (fullTextLength <= 0 || unrestrictedLineCount <= 0 || maxLines <= 0) return 0
+        val lastVisible = (minOf(maxLines, unrestrictedLineCount) - 1).coerceAtLeast(0)
+        return lineEndAt(lastVisible).coerceIn(0, fullTextLength)
     }
 
     /**

@@ -14,6 +14,33 @@ class LyricTextFadeTruncateTest {
     }
 
     @Test
+    fun visibleTextEndOffset_clipsToMaxLines() {
+        // 模拟满布局 3 行，行尾分别在 5/10/15
+        val ends = intArrayOf(5, 10, 15)
+        assertEquals(
+            10,
+            LyricTextFadeTruncate.visibleTextEndOffset(
+                fullTextLength = 15,
+                unrestrictedLineCount = 3,
+                maxLines = 2,
+            ) { line -> ends[line] },
+        )
+    }
+
+    @Test
+    fun visibleTextEndOffset_whenFitsInFewerLines() {
+        val ends = intArrayOf(8)
+        assertEquals(
+            8,
+            LyricTextFadeTruncate.visibleTextEndOffset(
+                fullTextLength = 8,
+                unrestrictedLineCount = 1,
+                maxLines = 2,
+            ) { line -> ends[line] },
+        )
+    }
+
+    @Test
     fun needsEndFadeForClippedLayout_whenTextRemains() {
         assertTrue(
             LyricTextFadeTruncate.needsEndFadeForClippedLayout(

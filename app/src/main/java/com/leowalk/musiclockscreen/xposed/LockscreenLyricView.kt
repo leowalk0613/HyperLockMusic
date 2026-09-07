@@ -657,36 +657,35 @@ class LockscreenLyricView(context: Context) : View(context) {
             else -> Layout.Alignment.ALIGN_NORMAL
         }
         val raw = text.ifBlank { " " }
+        // maxLines  alone 不会裁剪；先量满布局，再截到可见字符后重建
         val full = StaticLayout.Builder
             .obtain(raw, 0, raw.length, tp, contentWidth)
             .setAlignment(alignment)
             .setLineSpacing(0f, 1f)
             .setIncludePad(true)
-            .setMaxLines(Int.MAX_VALUE)
             .build()
-        // 不用 TruncateAt.END，避免画出「…」；超行由 maxLines 裁掉
+        val clippedEnd = LyricTextFadeTruncate.visibleTextEndOffset(
+            fullTextLength = raw.length,
+            unrestrictedLineCount = full.lineCount,
+            maxLines = maxLines,
+        ) { line -> full.getLineEnd(line) }
+        val shown = if (clippedEnd >= raw.length) raw else raw.substring(0, clippedEnd)
         val layout = StaticLayout.Builder
-            .obtain(raw, 0, raw.length, tp, contentWidth)
+            .obtain(shown, 0, shown.length, tp, contentWidth)
             .setAlignment(alignment)
             .setLineSpacing(0f, 1f)
             .setIncludePad(true)
             .setMaxLines(maxLines)
             .build()
-        val clippedEnd = if (layout.lineCount > 0) {
-            layout.getLineEnd(layout.lineCount - 1)
-        } else {
-            0
-        }
         val endFade = LyricTextFadeTruncate.needsEndFadeForClippedLayout(
             unrestrictedLineCount = full.lineCount,
-            clippedLineCount = layout.lineCount,
+            clippedLineCount = minOf(maxLines, full.lineCount),
             maxLines = maxLines,
             clippedTextEndOffset = clippedEnd,
             fullTextLength = raw.length,
         )
         return ImmersiveLayoutBuild(layout, endFade)
     }
-
     /**
      * 绘制 StaticLayout：永不画省略号；若仍有截断，只让最后一个字渐隐。
      */
