@@ -149,9 +149,45 @@ object AlbumArtResolver {
 
     /**
      * null→首键 不算切歌，避免首次开音乐锁屏误触发歌词 WAITING / 壁纸全量刷新。
+     * `id:N` 与 `qqmusic:N` / `netease:N` 视为同一首歌（session 无包名时先 id，bind 再升级前缀）。
      */
     internal fun isRealTrackSwitch(previousKey: String?, newKey: String?): Boolean {
-        return !previousKey.isNullOrBlank() && !newKey.isNullOrBlank() && previousKey != newKey
+        if (previousKey.isNullOrBlank() || newKey.isNullOrBlank()) return false
+        if (previousKey == newKey) return false
+        return !sameSongIdentity(previousKey, newKey)
+    }
+
+    /** 同一首歌的不同 trackKey 写法（仅数字 id 对齐，不涉及高清拉取）。 */
+    internal fun sameSongIdentity(a: String, b: String): Boolean {
+        if (a == b) return true
+        val aKind = songKeyKind(a) ?: return false
+        val bKind = songKeyKind(b) ?: return false
+        val aNum = numericSongId(a) ?: return false
+        val bNum = numericSongId(b) ?: return false
+        if (aNum != bNum) return false
+        // 裸 id: 可升级为 qqmusic:/netease:；跨平台前缀不算同一首
+        if (aKind == SongKeyKind.BARE || bKind == SongKeyKind.BARE) return true
+        return aKind == bKind
+    }
+
+    private enum class SongKeyKind { BARE, QQ, NETEASE }
+
+    private fun songKeyKind(key: String): SongKeyKind? {
+        return when {
+            key.startsWith("qqmusic:") -> SongKeyKind.QQ
+            key.startsWith("netease:") -> SongKeyKind.NETEASE
+            key.startsWith("id:") -> SongKeyKind.BARE
+            else -> null
+        }
+    }
+
+    private fun numericSongId(key: String): String? {
+        return when {
+            key.startsWith("qqmusic:") -> key.removePrefix("qqmusic:").takeIf { it.isNotEmpty() }
+            key.startsWith("netease:") -> key.removePrefix("netease:").takeIf { it.isNotEmpty() }
+            key.startsWith("id:") -> key.removePrefix("id:").takeIf { it.isNotEmpty() }
+            else -> null
+        }
     }
 
     /**
@@ -179,10 +215,11 @@ object AlbumArtResolver {
             cachedBitmap = null
             cachedTrackKey = trackKey
         } else if (trackKey != null && trackKey != cachedTrackKey) {
-            logI("track key initialized on bind: $trackKey")
+            // 仅前缀升级（id: → qqmusic:），保留已有封面缓存
+            logI("track key refined on bind: $cachedTrackKey -> $trackKey")
             cachedTrackKey = trackKey
         }
-        // 空窗：可用「本轮 bind」的 MediaData Icon（songId 对齐且指纹非旧图），禁用滞后的 metadata 嵌入图
+        // 空窗：可用「本轮 bind」的 MediaData Icon（指纹去旧）；切歌当轮也可采 metadata 嵌入图做壁纸
         val artPending = !trackChanged && !hasResolvedArt() && cachedTrackKey != null
         val best = collectBest(
             context = context,
@@ -191,7 +228,7 @@ object AlbumArtResolver {
             mediaData = data,
             includeCache = !trackChanged && !artPending,
             allowRemote = false,
-            allowMetadataBitmaps = !trackChanged && !artPending,
+            allowMetadataBitmaps = true,
             allowMediaDataIcon = true
         )
         if (best != null) {
@@ -215,9 +252,9 @@ object AlbumArtResolver {
     fun refreshFromSessionMetadata(context: Context, metadata: MediaMetadata?): Boolean {
         if (metadata == null) return false
         lastBindMetadata = metadata
-        // 曲目 key 以 metadata 为准；切歌时空窗里 lastBindMediaData 常仍是上一首
-        val trackKey = computeTrackKey(context, metadata, null)
-            ?: computeTrackKey(context, metadata, lastBindMediaData)
+        // 曲目 key：优先带上当前媒体包名，避免 QQ 被标成裸 id: 后再与 qqmusic: 来回切
+        val trackKey = computeTrackKey(context, metadata, lastBindMediaData)
+            ?: computeTrackKey(context, metadata, null)
         val previousKey = cachedTrackKey
         val trackChanged = isRealTrackSwitch(previousKey, trackKey)
         if (trackChanged) {
@@ -226,6 +263,7 @@ object AlbumArtResolver {
             rememberPoisonArt(primaryArtUri(metadata, null, context))
             cachedBitmap = null
             cachedTrackKey = trackKey
+            // 壁纸用系统 metadata 嵌入图；官方高清仍走后续 enhance，互不替代
             val best = collectBest(
                 context = context,
                 drawable = null,
@@ -233,7 +271,7 @@ object AlbumArtResolver {
                 mediaData = null,
                 includeCache = false,
                 allowRemote = false,
-                allowMetadataBitmaps = false,
+                allowMetadataBitmaps = true,
                 allowMediaDataIcon = false
             )
             if (best != null) {
@@ -302,22 +340,24 @@ object AlbumArtResolver {
     ): Bitmap? {
         val meta = metadata ?: lastBindMetadata
         val trackKeyHint = computeTrackKey(context, meta, mediaData ?: lastBindMediaData)
-        val trackChanged = trackKeyHint != null && trackKeyHint != cachedTrackKey
+        val trackChanged = isRealTrackSwitch(cachedTrackKey, trackKeyHint)
         // refreshFromBind / session 切歌后会先写入新 trackKey 并清空 bitmap。
-        // 此空窗期内若误用「仍显示旧曲」的 ImageView / 旧 MediaData，会把旧图挂到新曲上。
+        // 此空窗期内若误用「仍显示旧曲」的 ImageView，会把旧图挂到新曲上。
         val artPending = trackKeyHint != null &&
-            trackKeyHint == cachedTrackKey &&
+            !trackChanged &&
+            (trackKeyHint == cachedTrackKey || sameSongIdentity(trackKeyHint, cachedTrackKey ?: "")) &&
             (cachedBitmap == null || cachedBitmap!!.isRecycled)
+        // artPending 仍可用 lastBindMediaData 的 Icon（指纹去旧）；仅真正切歌时丢掉旧 MediaData
         val data = when {
             mediaData != null -> mediaData
-            trackChanged || artPending -> null
+            trackChanged -> null
             else -> lastBindMediaData
         }
         val trackKey = computeTrackKey(context, meta, data) ?: trackKeyHint
         val includeCache = !ignoreCache && !trackChanged && !artPending
         val safeDrawable = if (trackChanged || artPending) null else drawable
-        // 空窗：禁用 metadata 嵌入图；MediaData Icon 可采但会做指纹去旧
-        val allowMetaBmp = !trackChanged && !artPending
+        // 壁纸：空窗期允许 metadata 嵌入图 + MediaData Icon；高清升级另路径
+        val allowMetaBmp = !trackChanged
         val allowIcon = !trackChanged
 
         val best = collectBest(
@@ -592,10 +632,15 @@ object AlbumArtResolver {
 
     private fun computeTrackKey(context: Context?, metadata: MediaMetadata?, mediaData: Any?): String? {
         val pkg = packageFromMediaData(mediaData)
+            ?: context?.let { HookUtils.currentMediaPackage(it) }
         if (pkg == QqMusicSongIdResolver.PKG) {
             QqMusicSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
                 return QqMusicSongIdResolver.trackKey(it)
             }
+            // 包名已是 QQ：裸 MEDIA_ID 也标成 qqmusic:，避免与 id: 来回跳
+            metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)
+                ?.let { QqMusicSongIdResolver.parseSongId(it) }
+                ?.let { return QqMusicSongIdResolver.trackKey(it) }
         }
 
         NetEaseSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
