@@ -14,28 +14,13 @@ class LyricTextFadeTruncateTest {
     }
 
     @Test
-    fun needsEndFadeForClippedLayout_whenLinesDropped() {
+    fun layoutHasEllipsis_whenAnyLineTruncated() {
+        val counts = intArrayOf(0, 3, 0)
         assertTrue(
-            LyricTextFadeTruncate.needsEndFadeForClippedLayout(
-                unrestrictedLineCount = 4,
-                clippedLineCount = 2,
-                maxLines = 2,
-                lastLineWidthPx = 50f,
-                contentWidthPx = 200f,
-            )
+            LyricTextFadeTruncate.layoutHasEllipsis(counts.size) { counts[it] }
         )
-    }
-
-    @Test
-    fun needsEndFadeForClippedLayout_falseWhenFullyVisible() {
         assertFalse(
-            LyricTextFadeTruncate.needsEndFadeForClippedLayout(
-                unrestrictedLineCount = 2,
-                clippedLineCount = 2,
-                maxLines = 3,
-                lastLineWidthPx = 80f,
-                contentWidthPx = 200f,
-            )
+            LyricTextFadeTruncate.layoutHasEllipsis(2) { 0 }
         )
     }
 
@@ -50,6 +35,6 @@ class LyricTextFadeTruncateTest {
     @Test
     fun fadeStartInset_cappedByContentWidth() {
         val inset = LyricTextFadeTruncate.fadeStartInsetPx(100f, 40f)
-        assertTrue(inset <= 40f * 0.45f + 0.01f)
+        assertTrue(inset <= 40f * 0.5f + 0.01f)
     }
 }

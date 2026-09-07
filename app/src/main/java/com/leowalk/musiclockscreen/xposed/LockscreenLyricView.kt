@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -657,37 +658,25 @@ class LockscreenLyricView(context: Context) : View(context) {
             else -> Layout.Alignment.ALIGN_NORMAL
         }
         val raw = text.ifBlank { " " }
-        val full = StaticLayout.Builder
-            .obtain(raw, 0, raw.length, tp, contentWidth)
-            .setAlignment(alignment)
-            .setLineSpacing(0f, 1f)
-            .setIncludePad(true)
-            .setMaxLines(Int.MAX_VALUE)
-            .build()
-        // 不用 TruncateAt.END（省略号），超宽/超行用末端渐隐
+        // 仍用 TruncateAt.END 做真正截断（否则超长会整段露出来）；绘制时去掉「…」改渐隐
         val layout = StaticLayout.Builder
             .obtain(raw, 0, raw.length, tp, contentWidth)
             .setAlignment(alignment)
             .setLineSpacing(0f, 1f)
             .setIncludePad(true)
             .setMaxLines(maxLines)
+            .setEllipsize(TextUtils.TruncateAt.END)
             .build()
-        val lastW = if (layout.lineCount > 0) {
-            layout.getLineWidth(layout.lineCount - 1)
-        } else {
-            0f
+        val endFade = LyricTextFadeTruncate.layoutHasEllipsis(layout.lineCount) { line ->
+            layout.getEllipsisCount(line)
         }
-        val endFade = LyricTextFadeTruncate.needsEndFadeForClippedLayout(
-            unrestrictedLineCount = full.lineCount,
-            clippedLineCount = layout.lineCount,
-            maxLines = maxLines,
-            lastLineWidthPx = lastW,
-            contentWidthPx = contentWidth.toFloat(),
-        )
         return ImmersiveLayoutBuild(layout, endFade)
     }
 
-    /** StaticLayout 末端水平渐隐（替代 …）。坐标系已是 layout 本地。 */
+    /**
+     * 绘制 StaticLayout：若有 TruncateAt.END 省略号，则不画「…」，改为末行水平渐隐。
+     * 坐标系已是 layout 本地。
+     */
     private fun drawStaticLayoutWithOptionalEndFade(
         canvas: Canvas,
         layout: StaticLayout,
@@ -698,25 +687,51 @@ class LockscreenLyricView(context: Context) : View(context) {
             layout.draw(canvas)
             return
         }
+        val text = layout.text
+        val paint = layout.paint
         val w = layout.width.toFloat()
-        val h = layout.height.toFloat()
         val fadeInset = LyricTextFadeTruncate.fadeStartInsetPx(textSizePx, w)
-        val last = (layout.lineCount - 1).coerceAtLeast(0)
-        val top = layout.getLineTop(last).toFloat()
-        val bottom = layout.getLineBottom(last).toFloat()
-        val layer = canvas.saveLayer(0f, 0f, w, h, null)
-        layout.draw(canvas)
-        endFadeMaskPaint.shader = LinearGradient(
-            w - fadeInset, 0f, w, 0f,
-            intArrayOf(Color.WHITE, Color.TRANSPARENT),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP,
-        )
-        endFadeMaskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-        canvas.drawRect(w - fadeInset, top, w, bottom, endFadeMaskPaint)
-        endFadeMaskPaint.xfermode = null
-        endFadeMaskPaint.shader = null
-        canvas.restoreToCount(layer)
+
+        for (i in 0 until layout.lineCount) {
+            val start = layout.getLineStart(i)
+            var end = layout.getLineEnd(i)
+            if (end > start && text[end - 1] == '\n') end--
+            val baseline = layout.getLineBaseline(i).toFloat()
+            val left = layout.getLineLeft(i)
+            val top = layout.getLineTop(i).toFloat()
+            val bottom = layout.getLineBottom(i).toFloat()
+            val ellipsisCount = layout.getEllipsisCount(i)
+
+            if (!LyricTextFadeTruncate.lineHasEllipsis(ellipsisCount)) {
+                if (end > start) {
+                    canvas.drawText(text, start, end, left, baseline, paint)
+                }
+                continue
+            }
+
+            // 省略号起点之前的字符保留；并吃掉「…」占位，用满行宽再渐隐
+            val ellipsisStart = layout.getEllipsisStart(i)
+            val lineLimit = end
+            val availableWidth = (w - left).coerceAtLeast(1f)
+            val fitCount = paint.breakText(text, start, lineLimit, true, availableWidth, null)
+            val drawEnd = (start + fitCount).coerceIn(start + ellipsisStart, lineLimit)
+            val layer = canvas.saveLayer(0f, top, w, bottom, null)
+            canvas.clipRect(0f, top, w, bottom)
+            if (drawEnd > start) {
+                canvas.drawText(text, start, drawEnd, left, baseline, paint)
+            }
+            endFadeMaskPaint.shader = LinearGradient(
+                w - fadeInset, 0f, w, 0f,
+                intArrayOf(Color.WHITE, Color.TRANSPARENT),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            endFadeMaskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+            canvas.drawRect(w - fadeInset, top, w, bottom, endFadeMaskPaint)
+            endFadeMaskPaint.xfermode = null
+            endFadeMaskPaint.shader = null
+            canvas.restoreToCount(layer)
+        }
     }
 
     private fun drawTextCentered(
