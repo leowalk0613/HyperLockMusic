@@ -212,7 +212,7 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
         return legacyDrawableFallback && albumView.drawable != null
     }
 
-    fun showForMusicLockscreen() {
+    fun showForMusicLockscreen(preserveAlpha: Boolean = false) {
         if (!ConfigReader.showBigAlbum(context)) {
             visibility = GONE
             return
@@ -223,7 +223,9 @@ class BigAlbumOverlayView(context: Context) : FrameLayout(context) {
             return
         }
         applySizeFromConfig()
-        alpha = 1f
+        if (!preserveAlpha) {
+            alpha = 1f
+        }
         visibility = VISIBLE
         rebuildCompositeCacheIfNeeded()
         MediaFollowController.requestReflow()

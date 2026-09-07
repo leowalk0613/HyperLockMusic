@@ -196,7 +196,14 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var lastVersionsCheck: Long = 0
 
     private var isPlaying = false
+    /** Session 明确 PAUSED/STOPPED；与「短暂读不到 PLAYING」区分。 */
+    private var confirmedPaused = false
+    private var playbackHoldUntilMs = 0L
     private var lastPlayingCheck: Long = 0
+    /**
+     * 切歌后尚未确认有/无词：播放中优先占歌词位，避免专辑抢先闪一下。
+     */
+    private var preferLyricUntilResolved = false
 
     private var posBase: Long = 0
     private var posBaseTime: Long = 0
@@ -214,6 +221,15 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var aodRecoveryBurstGeneration = 0
     private var lyricBootstrapBurstGeneration = 0
     private var lyricBootstrapUntilMs = 0L
+    private val clearPreferLyricRunnable = Runnable {
+        preferLyricUntilResolved = false
+        if (trackGatePhase == TrackLyricGate.Phase.WAITING) {
+            clearTrackGate()
+        }
+        if (!hasLyric) {
+            updateVisibilityState()
+        }
+    }
 
     init {
         setBackgroundColor(Color.TRANSPARENT)
@@ -741,7 +757,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    /** 切歌时重拉 Provider 歌词（信任 LyricFocus 输出，不走 WAITING 门闩）。 */
+    /** 切歌时重拉 Provider 歌词；播放中优先占歌词位直到首句或确认无词。 */
     fun onTrackMayHaveChanged() {
         refreshLyricsFromProvider(clearLineCache = true)
         if (isAodLyricRefreshMode()) {
@@ -753,9 +769,11 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun refreshLyricsFromProvider(clearLineCache: Boolean) {
         dataDirty = true
         lastVersionsCheck = 0
-        clearTrackGate()
         if (clearLineCache) {
             purgeDisplayedLyrics(resetProviderSnapshot = true)
+            markPreferLyricUntilResolved()
+        } else {
+            clearTrackGate()
         }
         val mediaTitle = readCurrentMediaTitle()
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle
@@ -794,6 +812,31 @@ class LockscreenLyricView(context: Context) : View(context) {
         trackGateSnapshot = null
     }
 
+    /** 切歌后播放中优先占歌词位，等首句或确认无词。 */
+    private fun markPreferLyricUntilResolved() {
+        preferLyricUntilResolved = true
+        trackGatePhase = TrackLyricGate.Phase.WAITING
+        trackGateSnapshot = TrackLyricGate.Snapshot(
+            vLyric = lastLyricVersion,
+            vFd = lastLyricFdVersion,
+            lyricJson = lastLyricJson,
+            startedAtElapsedMs = SystemClock.elapsedRealtime(),
+        )
+        handler.removeCallbacks(clearPreferLyricRunnable)
+        handler.postDelayed(
+            clearPreferLyricRunnable,
+            LyricAlbumSlotTransition.PREFER_LYRIC_WAIT_MS,
+        )
+    }
+
+    private fun clearPreferLyricUntilResolved() {
+        preferLyricUntilResolved = false
+        handler.removeCallbacks(clearPreferLyricRunnable)
+        if (trackGatePhase == TrackLyricGate.Phase.WAITING) {
+            clearTrackGate()
+        }
+    }
+
     /** @return true 表示载荷已写入 lastLyricJson 并应继续 apply；false 表示本包暂无有效行（不清屏，避免轮询打爆 UI）。 */
     private fun ingestProviderPayload(json: JSONObject, raw: String, vLyric: Int, vFd: Int): Boolean {
         if (!AodLyricDisplayPolicy.hasValidLyricLines(json)) {
@@ -802,6 +845,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         lastLyricJson = raw
         lastLyricVersion = vLyric
         lastLyricFdVersion = vFd
+        clearPreferLyricUntilResolved()
         clearTrackGate()
         dataDirty = false
         return true
@@ -838,6 +882,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun resolveNoLyric() {
+        clearPreferLyricUntilResolved()
         clearTrackGate()
         lastLyricJson = "{}"
         cachedCtx = null
@@ -1550,9 +1595,9 @@ class LockscreenLyricView(context: Context) : View(context) {
             hasDisplayableText()
     }
 
-    /** 含 AOD 兜底：文本已就绪但 Session 播放态滞后时仍应上屏。 */
+    /** 含电源切换 sticky：有词且播放中（或短暂丢态）才上屏；确认暂停则否。 */
     private fun shouldShowLyricOverlay(): Boolean {
-        return shouldDisplayLyric() || isAodLyricRevealEligible()
+        return shouldDisplayLyric()
     }
 
     private fun isPlaybackOkForLyric(): Boolean {
@@ -1564,6 +1609,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             mediaPlaybackActive = ConfigReader.mediaPlaybackActive(context),
             hasLyricData = hasLyric,
             hasDisplayableText = hasDisplayableText(),
+            confirmedPaused = confirmedPaused,
+            nowElapsedMs = SystemClock.elapsedRealtime(),
+            playbackHoldUntilMs = playbackHoldUntilMs,
+            inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow(),
         )
     }
 
@@ -1574,23 +1623,10 @@ class LockscreenLyricView(context: Context) : View(context) {
         )
     }
 
-    /** 息屏/AOD 下歌词文本已就绪即可尝试上屏（不依赖 MediaFollow 以外的播放态）。 */
-    private fun isAodLyricRevealEligible(): Boolean {
-        return !HookUtils.isScreenInteractive(context) &&
-            LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric) &&
-            isMusicLockscreenActive() &&
-            isKeyguardLocked() &&
-            !isBouncerShowing() &&
-            !shadeOpen &&
-            LockscreenNotificationController.shouldShowKeyguardOverlays() &&
-            hasLyric &&
-            hasDisplayableText()
-    }
-
     private fun finalizeLyricDisplayAfterContentUpdate() {
         if (!hasLyric || !hasDisplayableText()) return
         updateVisibilityState()
-        if (!shouldDisplayLyric() && !isAodLyricRevealEligible()) return
+        if (!shouldShowLyricOverlay()) return
         if (visibility == VISIBLE) return
         scheduleRevealAfterLayout()
     }
@@ -1686,16 +1722,30 @@ class LockscreenLyricView(context: Context) : View(context) {
         return cfgImmersiveLyric && shouldDisplayLyric()
     }
 
-    /** 歌词开关开启时应让出方形专辑位（含 AOD 切歌等待新歌词）。 */
+    /** 歌词开关开启时应让出方形专辑位（含切歌等待首句；暂停不让出）。 */
     fun isLyricPriorityOverAlbum(): Boolean {
+        val playbackForSlot = isPlaying ||
+            LyricAlbumSlotTransition.isPlaybackOkForLyricSlot(
+                isPlaying = isPlaying,
+                confirmedPaused = confirmedPaused,
+                nowElapsedMs = SystemClock.elapsedRealtime(),
+                playbackHoldUntilMs = playbackHoldUntilMs,
+                inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow(),
+                musicLockscreenActive = isMusicLockscreenActive(),
+                onKeyguard = isKeyguardLocked(),
+                hasLyricData = hasLyric,
+                hasDisplayableText = hasDisplayableText(),
+            )
         return LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
             showLyricEnabled = LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric),
             musicLockscreenActive = isMusicLockscreenActive(),
             onKeyguard = isKeyguardLocked(),
+            isPlaying = playbackForSlot,
             lyricCurrentlyDisplayed = shouldDisplayLyric(),
             trackGatePhase = trackGatePhase,
             hasLyricData = hasLyric,
             hasDisplayableText = hasDisplayableText(),
+            preferLyricUntilResolved = preferLyricUntilResolved,
         )
     }
 
@@ -1713,29 +1763,57 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
         if (visibility == INVISIBLE) {
             visibility = VISIBLE
-            alpha = 1f
+            alpha = 0f
+            animate().cancel()
+            animate()
+                .alpha(1f)
+                .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                .start()
             invalidate()
             syncImmersiveMiBlur()
         }
     }
 
     private fun updateVisibilityState() {
-        if (shouldShowLyricOverlay()) {
+        val wantLyric = shouldShowLyricOverlay()
+        val hideAlbum = isLyricPriorityOverAlbum()
+        if (wantLyric) {
             animate().cancel()
             scaleX = 1f
             scaleY = 1f
             startPolling()
-            // 保持 INVISIBLE，等 MediaFollow 写好 topMargin 后再设 VISIBLE
-            if (visibility == View.GONE || visibility == View.INVISIBLE) {
-                visibility = View.INVISIBLE
-                alpha = 1f
-                elevation = 48f * resources.displayMetrics.density
-                translationZ = elevation
-                requestLayout()
-                MediaFollowController.requestReflow()
-                scheduleRevealAfterLayout()
+            val needLayoutReveal = visibility == View.GONE || visibility == View.INVISIBLE
+            if (needLayoutReveal) {
+                // 暂停后再播：尺寸已知则直接淡入，避免再走一轮 INVISIBLE 空窗
+                if (hasDisplayableText() && width > 0 && height > 0) {
+                    visibility = View.VISIBLE
+                    elevation = 48f * resources.displayMetrics.density
+                    translationZ = elevation
+                    alpha = 0f
+                    animate()
+                        .alpha(1f)
+                        .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                        .start()
+                    syncImmersiveMiBlur()
+                    MediaFollowController.requestReflow()
+                } else {
+                    visibility = View.INVISIBLE
+                    alpha = 0f
+                    elevation = 48f * resources.displayMetrics.density
+                    translationZ = elevation
+                    requestLayout()
+                    MediaFollowController.requestReflow()
+                    scheduleRevealAfterLayout()
+                }
             } else {
-                alpha = 1f
+                if (alpha < 0.99f) {
+                    animate()
+                        .alpha(1f)
+                        .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                        .start()
+                } else {
+                    alpha = 1f
+                }
                 elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
                 invalidate()
@@ -1745,26 +1823,91 @@ class LockscreenLyricView(context: Context) : View(context) {
                 bringToFront()
             } catch (_: Throwable) {
             }
-            if (isLyricPriorityOverAlbum()) {
-                MusicLockscreenManager.bigAlbumView?.visibility = View.GONE
-            } else if (cfgImmersiveLyric) {
-                MusicLockscreenManager.showAlbumOverlay()
-            }
+            applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = true)
+        } else {
+            fadeOutLyricOverlay()
+            applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = true)
+        }
+    }
+
+    /** 歌词淡出隐藏；保留文本以便恢复播放时立刻淡入。 */
+    private fun fadeOutLyricOverlay() {
+        animate().cancel()
+        setLayerType(View.LAYER_TYPE_NONE, null)
+        if (!isMusicLockscreenActive() || !hasLyric) {
+            clearLyricDisplay()
+            alpha = 0f
+            visibility = View.GONE
+            return
+        }
+        if (visibility == View.GONE) {
+            alpha = 0f
+            return
+        }
+        if (visibility == View.VISIBLE && alpha > 0.01f) {
+            animate()
+                .alpha(0f)
+                .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                .withEndAction {
+                    if (!shouldShowLyricOverlay()) {
+                        visibility = View.GONE
+                        alpha = 0f
+                    }
+                }
+                .start()
         } else {
             alpha = 0f
-            setLayerType(View.LAYER_TYPE_NONE, null)
-            if (!isMusicLockscreenActive() || !hasLyric) {
-                clearLyricDisplay()
-            }
             visibility = View.GONE
-            if (isLyricPriorityOverAlbum()) {
-                MusicLockscreenManager.bigAlbumView?.visibility = View.GONE
+        }
+    }
+
+    private fun applyAlbumSlotVisibility(hideAlbum: Boolean, animate: Boolean) {
+        val album = MusicLockscreenManager.bigAlbumView ?: return
+        if (hideAlbum) {
+            album.animate().cancel()
+            if (animate && album.visibility == View.VISIBLE && album.alpha > 0.01f) {
+                album.animate()
+                    .alpha(0f)
+                    .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                    .withEndAction {
+                        try {
+                            if (isLyricPriorityOverAlbum()) {
+                                album.visibility = View.GONE
+                                album.alpha = 1f
+                                MediaFollowController.requestReflow()
+                            }
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    .start()
+            } else {
+                album.visibility = View.GONE
+                album.alpha = 1f
                 MediaFollowController.requestReflow()
+            }
+        } else {
+            if (!MusicLockscreenManager.isShowing ||
+                !LockscreenNotificationController.shouldShowKeyguardOverlays()
+            ) {
+                album.visibility = View.GONE
+                return
+            }
+            val wasHidden = album.visibility != View.VISIBLE || album.alpha < 0.01f
+            if (animate && wasHidden) {
+                album.showForMusicLockscreen(preserveAlpha = true)
+                if (album.visibility == View.VISIBLE) {
+                    album.animate().cancel()
+                    album.alpha = 0f
+                    album.animate()
+                        .alpha(1f)
+                        .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                        .start()
+                }
             } else {
                 MusicLockscreenManager.showAlbumOverlay()
-                if (cfgImmersiveLyric) {
-                    MediaFollowController.requestReflow()
-                }
+            }
+            if (cfgImmersiveLyric) {
+                MediaFollowController.requestReflow()
             }
         }
     }
@@ -2122,15 +2265,34 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (!force && now - lastPlayingCheck < throttleMs) return
         lastPlayingCheck = now
         try {
+            var sawPlaying = false
+            var sawPaused = false
             for (controller in getMediaControllers()) {
-                val state = controller.playbackState
-                if (state != null && state.state == PlaybackState.STATE_PLAYING) {
-                    isPlaying = true
-                    return
+                val state = controller.playbackState ?: continue
+                when (state.state) {
+                    PlaybackState.STATE_PLAYING -> sawPlaying = true
+                    PlaybackState.STATE_PAUSED,
+                    PlaybackState.STATE_STOPPED -> sawPaused = true
                 }
             }
-            isPlaying = false
-        } catch (_: Throwable) {}
+            when {
+                sawPlaying -> {
+                    isPlaying = true
+                    confirmedPaused = false
+                    playbackHoldUntilMs = now + LyricAlbumSlotTransition.PLAYBACK_HOLD_MS
+                }
+                sawPaused -> {
+                    isPlaying = false
+                    confirmedPaused = true
+                    playbackHoldUntilMs = 0L
+                }
+                else -> {
+                    // Session 短暂无态：保留 hold / confirmedPaused，避免 AOD 切换闪灭
+                    isPlaying = false
+                }
+            }
+        } catch (_: Throwable) {
+        }
     }
 
     // ============================================================
@@ -2613,6 +2775,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (trackChanged) {
             staleProviderLyricSuppressed = false
             purgeDisplayedLyrics(resetProviderSnapshot = false)
+            markPreferLyricUntilResolved()
             dataDirty = true
         }
         if (mediaTitle.isNotBlank()) lastSongTitle = mediaTitle

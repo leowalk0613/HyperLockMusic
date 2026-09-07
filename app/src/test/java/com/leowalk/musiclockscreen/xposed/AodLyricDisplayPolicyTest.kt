@@ -31,20 +31,24 @@ class AodLyricDisplayPolicyTest {
     }
 
     @Test
-    fun playbackOk_onAodWhenMediaListenerReportsActive() {
-        assertTrue(
+    fun playbackNotOk_onAodWhenOnlyMediaListenerActiveButPaused() {
+        // mediaPlaybackActive 含暂停，不能再撑歌词
+        assertFalse(
             AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
                 isPlaying = false,
                 screenInteractive = false,
                 musicLockscreenActive = true,
                 onKeyguard = true,
                 mediaPlaybackActive = true,
+                confirmedPaused = true,
+                hasLyricData = true,
+                hasDisplayableText = true,
             )
         )
     }
 
     @Test
-    fun playbackOk_onAodWhenLyricContentAlreadyLoaded() {
+    fun playbackOk_onAodDuringPowerTransitionWithLyricLoaded() {
         assertTrue(
             AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
                 isPlaying = false,
@@ -54,6 +58,7 @@ class AodLyricDisplayPolicyTest {
                 mediaPlaybackActive = false,
                 hasLyricData = true,
                 hasDisplayableText = true,
+                inScreenPowerTransition = true,
             )
         )
     }
@@ -66,7 +71,27 @@ class AodLyricDisplayPolicyTest {
                 screenInteractive = true,
                 musicLockscreenActive = true,
                 onKeyguard = true,
+                mediaPlaybackActive = true,
+                confirmedPaused = true,
+                hasLyricData = true,
+                hasDisplayableText = true,
+            )
+        )
+    }
+
+    @Test
+    fun playbackOk_withinHoldAfterSessionLag() {
+        assertTrue(
+            AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
+                isPlaying = false,
+                screenInteractive = true,
+                musicLockscreenActive = true,
+                onKeyguard = true,
                 mediaPlaybackActive = false,
+                hasLyricData = true,
+                hasDisplayableText = true,
+                nowElapsedMs = 1000L,
+                playbackHoldUntilMs = 2500L,
             )
         )
     }

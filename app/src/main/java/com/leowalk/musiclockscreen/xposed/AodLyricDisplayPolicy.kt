@@ -11,6 +11,12 @@ internal object AodLyricDisplayPolicy {
         return !screenInteractive && onKeyguard
     }
 
+    /**
+     * 播放时允许上屏；确认暂停则否。
+     * AOD/亮屏联动或 Session 短暂丢态时，有词可 sticky 保持（见 [LyricAlbumSlotTransition]）。
+     *
+     * [mediaPlaybackActive] 含暂停会话，不能再当作「应显示歌词」的依据。
+     */
     fun isPlaybackOkForLyricDisplay(
         isPlaying: Boolean,
         screenInteractive: Boolean,
@@ -19,19 +25,22 @@ internal object AodLyricDisplayPolicy {
         mediaPlaybackActive: Boolean,
         hasLyricData: Boolean = false,
         hasDisplayableText: Boolean = false,
+        confirmedPaused: Boolean = false,
+        nowElapsedMs: Long = 0L,
+        playbackHoldUntilMs: Long = 0L,
+        inScreenPowerTransition: Boolean = false,
     ): Boolean {
-        if (isPlaying) return true
-        if (!screenInteractive && musicLockscreenActive && onKeyguard) {
-            if (hasLyricData && hasDisplayableText) return true
-            return mediaPlaybackActive
-        }
-        // 亮屏锁屏：MediaSession 播放态常滞后，歌词已就绪且 NLS 报告媒体活跃时仍显示
-        if (screenInteractive && musicLockscreenActive && onKeyguard &&
-            hasLyricData && hasDisplayableText && mediaPlaybackActive
-        ) {
-            return true
-        }
-        return false
+        return LyricAlbumSlotTransition.isPlaybackOkForLyricSlot(
+            isPlaying = isPlaying,
+            confirmedPaused = confirmedPaused,
+            nowElapsedMs = nowElapsedMs,
+            playbackHoldUntilMs = playbackHoldUntilMs,
+            inScreenPowerTransition = inScreenPowerTransition,
+            musicLockscreenActive = musicLockscreenActive,
+            onKeyguard = onKeyguard,
+            hasLyricData = hasLyricData,
+            hasDisplayableText = hasDisplayableText,
+        )
     }
 
     internal data class LyricSnapshotFields(

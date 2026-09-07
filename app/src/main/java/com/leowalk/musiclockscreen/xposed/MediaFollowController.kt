@@ -177,7 +177,10 @@ object MediaFollowController {
             lastAlbumSize = contentSize
         }
 
-        album.alpha = 1f
+        // 交叉淡入中勿强制 alpha=1，否则打断歌词↔专辑过渡
+        if (album.alpha <= 0.01f || album.alpha >= 0.99f) {
+            album.alpha = 1f
+        }
         if (album.visibility != View.VISIBLE) album.visibility = View.VISIBLE
     }
 
