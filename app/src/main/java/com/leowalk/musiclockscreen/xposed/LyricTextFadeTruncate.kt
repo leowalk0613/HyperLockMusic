@@ -1,23 +1,22 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 歌词超宽截断：用末端渐隐代替「…」省略号。
- * 截断仍交给 StaticLayout TruncateAt.END，绘制时去掉省略号并做透明度渐隐。
+ * 歌词超宽截断：末端文字本身渐隐（不是只在省略号小区域淡）。
+ * 截断仍用 StaticLayout TruncateAt.END 判定；绘制时去掉「…」，按满行排字再对末尾字形做透明度渐隐。
  */
 internal object LyricTextFadeTruncate {
 
-    /** 渐隐宽度相对字号的倍数。 */
-    const val FADE_EM = 1.5f
+    /** 渐隐宽度相对字号的倍数（覆盖约 2 个字）。 */
+    const val FADE_EM = 2.2f
 
     fun fadeWidthPx(textSizePx: Float): Float {
-        return (textSizePx * FADE_EM).coerceAtLeast(16f)
+        return (textSizePx * FADE_EM).coerceAtLeast(24f)
     }
 
     fun needsEndFade(textWidthPx: Float, maxWidthPx: Float): Boolean {
         return textWidthPx > maxWidthPx + 0.5f
     }
 
-    /** StaticLayout 某行是否被 TruncateAt.END 截断（有省略号）。 */
     fun lineHasEllipsis(ellipsisCount: Int): Boolean = ellipsisCount > 0
 
     fun layoutHasEllipsis(lineCount: Int, ellipsisCountAt: (Int) -> Int): Boolean {
@@ -27,8 +26,12 @@ internal object LyricTextFadeTruncate {
         return false
     }
 
-    /** 渐隐起点相对内容右缘的 inset（= fade 宽度）。 */
-    fun fadeStartInsetPx(textSizePx: Float, contentWidthPx: Float): Float {
-        return fadeWidthPx(textSizePx).coerceAtMost(contentWidthPx * 0.5f)
+    /**
+     * 渐隐起点：相对「文字右缘」往左 inset，而不是相对整行空白。
+     */
+    fun fadeStartX(textLeft: Float, textRight: Float, textSizePx: Float): Float {
+        val span = (textRight - textLeft).coerceAtLeast(1f)
+        val inset = fadeWidthPx(textSizePx).coerceAtMost(span * 0.55f)
+        return textRight - inset
     }
 }

@@ -33,8 +33,11 @@ class LyricTextFadeTruncateTest {
     }
 
     @Test
-    fun fadeStartInset_cappedByContentWidth() {
-        val inset = LyricTextFadeTruncate.fadeStartInsetPx(100f, 40f)
-        assertTrue(inset <= 40f * 0.5f + 0.01f)
+    fun fadeStartX_isBeforeTextRight() {
+        val start = LyricTextFadeTruncate.fadeStartX(0f, 200f, 40f)
+        assertTrue(start < 200f)
+        assertTrue(start > 0f)
+        // 约 2.2em
+        assertEquals(200f - 40f * LyricTextFadeTruncate.FADE_EM, start, 0.01f)
     }
 }

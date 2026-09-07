@@ -674,8 +674,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 绘制 StaticLayout：若有 TruncateAt.END 省略号，则不画「…」，改为末行水平渐隐。
-     * 坐标系已是 layout 本地。
+     * 绘制 StaticLayout：有省略号的行不画「…」，改为按满行排字并对**文字末尾**做透明度渐隐。
      */
     private fun drawStaticLayoutWithOptionalEndFade(
         canvas: Canvas,
@@ -690,44 +689,50 @@ class LockscreenLyricView(context: Context) : View(context) {
         val text = layout.text
         val paint = layout.paint
         val w = layout.width.toFloat()
-        val fadeInset = LyricTextFadeTruncate.fadeStartInsetPx(textSizePx, w)
 
         for (i in 0 until layout.lineCount) {
             val start = layout.getLineStart(i)
             var end = layout.getLineEnd(i)
             if (end > start && text[end - 1] == '\n') end--
             val baseline = layout.getLineBaseline(i).toFloat()
-            val left = layout.getLineLeft(i)
             val top = layout.getLineTop(i).toFloat()
             val bottom = layout.getLineBottom(i).toFloat()
             val ellipsisCount = layout.getEllipsisCount(i)
 
             if (!LyricTextFadeTruncate.lineHasEllipsis(ellipsisCount)) {
+                val left = layout.getLineLeft(i)
                 if (end > start) {
                     canvas.drawText(text, start, end, left, baseline, paint)
                 }
                 continue
             }
 
-            // 省略号起点之前的字符保留；并吃掉「…」占位，用满行宽再渐隐
-            val ellipsisStart = layout.getEllipsisStart(i)
-            val lineLimit = end
-            val availableWidth = (w - left).coerceAtLeast(1f)
-            val fitCount = paint.breakText(text, start, lineLimit, true, availableWidth, null)
-            val drawEnd = (start + fitCount).coerceIn(start + ellipsisStart, lineLimit)
+            // 用满行宽重新量字（吃掉「…」占位），对齐后对字形末尾渐隐
+            val fitCount = paint.breakText(text, start, text.length, true, w, null)
+                .coerceAtLeast(1)
+            val drawEnd = (start + fitCount).coerceAtMost(text.length)
+            if (drawEnd <= start) continue
+            val shownW = paint.measureText(text, start, drawEnd)
+            val x = when (cfgLyricAlign) {
+                "center" -> ((w - shownW) / 2f).coerceAtLeast(0f)
+                "right" -> (w - shownW).coerceAtLeast(0f)
+                else -> 0f
+            }
+            val textRight = x + shownW
+            val fadeStart = LyricTextFadeTruncate.fadeStartX(x, textRight, textSizePx)
+
             val layer = canvas.saveLayer(0f, top, w, bottom, null)
             canvas.clipRect(0f, top, w, bottom)
-            if (drawEnd > start) {
-                canvas.drawText(text, start, drawEnd, left, baseline, paint)
-            }
+            canvas.drawText(text, start, drawEnd, x, baseline, paint)
+            // CLAMP：fadeStart 左侧保持不透明，文字右缘之外变全透明
             endFadeMaskPaint.shader = LinearGradient(
-                w - fadeInset, 0f, w, 0f,
+                fadeStart, 0f, textRight, 0f,
                 intArrayOf(Color.WHITE, Color.TRANSPARENT),
                 floatArrayOf(0f, 1f),
                 Shader.TileMode.CLAMP,
             )
             endFadeMaskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-            canvas.drawRect(w - fadeInset, top, w, bottom, endFadeMaskPaint)
+            canvas.drawRect(0f, top, w, bottom, endFadeMaskPaint)
             endFadeMaskPaint.xfermode = null
             endFadeMaskPaint.shader = null
             canvas.restoreToCount(layer)
@@ -750,12 +755,11 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
 
-        // 超宽：截取可贴入宽度的字符，末端渐隐（无省略号）
         val count = paint.breakText(raw, true, maxWidthPx.toFloat(), null).coerceAtLeast(1)
         val shown = raw.substring(0, count.coerceAtMost(raw.length))
         val shownW = paint.measureText(shown)
         val x = centerX - shownW / 2f
-        drawTextWithEndFade(canvas, shown, x, y, paint, maxWidthPx.toFloat())
+        drawTextWithEndFade(canvas, shown, x, y, paint, shownW)
         paint.textAlign = originalAlign
     }
 
@@ -786,7 +790,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             "right" -> hPaddingPx + contentWidth - shownW
             else -> hPaddingPx
         }
-        drawTextWithEndFade(canvas, shown, x, y, paint, contentWidth)
+        drawTextWithEndFade(canvas, shown, x, y, paint, shownW)
         paint.textAlign = originalAlign
     }
 
@@ -796,25 +800,23 @@ class LockscreenLyricView(context: Context) : View(context) {
         x: Float,
         y: Float,
         paint: Paint,
-        maxWidthPx: Float,
+        shownWidthPx: Float,
     ) {
         val fm = paint.fontMetrics
-        val left = x
-        val right = x + maxWidthPx
+        val textRight = x + shownWidthPx
         val top = y + fm.top
         val bottom = y + fm.bottom
-        val fadeInset = LyricTextFadeTruncate.fadeStartInsetPx(paint.textSize, maxWidthPx)
-        val layer = canvas.saveLayer(left, top, right, bottom, null)
-        canvas.clipRect(left, top, right, bottom)
+        val fadeStart = LyricTextFadeTruncate.fadeStartX(x, textRight, paint.textSize)
+        val layer = canvas.saveLayer(x, top, textRight, bottom, null)
         canvas.drawText(text, x, y, paint)
         endFadeMaskPaint.shader = LinearGradient(
-            right - fadeInset, 0f, right, 0f,
+            fadeStart, 0f, textRight, 0f,
             intArrayOf(Color.WHITE, Color.TRANSPARENT),
             floatArrayOf(0f, 1f),
             Shader.TileMode.CLAMP,
         )
         endFadeMaskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-        canvas.drawRect(right - fadeInset, top, right, bottom, endFadeMaskPaint)
+        canvas.drawRect(x, top, textRight, bottom, endFadeMaskPaint)
         endFadeMaskPaint.xfermode = null
         endFadeMaskPaint.shader = null
         canvas.restoreToCount(layer)
