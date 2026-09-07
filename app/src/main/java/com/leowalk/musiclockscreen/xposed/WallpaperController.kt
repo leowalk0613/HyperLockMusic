@@ -839,7 +839,7 @@ object WallpaperController {
     }
 
     /**
-     * 系统封面已显示后：后台拉官方高清（网易云 / QQ 音乐），只替换前景大专辑；模糊背景仍用系统封面。
+     * 系统封面已显示后：后台拉官方高清（网易云 / QQ / 小米音乐），只替换前景大专辑；模糊背景仍用系统封面。
      */
     private fun scheduleNetworkAlbumEnhance(
         context: Context,
@@ -942,7 +942,7 @@ object WallpaperController {
         }
         when {
             trackKey?.startsWith(QqMusicSongIdResolver.TRACK_PREFIX) == true ||
-                pkg == QqMusicSongIdResolver.PKG -> {
+                QqMusicSongIdResolver.isQqCatalogPackage(pkg) -> {
                 return QqMusicAlbumArtSource.fetchVerifiedHighRes(
                     context, reference, metadata, mediaData, trackKey
                 )

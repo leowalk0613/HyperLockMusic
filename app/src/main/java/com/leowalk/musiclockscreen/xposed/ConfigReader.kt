@@ -133,7 +133,7 @@ object ConfigReader {
         return cachedAlbumCorner
     }
 
-    /** 是否后台拉官方高清替换前景专辑（网易云 / QQ 音乐） */
+    /** 是否后台拉官方高清替换前景专辑（网易云 / QQ / 小米音乐） */
     fun albumNetworkHd(context: Context): Boolean {
         refreshConfigIfNeeded(context)
         return cachedAlbumNetworkHd

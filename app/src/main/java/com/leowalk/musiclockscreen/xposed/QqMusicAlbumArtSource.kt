@@ -8,7 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * QQ 音乐封面：songid → albummid → y.gtimg.cn T002 高清图。
+ * QQ 曲库封面：songid / songmid → albummid → y.gtimg.cn T002 高清图。
  */
 object QqMusicAlbumArtSource {
 
@@ -24,12 +24,11 @@ object QqMusicAlbumArtSource {
         mediaData: Any?,
         trackKey: String? = null,
     ): Bitmap? {
-        val expectedId = QqMusicSongIdResolver.parseSongIdFromTrackKey(trackKey)
-            ?: QqMusicSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)
-            ?: return null.also { logI("no qqmusic song id trackKey=$trackKey") }
+        val albumMid = QqMusicSongIdResolver.resolveAlbumMidForCover(
+            context, metadata, mediaData, trackKey
+        ) ?: return null.also { logI("no qqmusic album mid trackKey=$trackKey") }
 
-        logI("fetch by song id=$expectedId trackKey=$trackKey")
-        val albumMid = QqMusicSongIdResolver.fetchAlbumMidBySongId(expectedId) ?: return null
+        logI("fetch by albumMid=$albumMid trackKey=$trackKey")
 
         var best: Bitmap? = null
         var bestUrl: String? = null
@@ -41,7 +40,7 @@ object QqMusicAlbumArtSource {
                 bmp.recycle()
                 continue
             }
-            // 可信 songid 链路：官方 CDN，接受更大图
+            // 可信 songid/songmid 链路：官方 CDN，接受更大图
             if (best == null || bmp.width * bmp.height > best.width * best.height) {
                 best?.recycle()
                 best = bmp
@@ -54,9 +53,9 @@ object QqMusicAlbumArtSource {
         }
 
         if (best != null) {
-            logI("accepted by song id=$expectedId ${best.width}x${best.height} from $bestUrl")
+            logI("accepted albumMid=$albumMid ${best.width}x${best.height} from $bestUrl")
         } else {
-            logI("no larger qqmusic art for id=$expectedId")
+            logI("no larger qqmusic art for albumMid=$albumMid")
         }
         return best
     }

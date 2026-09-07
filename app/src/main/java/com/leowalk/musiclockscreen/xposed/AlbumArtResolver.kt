@@ -157,9 +157,12 @@ object AlbumArtResolver {
         return !sameSongIdentity(previousKey, newKey)
     }
 
-    /** 同一首歌的不同 trackKey 写法（仅数字 id 对齐，不涉及高清拉取）。 */
+    /** 同一首歌的不同 trackKey 写法（数字 id / QQ songmid 对齐，不涉及高清拉取）。 */
     internal fun sameSongIdentity(a: String, b: String): Boolean {
         if (a == b) return true
+        val aMid = QqMusicSongIdResolver.parseSongMidFromTrackKey(a)
+        val bMid = QqMusicSongIdResolver.parseSongMidFromTrackKey(b)
+        if (aMid != null && bMid != null) return aMid == bMid
         val aKind = songKeyKind(a) ?: return false
         val bKind = songKeyKind(b) ?: return false
         val aNum = numericSongId(a) ?: return false
@@ -174,7 +177,7 @@ object AlbumArtResolver {
 
     private fun songKeyKind(key: String): SongKeyKind? {
         return when {
-            key.startsWith("qqmusic:") -> SongKeyKind.QQ
+            key.startsWith(QqMusicSongIdResolver.TRACK_PREFIX) -> SongKeyKind.QQ
             key.startsWith("netease:") -> SongKeyKind.NETEASE
             key.startsWith("id:") -> SongKeyKind.BARE
             else -> null
@@ -183,7 +186,9 @@ object AlbumArtResolver {
 
     private fun numericSongId(key: String): String? {
         return when {
-            key.startsWith("qqmusic:") -> key.removePrefix("qqmusic:").takeIf { it.isNotEmpty() }
+            key.startsWith(QqMusicSongIdResolver.TRACK_MID_PREFIX) -> null
+            key.startsWith(QqMusicSongIdResolver.TRACK_PREFIX) ->
+                key.removePrefix(QqMusicSongIdResolver.TRACK_PREFIX).takeIf { it.isNotEmpty() }
             key.startsWith("netease:") -> key.removePrefix("netease:").takeIf { it.isNotEmpty() }
             key.startsWith("id:") -> key.removePrefix("id:").takeIf { it.isNotEmpty() }
             else -> null
@@ -633,14 +638,19 @@ object AlbumArtResolver {
     private fun computeTrackKey(context: Context?, metadata: MediaMetadata?, mediaData: Any?): String? {
         val pkg = packageFromMediaData(mediaData)
             ?: context?.let { HookUtils.currentMediaPackage(it) }
-        if (pkg == QqMusicSongIdResolver.PKG) {
-            QqMusicSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
-                return QqMusicSongIdResolver.trackKey(it)
+        if (QqMusicSongIdResolver.isQqCatalogPackage(pkg)) {
+            // QQ App：数字 songid；小米音乐：shareContent songmid（勿用不可靠 mediaId）
+            if (pkg == QqMusicSongIdResolver.PKG) {
+                QqMusicSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
+                    return QqMusicSongIdResolver.trackKey(it)
+                }
+                metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)
+                    ?.let { QqMusicSongIdResolver.parseSongId(it) }
+                    ?.let { return QqMusicSongIdResolver.trackKey(it) }
             }
-            // 包名已是 QQ：裸 MEDIA_ID 也标成 qqmusic:，避免与 id: 来回跳
-            metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)
-                ?.let { QqMusicSongIdResolver.parseSongId(it) }
-                ?.let { return QqMusicSongIdResolver.trackKey(it) }
+            QqMusicSongIdResolver.resolveSongMid(context, metadata, mediaData)?.let {
+                return QqMusicSongIdResolver.trackKeyFromSongMid(it)
+            }
         }
 
         NetEaseSongIdResolver.resolveCanonicalSongId(context, metadata, mediaData)?.let {
