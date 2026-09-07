@@ -75,4 +75,17 @@ internal object LyricAlbumSlotTransition {
     ): Boolean {
         return pinActive && alreadyVisible && hasDisplayableText
     }
+
+    /**
+     * [View.setVisibility] 副作用是否应跑：同值重入 / 内部静默设值时禁止，
+     * 否则 VISIBLE→refreshNow→updateVisibilityState→再设 VISIBLE 会 StackOverflow 拖死 SystemUI。
+     */
+    fun shouldRunSetVisibilitySideEffects(
+        previousVisibility: Int,
+        newVisibility: Int,
+        suppressingSideEffects: Boolean,
+    ): Boolean {
+        if (suppressingSideEffects) return false
+        return previousVisibility != newVisibility
+    }
 }

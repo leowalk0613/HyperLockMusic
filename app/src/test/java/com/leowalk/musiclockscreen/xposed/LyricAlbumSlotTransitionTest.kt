@@ -159,4 +159,29 @@ class LyricAlbumSlotTransitionTest {
             )
         )
     }
+
+    @Test
+    fun setVisibilitySideEffects_skipWhenUnchangedOrSuppressed() {
+        assertFalse(
+            LyricAlbumSlotTransition.shouldRunSetVisibilitySideEffects(
+                previousVisibility = android.view.View.VISIBLE,
+                newVisibility = android.view.View.VISIBLE,
+                suppressingSideEffects = false,
+            )
+        )
+        assertFalse(
+            LyricAlbumSlotTransition.shouldRunSetVisibilitySideEffects(
+                previousVisibility = android.view.View.GONE,
+                newVisibility = android.view.View.VISIBLE,
+                suppressingSideEffects = true,
+            )
+        )
+        assertTrue(
+            LyricAlbumSlotTransition.shouldRunSetVisibilitySideEffects(
+                previousVisibility = android.view.View.GONE,
+                newVisibility = android.view.View.VISIBLE,
+                suppressingSideEffects = false,
+            )
+        )
+    }
 }

@@ -1060,15 +1060,33 @@ class LockscreenLyricView(context: Context) : View(context) {
         unregisterConfigObserver()
     }
 
+    /** 内部改可见性时跳过 [setVisibility] 副作用，避免递归刷新。 */
+    private var suppressingVisibilitySideEffects = false
+
     override fun setVisibility(visibility: Int) {
+        val previous = getVisibility()
+        val runSideEffects = LyricAlbumSlotTransition.shouldRunSetVisibilitySideEffects(
+            previousVisibility = previous,
+            newVisibility = visibility,
+            suppressingSideEffects = suppressingVisibilitySideEffects,
+        )
         super.setVisibility(visibility)
+        if (!runSideEffects) return
         when (visibility) {
             VISIBLE -> {
                 dataDirty = true
                 lastVersionsCheck = 0
                 startPolling()
-                refreshNow()
-                syncImmersiveMiBlur()
+                // 延迟刷新，避免在 setVisibility 调用栈内再入 updateVisibilityState
+                handler.post {
+                    if (getVisibility() != VISIBLE) return@post
+                    try {
+                        refreshNow()
+                        syncImmersiveMiBlur()
+                    } catch (t: Throwable) {
+                        logE("deferred refresh after visible failed", t)
+                    }
+                }
             }
             GONE -> {
                 // 音乐锁屏 + 锁屏/AOD 时保持轮询，否则切歌后歌词不会刷新
@@ -1080,6 +1098,17 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
             // INVISIBLE：等 MediaFollow 定位，保持轮询以便 AOD 切歌仍能刷新
             else -> Unit
+        }
+    }
+
+    /** 内部静默改可见性（不触发 refreshNow），打断 VISIBLE 递归。 */
+    private fun setOverlayVisibilityQuiet(visibility: Int) {
+        if (getVisibility() == visibility) return
+        suppressingVisibilitySideEffects = true
+        try {
+            setVisibility(visibility)
+        } finally {
+            suppressingVisibilitySideEffects = false
         }
     }
 
@@ -1690,15 +1719,19 @@ class LockscreenLyricView(context: Context) : View(context) {
     fun scheduleAodLyricRecoveryBurst() {
         if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
         val generation = ++aodRecoveryBurstGeneration
-        val delays = longArrayOf(100L, 300L, 600L, 1200L, 2000L, 3500L)
+        // 次数/间隔收敛：过多同步 CP 调用会堵 SystemUI 主线程
+        val delays = longArrayOf(200L, 800L, 2000L)
         for (delayMs in delays) {
             handler.postDelayed({
                 if (generation != aodRecoveryBurstGeneration) return@postDelayed
                 if (!isMusicLockscreenActive() || !isKeyguardLocked()) return@postDelayed
-                ConfigReader.invalidate()
-                dataDirty = true
-                readAndUpdate()
-                finalizeLyricDisplayAfterContentUpdate()
+                try {
+                    dataDirty = true
+                    readAndUpdate()
+                    finalizeLyricDisplayAfterContentUpdate()
+                } catch (t: Throwable) {
+                    logE("aod recovery burst failed", t)
+                }
             }, delayMs)
         }
     }
@@ -1708,9 +1741,17 @@ class LockscreenLyricView(context: Context) : View(context) {
         val app = context.applicationContext
         aodScreenReceiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent?) {
-                when (intent?.action) {
-                    Intent.ACTION_SCREEN_OFF -> onScreenPoweredOffForAod()
-                    Intent.ACTION_SCREEN_ON -> onScreenPoweredOnFromAod()
+                // 必须极轻：重活一律 post，否则 SCREEN_OFF 会 ANR 拖死 SystemUI
+                val action = intent?.action ?: return
+                handler.post {
+                    try {
+                        when (action) {
+                            Intent.ACTION_SCREEN_OFF -> onScreenPoweredOffForAod()
+                            Intent.ACTION_SCREEN_ON -> onScreenPoweredOnFromAod()
+                        }
+                    } catch (t: Throwable) {
+                        logE("screen power handler failed", t)
+                    }
                 }
             }
         }
@@ -1734,29 +1775,32 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun onScreenPoweredOffForAod() {
         if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
         armAodVisibilityPin()
-        // 已有歌词时立刻钉住可见，禁止先淡出
+        // 已有歌词时立刻钉住可见，禁止先淡出（静默设 visibility，避免递归刷新）
         if (hasLyric && hasDisplayableText() &&
             (visibility == VISIBLE || visibility == INVISIBLE)
         ) {
             animate().cancel()
-            visibility = VISIBLE
+            setOverlayVisibilityQuiet(VISIBLE)
             alpha = 1f
             invalidate()
         }
-        ConfigReader.invalidate()
         dataDirty = true
         startPolling()
         handler.post {
-            updatePlayingState(force = true)
-            readAndUpdate()
-            finalizeLyricDisplayAfterContentUpdate()
-            // 再次钉住：read 路径可能误触淡出
-            if (isAodVisibilityPinActive() && hasDisplayableText()) {
-                animate().cancel()
-                if (visibility != VISIBLE) visibility = VISIBLE
-                alpha = 1f
+            try {
+                updatePlayingState(force = true)
+                readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
+                if (isAodVisibilityPinActive() && hasDisplayableText()) {
+                    animate().cancel()
+                    setOverlayVisibilityQuiet(VISIBLE)
+                    alpha = 1f
+                }
+            } catch (t: Throwable) {
+                logE("aod screen-off refresh failed", t)
             }
         }
+        // 恢复 burst 降频，避免主线程被 ContentProvider 打满
         scheduleAodLyricRecoveryBurst()
     }
 
@@ -1767,19 +1811,22 @@ class LockscreenLyricView(context: Context) : View(context) {
             (visibility == VISIBLE || visibility == INVISIBLE)
         ) {
             animate().cancel()
-            visibility = VISIBLE
+            setOverlayVisibilityQuiet(VISIBLE)
             alpha = 1f
             invalidate()
         }
-        ConfigReader.invalidate()
         handler.post {
-            updatePlayingState(force = true)
-            readAndUpdate()
-            finalizeLyricDisplayAfterContentUpdate()
-            if (isAodVisibilityPinActive() && hasDisplayableText()) {
-                animate().cancel()
-                if (visibility != VISIBLE) visibility = VISIBLE
-                alpha = 1f
+            try {
+                updatePlayingState(force = true)
+                readAndUpdate()
+                finalizeLyricDisplayAfterContentUpdate()
+                if (isAodVisibilityPinActive() && hasDisplayableText()) {
+                    animate().cancel()
+                    setOverlayVisibilityQuiet(VISIBLE)
+                    alpha = 1f
+                }
+            } catch (t: Throwable) {
+                logE("aod screen-on refresh failed", t)
             }
         }
     }
@@ -1827,11 +1874,11 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (!shouldShowLyricOverlay()) return@Runnable
         MediaFollowController.requestReflow()
         if (visibility == INVISIBLE || visibility == GONE) {
-            visibility = INVISIBLE
+            setOverlayVisibilityQuiet(INVISIBLE)
             requestLayout()
         }
         if (visibility == INVISIBLE) {
-            visibility = VISIBLE
+            setOverlayVisibilityQuiet(VISIBLE)
             // 电源钉住：直接显示，禁止从 0 再淡入造成「消失→出现」
             if (isAodVisibilityPinActive()) {
                 animate().cancel()
@@ -1866,7 +1913,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             )
             val needLayoutReveal = visibility == View.GONE || visibility == View.INVISIBLE
             if (snapKeep) {
-                visibility = View.VISIBLE
+                setOverlayVisibilityQuiet(View.VISIBLE)
                 alpha = 1f
                 elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
@@ -1875,7 +1922,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             } else if (needLayoutReveal) {
                 // 暂停后再播：尺寸已知则直接淡入，避免再走一轮 INVISIBLE 空窗
                 if (hasDisplayableText() && width > 0 && height > 0) {
-                    visibility = View.VISIBLE
+                    setOverlayVisibilityQuiet(View.VISIBLE)
                     elevation = 48f * resources.displayMetrics.density
                     translationZ = elevation
                     if (pinActive) {
@@ -1890,7 +1937,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                     syncImmersiveMiBlur()
                     MediaFollowController.requestReflow()
                 } else {
-                    visibility = View.INVISIBLE
+                    setOverlayVisibilityQuiet(View.INVISIBLE)
                     alpha = if (pinActive) 1f else 0f
                     elevation = 48f * resources.displayMetrics.density
                     translationZ = elevation
@@ -1933,7 +1980,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (isAodVisibilityPinActive()) {
             animate().cancel()
             if (hasDisplayableText()) {
-                visibility = View.VISIBLE
+                setOverlayVisibilityQuiet(View.VISIBLE)
                 alpha = 1f
             }
             return
@@ -1943,7 +1990,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (!isMusicLockscreenActive() || !hasLyric) {
             clearLyricDisplay()
             alpha = 0f
-            visibility = View.GONE
+            setOverlayVisibilityQuiet(View.GONE)
             return
         }
         if (visibility == View.GONE) {
@@ -1956,14 +2003,14 @@ class LockscreenLyricView(context: Context) : View(context) {
                 .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
                 .withEndAction {
                     if (!shouldShowLyricOverlay()) {
-                        visibility = View.GONE
+                        setOverlayVisibilityQuiet(View.GONE)
                         alpha = 0f
                     }
                 }
                 .start()
         } else {
             alpha = 0f
-            visibility = View.GONE
+            setOverlayVisibilityQuiet(View.GONE)
         }
     }
 
