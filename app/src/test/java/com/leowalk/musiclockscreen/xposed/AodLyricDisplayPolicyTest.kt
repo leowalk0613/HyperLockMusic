@@ -32,7 +32,7 @@ class AodLyricDisplayPolicyTest {
 
     @Test
     fun playbackNotOk_onAodWhenOnlyMediaListenerActiveButPaused() {
-        // mediaPlaybackActive 含暂停，不能再撑歌词
+        // mediaPlaybackActive 含暂停，不能再撑歌词；非联动窗口确认暂停则收起
         assertFalse(
             AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
                 isPlaying = false,
@@ -43,6 +43,7 @@ class AodLyricDisplayPolicyTest {
                 confirmedPaused = true,
                 hasLyricData = true,
                 hasDisplayableText = true,
+                inScreenPowerTransition = false,
             )
         )
     }
@@ -58,6 +59,7 @@ class AodLyricDisplayPolicyTest {
                 mediaPlaybackActive = false,
                 hasLyricData = true,
                 hasDisplayableText = true,
+                confirmedPaused = true,
                 inScreenPowerTransition = true,
             )
         )

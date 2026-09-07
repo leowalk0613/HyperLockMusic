@@ -204,6 +204,8 @@ class LockscreenLyricView(context: Context) : View(context) {
      * 切歌后尚未确认有/无词：播放中优先占歌词位，避免专辑抢先闪一下。
      */
     private var preferLyricUntilResolved = false
+    /** 锁屏↔AOD 切换后钉住歌词可见性，避免淡出再淡入。 */
+    private var aodVisibilityPinUntilMs = 0L
 
     private var posBase: Long = 0
     private var posBaseTime: Long = 0
@@ -1595,9 +1597,38 @@ class LockscreenLyricView(context: Context) : View(context) {
             hasDisplayableText()
     }
 
-    /** 含电源切换 sticky：有词且播放中（或短暂丢态）才上屏；确认暂停则否。 */
+    /** 含电源切换 sticky / AOD 钉住：有词则保持，避免锁屏↔AOD 闪灭。 */
     private fun shouldShowLyricOverlay(): Boolean {
-        return shouldDisplayLyric()
+        return shouldDisplayLyric() || isAodVisibilityPinActive()
+    }
+
+    private fun isAodVisibilityPinActive(): Boolean {
+        return LyricAlbumSlotTransition.shouldPinLyricVisibility(
+            nowElapsedMs = SystemClock.elapsedRealtime(),
+            pinUntilMs = aodVisibilityPinUntilMs,
+            showLyricEnabled = LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric),
+            musicLockscreenActive = isMusicLockscreenActive(),
+            onKeyguard = isKeyguardLocked(),
+            hasLyricData = hasLyric,
+            hasDisplayableText = hasDisplayableText(),
+            confirmedPaused = confirmedPaused,
+            inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow(),
+        )
+    }
+
+    private fun armAodVisibilityPin() {
+        if (!hasLyric || !hasDisplayableText()) return
+        if (!LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric)) return
+        val now = SystemClock.elapsedRealtime()
+        aodVisibilityPinUntilMs = now + LyricAlbumSlotTransition.AOD_VISIBILITY_PIN_MS
+        // 延长播放 hold，覆盖联动尾抖；联动期内不信假暂停
+        if (!confirmedPaused || KeyguardSleepTransition.isInLinkageAnimWindow()) {
+            playbackHoldUntilMs = maxOf(
+                playbackHoldUntilMs,
+                now + LyricAlbumSlotTransition.PLAYBACK_HOLD_MS,
+            )
+        }
+        KeyguardSleepTransition.onScreenPowerEvent()
     }
 
     private fun isPlaybackOkForLyric(): Boolean {
@@ -1612,7 +1643,8 @@ class LockscreenLyricView(context: Context) : View(context) {
             confirmedPaused = confirmedPaused,
             nowElapsedMs = SystemClock.elapsedRealtime(),
             playbackHoldUntilMs = playbackHoldUntilMs,
-            inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow(),
+            inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow() ||
+                isAodVisibilityPinActive(),
         )
     }
 
@@ -1678,13 +1710,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             override fun onReceive(ctx: Context, intent: Intent?) {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> onScreenPoweredOffForAod()
-                    Intent.ACTION_SCREEN_ON -> {
-                        ConfigReader.invalidate()
-                        handler.post {
-                            readAndUpdate()
-                            finalizeLyricDisplayAfterContentUpdate()
-                        }
-                    }
+                    Intent.ACTION_SCREEN_ON -> onScreenPoweredOnFromAod()
                 }
             }
         }
@@ -1707,14 +1733,55 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun onScreenPoweredOffForAod() {
         if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
+        armAodVisibilityPin()
+        // 已有歌词时立刻钉住可见，禁止先淡出
+        if (hasLyric && hasDisplayableText() &&
+            (visibility == VISIBLE || visibility == INVISIBLE)
+        ) {
+            animate().cancel()
+            visibility = VISIBLE
+            alpha = 1f
+            invalidate()
+        }
         ConfigReader.invalidate()
         dataDirty = true
         startPolling()
         handler.post {
+            updatePlayingState(force = true)
             readAndUpdate()
             finalizeLyricDisplayAfterContentUpdate()
+            // 再次钉住：read 路径可能误触淡出
+            if (isAodVisibilityPinActive() && hasDisplayableText()) {
+                animate().cancel()
+                if (visibility != VISIBLE) visibility = VISIBLE
+                alpha = 1f
+            }
         }
         scheduleAodLyricRecoveryBurst()
+    }
+
+    private fun onScreenPoweredOnFromAod() {
+        if (!isMusicLockscreenActive() || !isKeyguardLocked()) return
+        armAodVisibilityPin()
+        if (hasLyric && hasDisplayableText() &&
+            (visibility == VISIBLE || visibility == INVISIBLE)
+        ) {
+            animate().cancel()
+            visibility = VISIBLE
+            alpha = 1f
+            invalidate()
+        }
+        ConfigReader.invalidate()
+        handler.post {
+            updatePlayingState(force = true)
+            readAndUpdate()
+            finalizeLyricDisplayAfterContentUpdate()
+            if (isAodVisibilityPinActive() && hasDisplayableText()) {
+                animate().cancel()
+                if (visibility != VISIBLE) visibility = VISIBLE
+                alpha = 1f
+            }
+        }
     }
 
     /** 沉浸歌词模式且当前有歌词正在显示（占用专辑区块）。 */
@@ -1724,13 +1791,15 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 歌词开关开启时应让出方形专辑位（含切歌等待首句；暂停不让出）。 */
     fun isLyricPriorityOverAlbum(): Boolean {
+        val inPowerSticky = KeyguardSleepTransition.isInLinkageAnimWindow() ||
+            isAodVisibilityPinActive()
         val playbackForSlot = isPlaying ||
             LyricAlbumSlotTransition.isPlaybackOkForLyricSlot(
                 isPlaying = isPlaying,
                 confirmedPaused = confirmedPaused,
                 nowElapsedMs = SystemClock.elapsedRealtime(),
                 playbackHoldUntilMs = playbackHoldUntilMs,
-                inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow(),
+                inScreenPowerTransition = inPowerSticky,
                 musicLockscreenActive = isMusicLockscreenActive(),
                 onKeyguard = isKeyguardLocked(),
                 hasLyricData = hasLyric,
@@ -1741,7 +1810,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             musicLockscreenActive = isMusicLockscreenActive(),
             onKeyguard = isKeyguardLocked(),
             isPlaying = playbackForSlot,
-            lyricCurrentlyDisplayed = shouldDisplayLyric(),
+            lyricCurrentlyDisplayed = shouldShowLyricOverlay(),
             trackGatePhase = trackGatePhase,
             hasLyricData = hasLyric,
             hasDisplayableText = hasDisplayableText(),
@@ -1763,12 +1832,18 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
         if (visibility == INVISIBLE) {
             visibility = VISIBLE
-            alpha = 0f
-            animate().cancel()
-            animate()
-                .alpha(1f)
-                .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                .start()
+            // 电源钉住：直接显示，禁止从 0 再淡入造成「消失→出现」
+            if (isAodVisibilityPinActive()) {
+                animate().cancel()
+                alpha = 1f
+            } else {
+                alpha = 0f
+                animate().cancel()
+                animate()
+                    .alpha(1f)
+                    .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                    .start()
+            }
             invalidate()
             syncImmersiveMiBlur()
         }
@@ -1777,28 +1852,46 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun updateVisibilityState() {
         val wantLyric = shouldShowLyricOverlay()
         val hideAlbum = isLyricPriorityOverAlbum()
+        val pinActive = isAodVisibilityPinActive()
         if (wantLyric) {
             animate().cancel()
             scaleX = 1f
             scaleY = 1f
             startPolling()
+            val alreadyVisible = visibility == View.VISIBLE && alpha > 0.5f
+            val snapKeep = LyricAlbumSlotTransition.shouldSnapKeepVisible(
+                alreadyVisible = alreadyVisible || visibility == View.VISIBLE,
+                pinActive = pinActive,
+                hasDisplayableText = hasDisplayableText(),
+            )
             val needLayoutReveal = visibility == View.GONE || visibility == View.INVISIBLE
-            if (needLayoutReveal) {
+            if (snapKeep) {
+                visibility = View.VISIBLE
+                alpha = 1f
+                elevation = 48f * resources.displayMetrics.density
+                translationZ = elevation
+                invalidate()
+                syncImmersiveMiBlur()
+            } else if (needLayoutReveal) {
                 // 暂停后再播：尺寸已知则直接淡入，避免再走一轮 INVISIBLE 空窗
                 if (hasDisplayableText() && width > 0 && height > 0) {
                     visibility = View.VISIBLE
                     elevation = 48f * resources.displayMetrics.density
                     translationZ = elevation
-                    alpha = 0f
-                    animate()
-                        .alpha(1f)
-                        .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                        .start()
+                    if (pinActive) {
+                        alpha = 1f
+                    } else {
+                        alpha = 0f
+                        animate()
+                            .alpha(1f)
+                            .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                            .start()
+                    }
                     syncImmersiveMiBlur()
                     MediaFollowController.requestReflow()
                 } else {
                     visibility = View.INVISIBLE
-                    alpha = 0f
+                    alpha = if (pinActive) 1f else 0f
                     elevation = 48f * resources.displayMetrics.density
                     translationZ = elevation
                     requestLayout()
@@ -1807,10 +1900,14 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
             } else {
                 if (alpha < 0.99f) {
-                    animate()
-                        .alpha(1f)
-                        .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                        .start()
+                    if (pinActive) {
+                        alpha = 1f
+                    } else {
+                        animate()
+                            .alpha(1f)
+                            .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
+                            .start()
+                    }
                 } else {
                     alpha = 1f
                 }
@@ -1823,7 +1920,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 bringToFront()
             } catch (_: Throwable) {
             }
-            applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = true)
+            applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = !pinActive)
         } else {
             fadeOutLyricOverlay()
             applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = true)
@@ -1832,6 +1929,15 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /** 歌词淡出隐藏；保留文本以便恢复播放时立刻淡入。 */
     private fun fadeOutLyricOverlay() {
+        // 电源钉住期间禁止淡出，否则锁屏→AOD 会「消失再出现」
+        if (isAodVisibilityPinActive()) {
+            animate().cancel()
+            if (hasDisplayableText()) {
+                visibility = View.VISIBLE
+                alpha = 1f
+            }
+            return
+        }
         animate().cancel()
         setLayerType(View.LAYER_TYPE_NONE, null)
         if (!isMusicLockscreenActive() || !hasLyric) {
