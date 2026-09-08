@@ -85,6 +85,10 @@ object SystemNotificationAnimator {
         row.scaleY = 1f
         row.alpha = 1f
         row.pivotY = 0f
+        // 解锁交还时若仍停在收缩中，取消动画后立刻可见，勿等 withEndAction 写成 GONE
+        if (row.parent != null && row.visibility != View.VISIBLE) {
+            row.visibility = View.VISIBLE
+        }
     }
 
     private fun collapseInPlace(row: View) {

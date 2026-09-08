@@ -51,12 +51,16 @@ object StatusBarStateHook {
                                 MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
                                 LockscreenClockController.sync()
                                 SystemWallpaperBlurController.sync()
-                                val ctx = MusicLockscreenManager.lyricView?.context
-                                if (ctx != null && !HookUtils.isOnKeyguard(ctx)) {
+                                // 勿用 KeyguardManager 门禁：解锁时 SHADE 常早于 isKeyguardLocked=false，
+                                // 否则通知会保持 GONE 数秒。Shade 上需要可见通知；回 KEYGUARD 会再 hide。
+                                if (NotificationReleasePolicy.shouldReleaseOnStatusShade(
+                                        LockscreenNotificationController.isHidden()
+                                    )
+                                ) {
                                     LockscreenNotificationController.releaseToSystemUi()
-                                    logI("left keyguard -> release notification stack to SystemUI")
+                                    logI("STATUS_SHADE -> release notification stack to SystemUI")
                                 } else {
-                                    logI("notification shade open on keyguard")
+                                    logI("STATUS_SHADE (nothing hidden)")
                                 }
                                 NumStateViewController.syncVisibility()
                             }

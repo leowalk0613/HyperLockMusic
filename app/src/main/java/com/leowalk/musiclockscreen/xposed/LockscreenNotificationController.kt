@@ -136,6 +136,12 @@ object LockscreenNotificationController {
                 } else {
                     syncKeyguardOverlayVisibility()
                 }
+            } else if (NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
+                    shouldFilter = false,
+                    moduleHidden = isHidden,
+                )
+            ) {
+                releaseToSystemUi()
             }
             NumStateViewController.syncVisibility()
         }
@@ -213,6 +219,9 @@ object LockscreenNotificationController {
                 return
             }
 
+            val wasHidden = isHidden
+            // 先清标记再还原：避免 reset/layout 重入时仍按 hidden 过滤
+            isHidden = false
             SystemNotificationAnimator.reset()
 
             var restoredRows = 0
@@ -223,14 +232,16 @@ object LockscreenNotificationController {
                         releaseMediaHeaderToSystem(child)
                     }
                     NotificationStackChildClassifier.isExpandableNotificationRow(child) &&
-                        isHidden &&
-                        (SystemNotificationAnimator.isHidden(child) || child.visibility == View.GONE) -> {
+                        (wasHidden ||
+                            SystemNotificationAnimator.isHidden(child) ||
+                            child.visibility == View.GONE ||
+                            child.alpha < 0.99f ||
+                            child.scaleY < 0.99f) -> {
                         SystemNotificationAnimator.snapVisible(child)
                         restoredRows++
                     }
                 }
             }
-            isHidden = false
             stack.requestLayout()
             logI("released to SystemUI, restored $restoredRows hidden row(s)")
             KeyguardOverlayVisibilitySync.reset()
