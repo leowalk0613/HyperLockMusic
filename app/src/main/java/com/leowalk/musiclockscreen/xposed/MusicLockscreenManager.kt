@@ -127,7 +127,10 @@ object MusicLockscreenManager {
         if (showing) {
             showAlbumOverlay()
             MediaFollowController.onMusicLockscreenShown()
+            // 与 show() 对齐：默认 show_lyric=true 时配置无边沿变化，必须强制 bootstrap + reflow
             (lyricView as? LockscreenLyricView)?.ensureLyricsLoaded()
+            lyricView?.refreshVisibility()
+            MediaFollowController.requestReflow()
         } else {
             holdSquareAlbumUntilWallpaperSettled = false
             MediaFollowController.onMusicLockscreenHidden()

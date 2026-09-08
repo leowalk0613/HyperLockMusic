@@ -105,11 +105,25 @@ class TrackWallpaperCoordinatorTest {
     @Test
     fun settledSameTrack_coalesces() {
         val job = c.submitTrackIntent("netease:7").job!!
-        c.markApplyCommitted(job.jobId, "netease:7")
-        val again = c.submitTrackIntent("netease:7")
+        c.markApplyCommitted(job.jobId, "netease:7", artFingerprint = 10L)
+        val again = c.submitTrackIntent("netease:7", artFingerprint = 10L)
         assertTrue(again.coalesced)
         assertFalse(again.startBuild)
         assertEquals("netease:7", c.appliedTrackKey())
+        assertEquals(10L, c.appliedArtFingerprint())
+    }
+
+    @Test
+    fun settledSameTrack_artFingerprintChange_forcesRebuild() {
+        val job = c.submitTrackIntent("netease:7").job!!
+        assertTrue(c.markApplyCommitted(job.jobId, "netease:7", artFingerprint = 10L))
+        assertTrue(c.isTrackInFlight("netease:7", artFingerprint = 10L))
+        assertFalse(c.isTrackInFlight("netease:7", artFingerprint = 99L))
+
+        val again = c.submitTrackIntent("netease:7", artFingerprint = 99L)
+        assertFalse(again.coalesced)
+        assertTrue(again.startBuild)
+        assertTrue(again.job!!.jobId > job.jobId)
     }
 
     @Test

@@ -89,6 +89,18 @@ object AlbumArtResolver {
         return if (b != null && !b.isRecycled) b else null
     }
 
+    /** 当前缓存封面指纹；无图或已回收时为 0。 */
+    fun getCachedArtFingerprint(): Long {
+        val b = getCached() ?: return 0L
+        return artFingerprint(b)
+    }
+
+    /** 任意 bitmap 的封面指纹（壁纸 commit / 比对用）。 */
+    fun fingerprintOf(bitmap: Bitmap?): Long {
+        if (bitmap == null || bitmap.isRecycled) return 0L
+        return artFingerprint(bitmap)
+    }
+
     /** 当前曲目封面 URL；切歌时过滤与 canonical songId 不一致的通知源 */
     fun collectArtUrlStrings(
         metadata: MediaMetadata?,

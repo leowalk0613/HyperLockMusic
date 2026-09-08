@@ -69,8 +69,14 @@ object WallpaperController {
     private fun appliedWallpaperTrackKey(): String? =
         pipelineGate.withLock { pipeline.appliedTrackKey() }
 
-    private fun isTrackWallpaperInFlight(trackKey: String?): Boolean =
-        pipelineGate.withLock { pipeline.isTrackInFlight(trackKey) }
+    private fun isTrackWallpaperInFlight(
+        trackKey: String?,
+        artFingerprint: Long = AlbumArtResolver.getCachedArtFingerprint(),
+    ): Boolean =
+        pipelineGate.withLock { pipeline.isTrackInFlight(trackKey, artFingerprint) }
+
+    private fun appliedWallpaperArtFingerprint(): Long =
+        pipelineGate.withLock { pipeline.appliedArtFingerprint() }
 
     private val sessionPollHandler = Handler(Looper.getMainLooper())
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -330,8 +336,9 @@ object WallpaperController {
                 return true
             }
 
+            val artFp = AlbumArtResolver.fingerprintOf(wallpaperResult.systemAlbum)
             val jobId = pipelineGate.withLock {
-                val job = pipeline.submitTrackIntent(wallpaperResult.trackKey).job
+                val job = pipeline.submitTrackIntent(wallpaperResult.trackKey, artFp).job
                     ?: return@withLock null
                 pipeline.markBuilding(job.jobId)
                 pipeline.markPreviewed(job.jobId)
@@ -484,11 +491,12 @@ object WallpaperController {
             return false
         }
         val targetKey = AlbumArtResolver.getCachedTrackKey()
-        val submit = pipelineGate.withLock { pipeline.submitTrackIntent(targetKey) }
+        val artFp = AlbumArtResolver.getCachedArtFingerprint()
+        val submit = pipelineGate.withLock { pipeline.submitTrackIntent(targetKey, artFp) }
         if (!submit.startBuild || submit.job == null) {
             logI(
                 "silent update coalesced: in-flight track=$targetKey " +
-                    "applied=${appliedWallpaperTrackKey()}"
+                    "applied=${appliedWallpaperTrackKey()} artFp=$artFp"
             )
             // 同曲合并时壁纸不重建，但仍可能缺 overlay / 取色（切歌空窗清过）
             recoverAlbumVisualsIfNeeded()
@@ -1098,7 +1106,8 @@ object WallpaperController {
                         }
                         WallpaperManager.getInstance(appCtx)
                             .setBitmap(copy, null, true, WallpaperManager.FLAG_LOCK)
-                        if (!pipeline.markApplyCommitted(jobId, trackKey)) {
+                        val artFp = AlbumArtResolver.fingerprintOf(result.systemAlbum)
+                        if (!pipeline.markApplyCommitted(jobId, trackKey, artFp)) {
                             logI("applyLockBitmap commit rejected after write job=$jobId")
                             return@withLock false
                         }
@@ -1272,6 +1281,9 @@ object WallpaperController {
     fun currentWallpaperTrackKey(): String? =
         appliedWallpaperTrackKey() ?: lastWallpaperTrackKey
 
+    /** 当前已应用壁纸所用封面指纹（供 art retry 判断封面是否晚到）。 */
+    fun currentWallpaperArtFingerprint(): Long = appliedWallpaperArtFingerprint()
+
     /** 读取活跃 MediaSession 的 metadata（AOD 下 bind 可能不来）。 */
     fun peekSessionMetadata(context: Context): android.media.MediaMetadata? = readMediaMetadata(context)
 
@@ -1302,8 +1314,12 @@ object WallpaperController {
         val trackKey = AlbumArtResolver.getCachedTrackKey()
         val bakeNow = ConfigReader.shouldBakeImmersiveAlbumInWallpaper(ctx)
         val appliedKey = appliedWallpaperTrackKey() ?: lastWallpaperTrackKey
+        val artLagging = AlbumVisualRefreshPolicy.isArtFingerprintLagging(
+            appliedWallpaperArtFingerprint(),
+            AlbumArtResolver.getCachedArtFingerprint(),
+        )
         if (trackKey != null && trackKey == appliedKey &&
-            !wallpaperLayoutStale && bakeNow == lastBakedImmersiveAlbum
+            !wallpaperLayoutStale && !artLagging && bakeNow == lastBakedImmersiveAlbum
         ) {
             ensureLyricFogReady()
             return false
@@ -1585,11 +1601,13 @@ object WallpaperController {
         if (!HookUtils.isAllowedMusicApp(context)) return
         val trackChanged = AlbumArtResolver.refreshFromSessionMetadata(context, metadata)
         val cachedKey = AlbumArtResolver.getCachedTrackKey()
-        val lagging = cachedKey != null && !isTrackWallpaperInFlight(cachedKey)
+        val artFp = AlbumArtResolver.getCachedArtFingerprint()
+        val lagging = cachedKey != null && !isTrackWallpaperInFlight(cachedKey, artFp)
         if (!trackChanged && !lagging && !wallpaperLayoutStale) return
         logI(
             "session metadata refresh: changed=$trackChanged lagging=$lagging " +
                 "stale=$wallpaperLayoutStale key=$cachedKey applied=${appliedWallpaperTrackKey()} " +
+                "artFp=$artFp appliedArt=${appliedWallpaperArtFingerprint()} " +
                 "phase=${pipelineGate.withLock { pipeline.activeJob()?.phase }}"
         )
         val cachedArt = AlbumArtResolver.getCached()
@@ -1618,7 +1636,8 @@ object WallpaperController {
         val meta = readMediaMetadata(context) ?: return
         val trackChanged = AlbumArtResolver.refreshFromSessionMetadata(context, meta)
         val cachedKey = AlbumArtResolver.getCachedTrackKey()
-        val wallpaperLagging = cachedKey != null && !isTrackWallpaperInFlight(cachedKey)
+        val artFp = AlbumArtResolver.getCachedArtFingerprint()
+        val wallpaperLagging = cachedKey != null && !isTrackWallpaperInFlight(cachedKey, artFp)
         if (!trackChanged && !wallpaperLagging && !wallpaperLayoutStale) return
         if (!HookUtils.canApplyLockWallpaper(context)) {
             markWallpaperStale()
@@ -1630,6 +1649,7 @@ object WallpaperController {
         logI(
             "track poll refresh: changed=$trackChanged lagging=$wallpaperLagging " +
                 "stale=$wallpaperLayoutStale key=$cachedKey applied=${appliedWallpaperTrackKey()} " +
+                "artFp=$artFp appliedArt=${appliedWallpaperArtFingerprint()} " +
                 "phase=${pipelineGate.withLock { pipeline.activeJob()?.phase }}"
         )
         val cachedArt = AlbumArtResolver.getCached()

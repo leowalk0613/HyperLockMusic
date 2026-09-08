@@ -16,19 +16,33 @@ internal object AlbumVisualRefreshPolicy {
     )
 
     /**
+     * 当前封面指纹相对已应用壁纸是否滞后。
+     * current=0 表示尚无可用封面，不算滞后（避免无图空转重建）。
+     */
+    fun isArtFingerprintLagging(appliedFingerprint: Long, currentFingerprint: Long): Boolean {
+        return currentFingerprint != 0L && currentFingerprint != appliedFingerprint
+    }
+
+    /**
      * @param trackKey 当前解析曲目
      * @param wallpaperTrackKey 已应用/在记的壁纸曲目
      * @param hasCachedArt 是否已有可用封面 bitmap
      * @param fogReady 歌词取色是否已就绪
+     * @param appliedArtFingerprint 已写入锁屏壁纸所用封面指纹
+     * @param currentArtFingerprint 当前缓存封面指纹
      */
     fun decideArtRetry(
         trackKey: String?,
         wallpaperTrackKey: String?,
         hasCachedArt: Boolean,
         fogReady: Boolean,
+        appliedArtFingerprint: Long = 0L,
+        currentArtFingerprint: Long = 0L,
     ): ArtRetryAction {
+        val artLagging = isArtFingerprintLagging(appliedArtFingerprint, currentArtFingerprint)
         val wallpaperCaughtUp = !trackKey.isNullOrBlank() &&
-            trackKey == wallpaperTrackKey
+            trackKey == wallpaperTrackKey &&
+            !artLagging
         if (!wallpaperCaughtUp) {
             return ArtRetryAction(
                 skipWallpaperRebuild = false,

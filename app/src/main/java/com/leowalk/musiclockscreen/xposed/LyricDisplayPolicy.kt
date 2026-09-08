@@ -10,4 +10,16 @@ object LyricDisplayPolicy {
     fun shouldShowLyric(lyricEnabled: Boolean, showLyric: Boolean): Boolean {
         return lyricEnabled && showLyric
     }
+
+    /**
+     * 进入音乐锁屏时：即使 show_lyric 相对内存未变，也要强制 bootstrap。
+     * 配置 observer 只在值边沿重拉，默认已开启时进屏不会触发。
+     */
+    fun shouldForceLyricBootstrapOnEnter(
+        lyricEnabled: Boolean,
+        showLyric: Boolean,
+        musicLockscreenActive: Boolean,
+    ): Boolean {
+        return musicLockscreenActive && shouldShowLyric(lyricEnabled, showLyric)
+    }
 }

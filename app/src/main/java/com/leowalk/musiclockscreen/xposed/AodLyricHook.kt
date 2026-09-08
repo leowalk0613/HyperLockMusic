@@ -393,8 +393,9 @@ class AodLyricHook {
         val lines = cachedLines
         if (lines.isEmpty()) return
         val pos = getCurrentPosition(ctx)
-        var idx = if (pos >= 0) findCurrentLineIndex(lines, pos) else 0
-        if (idx < 0) idx = 0
+        var idx = if (pos >= 0) findCurrentLineIndex(lines, pos) else -1
+        idx = AodLyricDisplayPolicy.clampLyricLineIndex(idx, lines.size)
+        if (idx < 0) return
         val cur = lines[idx]
         val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
         val hasTrans = cur.translation.isNotBlank()

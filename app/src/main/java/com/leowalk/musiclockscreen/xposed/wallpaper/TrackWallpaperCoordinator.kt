@@ -11,6 +11,8 @@ class TrackWallpaperCoordinator {
     private var active: TrackWallpaperJob? = null
     private var appliedTrackKey: String? = null
     private var appliedJobId: Long? = null
+    /** 已成功 setBitmap 时所用封面指纹；0 表示未知/无图。 */
+    private var appliedArtFingerprint: Long = 0L
     /** 恢复原壁纸世代；音乐 job 或再次 restore 会递增 */
     private var restoreEpoch: Long = 0L
     private var pendingRestoreEpoch: Long? = null
@@ -21,19 +23,27 @@ class TrackWallpaperCoordinator {
 
     fun appliedJobId(): Long? = synchronized(lock) { appliedJobId }
 
+    fun appliedArtFingerprint(): Long = synchronized(lock) { appliedArtFingerprint }
+
     fun isJobCurrent(jobId: Long): Boolean = synchronized(lock) { active?.jobId == jobId }
 
     /**
      * 曲目是否已应用、或活跃 job 正覆盖该曲（含 building/applying/enhancing）。
      * Settled 且 applied 匹配时视为 in-flight（已追上，勿重复刷）。
+     * [artFingerprint] 非 0 且与已应用指纹不同时，不算追上（封面晚到需重建）。
      */
-    fun isTrackInFlight(trackKey: String?): Boolean = synchronized(lock) {
-        isTrackInFlightLocked(trackKey)
+    fun isTrackInFlight(trackKey: String?, artFingerprint: Long = 0L): Boolean = synchronized(lock) {
+        isTrackInFlightLocked(trackKey, artFingerprint)
     }
 
-    private fun isTrackInFlightLocked(trackKey: String?): Boolean {
+    private fun isTrackInFlightLocked(trackKey: String?, artFingerprint: Long = 0L): Boolean {
         if (trackKey.isNullOrBlank()) return false
-        if (trackKey == appliedTrackKey) return true
+        if (trackKey == appliedTrackKey) {
+            if (artFingerprint != 0L && artFingerprint != appliedArtFingerprint) {
+                return false
+            }
+            return true
+        }
         val job = active ?: return false
         if (job.trackKey != trackKey) return false
         return when (job.phase) {
@@ -50,15 +60,17 @@ class TrackWallpaperCoordinator {
     /**
      * 提交切歌/刷壁纸意图。
      * - 同曲且已在飞 → coalesce，不新建 job
+     * - 同曲已 Settled 但封面指纹变化 → 强制新建 job
      * - 否则作废旧 job，新建 Resolving job
      */
-    fun submitTrackIntent(trackKey: String?): SubmitResult = synchronized(lock) {
+    fun submitTrackIntent(trackKey: String?, artFingerprint: Long = 0L): SubmitResult =
+        synchronized(lock) {
         pendingRestoreEpoch = null
         val current = active
         if (current != null &&
             sameTrack(current.trackKey, trackKey) &&
             current.phase != JobPhase.Idle &&
-            isTrackInFlightLocked(trackKey)
+            isTrackInFlightLocked(trackKey, artFingerprint)
         ) {
             if (current.phase == JobPhase.Settled || current.phase == JobPhase.Enhancing) {
                 if (trackKey == appliedTrackKey) {
@@ -120,11 +132,16 @@ class TrackWallpaperCoordinator {
      * setBitmap 成功后 commit。返回 false 表示 job 已过期（调用方本不应写入；
      * 若因竞态已写，也不得更新 applied）。
      */
-    fun markApplyCommitted(jobId: Long, trackKey: String?): Boolean = synchronized(lock) {
+    fun markApplyCommitted(
+        jobId: Long,
+        trackKey: String?,
+        artFingerprint: Long = 0L,
+    ): Boolean = synchronized(lock) {
         val job = active ?: return false
         if (job.jobId != jobId) return false
         appliedTrackKey = trackKey ?: job.trackKey
         appliedJobId = jobId
+        appliedArtFingerprint = artFingerprint
         active = job.copy(
             trackKey = appliedTrackKey,
             phase = JobPhase.Settled
@@ -177,6 +194,7 @@ class TrackWallpaperCoordinator {
         active = null
         appliedTrackKey = null
         appliedJobId = null
+        appliedArtFingerprint = 0L
         val epoch = ++restoreEpoch
         pendingRestoreEpoch = epoch
         epoch
@@ -196,6 +214,7 @@ class TrackWallpaperCoordinator {
     fun markStale(): Unit = synchronized(lock) {
         appliedTrackKey = null
         appliedJobId = null
+        appliedArtFingerprint = 0L
         val job = active
         if (job != null && job.phase != JobPhase.Idle) {
             active = job.copy(phase = JobPhase.Idle)
@@ -208,6 +227,7 @@ class TrackWallpaperCoordinator {
         active = null
         appliedTrackKey = null
         appliedJobId = null
+        appliedArtFingerprint = 0L
         pendingRestoreEpoch = null
         restoreEpoch++
         nextJobId++

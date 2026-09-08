@@ -1359,14 +1359,24 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
                 if (idxShow >= 0) {
                     val newShow = cursor.getInt(idxShow) != 0
-                    if (newShow != cfgShowLyric) {
-                        cfgShowLyric = newShow
-                        if (LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, newShow) &&
-                            isMusicLockscreenActive()
-                        ) {
-                            dataDirty = true
-                            lastVersionsCheck = 0
-                            handler.post { readAndUpdate() }
+                    val showChanged = newShow != cfgShowLyric
+                    cfgShowLyric = newShow
+                    // 边沿变化，或进屏后配置重读且默认已开：都要重拉，避免「要再开关一次」
+                    if (LyricDisplayPolicy.shouldForceLyricBootstrapOnEnter(
+                            cfgLyricEnabled,
+                            newShow,
+                            isMusicLockscreenActive(),
+                        ) && (showChanged || !hasLyric)
+                    ) {
+                        dataDirty = true
+                        lastVersionsCheck = 0
+                        handler.post {
+                            readAndUpdate()
+                            finalizeLyricDisplayAfterContentUpdate()
+                            try {
+                                MediaFollowController.requestReflow()
+                            } catch (_: Throwable) {
+                            }
                         }
                     }
                 }
@@ -2384,9 +2394,21 @@ class LockscreenLyricView(context: Context) : View(context) {
                                 }
                                 val newTitle = neu.optString("title", "").trim()
                                 if (newTitle.isNotBlank()) lastSongTitle = newTitle
-                                if (AodLyricDisplayPolicy.isSameSongLyricPayload(old, neu) &&
-                                    shouldMergeLyricCtx(old, neu)
+                                val sameSong = AodLyricDisplayPolicy.isSameSongLyricPayload(old, neu) ||
+                                    (newTitle.isBlank() && AodLyricDisplayPolicy.hasValidLyricLines(old))
+                                // 前奏空 l：保留已有同曲 timeline，勿用弱轻量包覆盖快照
+                                if (AodLyricDisplayPolicy.shouldPreserveExistingLyricOnWeakLightPush(
+                                        incomingValid = false,
+                                        existingValid = AodLyricDisplayPolicy.hasValidLyricLines(old),
+                                        sameSong = sameSong,
+                                    )
                                 ) {
+                                    if (shouldMergeLyricCtx(old, neu)) {
+                                        neu.put("ctx", old.get("ctx"))
+                                        lastLyricJson = neu.toString()
+                                    }
+                                    // else: keep lastLyricJson unchanged
+                                } else if (sameSong && shouldMergeLyricCtx(old, neu)) {
                                     neu.put("ctx", old.get("ctx"))
                                     lastLyricJson = neu.toString()
                                 } else {
@@ -2471,6 +2493,13 @@ class LockscreenLyricView(context: Context) : View(context) {
             val lo = JSONObject(raw)
 
             if (raw == "{}" || !AodLyricDisplayPolicy.hasValidLyricLines(lo)) {
+                // 弱快照但本地仍有 timeline：前奏继续显示首句，勿清屏
+                val lines = cachedLines
+                if (lines != null && lines.isNotEmpty()) {
+                    hasLyric = true
+                    refreshCurrentLineFromCache()
+                    return
+                }
                 hasLyric = false
                 clearLyricDisplay()
                 updateVisibilityState()
@@ -2682,8 +2711,9 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
 
             val pos = getCurrentPosition()
-            var idx = if (pos >= 0) findCurrentLineIndex(lines, pos) else 0
-            if (idx < 0) idx = 0
+            val found = if (pos >= 0) findCurrentLineIndex(lines, pos) else -1
+            val idx = AodLyricDisplayPolicy.clampLyricLineIndex(found, lines.size)
+            if (idx < 0) return
 
             val currentText = lines[idx].text
             val currentTrans = lines[idx].translation.takeIf { it.isNotBlank() } ?: ""

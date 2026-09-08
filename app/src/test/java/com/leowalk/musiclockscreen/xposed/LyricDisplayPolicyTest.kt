@@ -13,4 +13,29 @@ class LyricDisplayPolicyTest {
         assertFalse(LyricDisplayPolicy.shouldShowLyric(lyricEnabled = true, showLyric = false))
         assertFalse(LyricDisplayPolicy.shouldShowLyric(lyricEnabled = false, showLyric = false))
     }
+
+    @Test
+    fun forceBootstrapOnEnter_whenShowAlreadyOn() {
+        assertTrue(
+            LyricDisplayPolicy.shouldForceLyricBootstrapOnEnter(
+                lyricEnabled = true,
+                showLyric = true,
+                musicLockscreenActive = true,
+            )
+        )
+        assertFalse(
+            LyricDisplayPolicy.shouldForceLyricBootstrapOnEnter(
+                lyricEnabled = true,
+                showLyric = true,
+                musicLockscreenActive = false,
+            )
+        )
+        assertFalse(
+            LyricDisplayPolicy.shouldForceLyricBootstrapOnEnter(
+                lyricEnabled = true,
+                showLyric = false,
+                musicLockscreenActive = true,
+            )
+        )
+    }
 }

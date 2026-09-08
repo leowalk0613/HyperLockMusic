@@ -346,4 +346,38 @@ class AodLyricDisplayPolicyTest {
     fun providerLyricNotStale_whenEitherTitleBlank() {
         assertFalse(AodLyricDisplayPolicy.isProviderLyricStaleForMedia("Song A", ""))
     }
+
+    @Test
+    fun clampLyricLineIndex_introMapsToFirstLine() {
+        assertEquals(0, AodLyricDisplayPolicy.clampLyricLineIndex(-1, 3))
+        assertEquals(0, AodLyricDisplayPolicy.clampLyricLineIndex(0, 3))
+        assertEquals(2, AodLyricDisplayPolicy.clampLyricLineIndex(2, 3))
+        assertEquals(2, AodLyricDisplayPolicy.clampLyricLineIndex(9, 3))
+        assertEquals(-1, AodLyricDisplayPolicy.clampLyricLineIndex(-1, 0))
+    }
+
+    @Test
+    fun preserveExistingLyric_onWeakLightPushWhenSameSong() {
+        assertTrue(
+            AodLyricDisplayPolicy.shouldPreserveExistingLyricOnWeakLightPush(
+                incomingValid = false,
+                existingValid = true,
+                sameSong = true,
+            )
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldPreserveExistingLyricOnWeakLightPush(
+                incomingValid = false,
+                existingValid = true,
+                sameSong = false,
+            )
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldPreserveExistingLyricOnWeakLightPush(
+                incomingValid = true,
+                existingValid = true,
+                sameSong = true,
+            )
+        )
+    }
 }

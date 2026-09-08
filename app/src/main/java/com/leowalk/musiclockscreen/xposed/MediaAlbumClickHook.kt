@@ -220,8 +220,9 @@ class MediaAlbumClickHook {
         val artDrawable = if (trackChanged) null else drawable
         // 一律尝试写壁纸；无封面时依赖 metadata/远程与重试，避免「等下次 bind」永久卡住
         WallpaperController.setMusicWallpaper(ctx, artDrawable, true, bindMeta)
-        if (trackChanged && cached == null) {
-            logI("silent wallpaper: track art pending, schedule retries")
+        if (trackChanged) {
+            // 封面可能晚到或指纹后变：一律重试，decideArtRetry 会跳过已追上的重建
+            logI("silent wallpaper: schedule art retries changed=$trackChanged hasArt=${cached != null}")
             scheduleArtRetry(ctx, bindMeta)
         }
     }
@@ -249,6 +250,8 @@ class MediaAlbumClickHook {
                         wallpaperTrackKey = WallpaperController.currentWallpaperTrackKey(),
                         hasCachedArt = art != null && !art.isRecycled,
                         fogReady = lyric?.isFogBackgroundReady() == true,
+                        appliedArtFingerprint = WallpaperController.currentWallpaperArtFingerprint(),
+                        currentArtFingerprint = AlbumArtResolver.getCachedArtFingerprint(),
                     )
                     if (action.refreshAlbumOverlay && art != null) {
                         MusicLockscreenManager.updateAlbumBitmap(art)

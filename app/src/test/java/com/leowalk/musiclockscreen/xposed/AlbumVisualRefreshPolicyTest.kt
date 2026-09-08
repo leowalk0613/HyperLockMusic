@@ -34,6 +34,28 @@ class AlbumVisualRefreshPolicyTest {
     }
 
     @Test
+    fun artRetry_whenSameTrackButArtFingerprintChanged_rebuildsWallpaper() {
+        val action = AlbumVisualRefreshPolicy.decideArtRetry(
+            trackKey = "netease:2",
+            wallpaperTrackKey = "netease:2",
+            hasCachedArt = true,
+            fogReady = true,
+            appliedArtFingerprint = 111L,
+            currentArtFingerprint = 222L,
+        )
+        assertFalse(action.skipWallpaperRebuild)
+        assertTrue(action.refreshAlbumOverlay)
+    }
+
+    @Test
+    fun artFingerprintLagging_whenCurrentDiffers() {
+        assertTrue(AlbumVisualRefreshPolicy.isArtFingerprintLagging(1L, 2L))
+        assertFalse(AlbumVisualRefreshPolicy.isArtFingerprintLagging(2L, 2L))
+        assertFalse(AlbumVisualRefreshPolicy.isArtFingerprintLagging(0L, 0L))
+        assertFalse(AlbumVisualRefreshPolicy.isArtFingerprintLagging(5L, 0L))
+    }
+
+    @Test
     fun artRetry_whenCaughtUpAndFogReady_skipsFogButMayRefreshAlbum() {
         val action = AlbumVisualRefreshPolicy.decideArtRetry(
             trackKey = "a",

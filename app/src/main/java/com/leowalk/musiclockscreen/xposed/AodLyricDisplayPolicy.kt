@@ -97,6 +97,11 @@ internal object AodLyricDisplayPolicy {
         val l = json.optString("l", "").trim()
         val s = json.optString("s", "").trim()
         if (l.isNotEmpty() || s.isNotEmpty()) return true
+        return hasTimelineLines(json)
+    }
+
+    /** ctx.lines 是否含至少一行非空原文（前奏也可据此上屏首句）。 */
+    fun hasTimelineLines(json: JSONObject): Boolean {
         val ctx = json.optJSONObject("ctx") ?: return false
         val linesArr = ctx.optJSONArray("lines") ?: return false
         for (i in 0 until linesArr.length()) {
@@ -104,6 +109,27 @@ internal object AodLyricDisplayPolicy {
             if (t.isNotEmpty()) return true
         }
         return false
+    }
+
+    /**
+     * 轻量包无有效行、但本地已有同曲有效快照时，保留旧快照，避免前奏空 l 清屏。
+     */
+    fun shouldPreserveExistingLyricOnWeakLightPush(
+        incomingValid: Boolean,
+        existingValid: Boolean,
+        sameSong: Boolean,
+    ): Boolean {
+        return !incomingValid && existingValid && sameSong
+    }
+
+    /**
+     * 时间轴行索引：进度在首句之前（find 得到 -1）时钳到 0，前奏显示即将到来的首句。
+     */
+    fun clampLyricLineIndex(foundIndex: Int, lineCount: Int): Int {
+        if (lineCount <= 0) return -1
+        if (foundIndex < 0) return 0
+        if (foundIndex >= lineCount) return lineCount - 1
+        return foundIndex
     }
 
     /**
