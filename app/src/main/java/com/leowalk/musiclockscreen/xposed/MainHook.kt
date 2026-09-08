@@ -47,6 +47,11 @@ class MainHook : XposedModule() {
                             log(p, t, m, tr)
                         }
                     }
+                    installSafe(param.classLoader, this, "ControlCenterExpandHook") {
+                        ControlCenterExpandHook.install(param.classLoader, this) { p, t, m, tr ->
+                            log(p, t, m, tr)
+                        }
+                    }
                     installSafe(param.classLoader, this, "LockscreenClockController") {
                         LockscreenClockController.install(param.classLoader, this)
                     }

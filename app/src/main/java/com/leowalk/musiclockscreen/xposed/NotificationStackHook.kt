@@ -60,6 +60,8 @@ class NotificationStackHook {
     }
 
     private fun scheduleFilter(parent: ViewGroup) {
+        // 控制中心/通知中心展开动画帧极多：勿 post 过滤任务
+        if (LockscreenNotificationController.isTemporaryPanelOpen()) return
         pendingFilterParent = parent
         parent.removeCallbacks(filterRunnable)
         parent.post(filterRunnable)
@@ -78,14 +80,31 @@ class NotificationStackHook {
         if (!LockscreenNotificationController.shouldFilterNotifications()) {
             // 解锁后 wallpaper 仍 showing、仅 keyguard 已解除时，showing 边沿不会触发；
             // 过滤条件失效后必须补 release，避免 GONE 通知卡数秒。
+            // 控制中心/通知中心临时展开：勿 release（保持 GONE，收回后再 hide）。
             if (NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
                     shouldFilter = false,
                     moduleHidden = LockscreenNotificationController.isHidden(),
+                    temporaryPanelOpen = LockscreenNotificationController.isTemporaryPanelOpen(),
                 )
             ) {
                 LockscreenNotificationController.releaseToSystemUi()
             }
             return
+        }
+
+        // 已全部藏起且无新 VISIBLE 行：跳过子树扫描，降低 onLayout 成本
+        if (LockscreenNotificationController.isHidden()) {
+            var anyVisibleHideable = false
+            for (i in 0 until parent.childCount) {
+                val child = parent.getChildAt(i)
+                if (NotificationStackChildClassifier.shouldHideNotificationRow(child) &&
+                    child.visibility == View.VISIBLE
+                ) {
+                    anyVisibleHideable = true
+                    break
+                }
+            }
+            if (!anyVisibleHideable) return
         }
 
         for (i in 0 until parent.childCount) {

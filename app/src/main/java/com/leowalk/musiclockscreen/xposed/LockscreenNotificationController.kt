@@ -18,6 +18,8 @@ object LockscreenNotificationController {
     private var isHidden: Boolean = false
     /** OS4 锁屏上展开通知中心时 SystemUI 会切到 STATUS_SHADE（人仍可处于锁屏）。 */
     private var notificationShadeOpen: Boolean = false
+    /** 控制中心展开（不改 StatusBarState，仍 KEYGUARD）。 */
+    private var controlCenterOpen: Boolean = false
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
@@ -30,11 +32,33 @@ object LockscreenNotificationController {
         }
     }
 
+    fun setControlCenterOpen(open: Boolean) {
+        if (controlCenterOpen == open) return
+        controlCenterOpen = open
+        NumStateViewController.syncVisibility()
+        if (WallpaperController.isShowing() && isOnKeyguard()) {
+            syncKeyguardOverlayVisibility()
+        }
+    }
+
     fun isNotificationShadeOpen(): Boolean = notificationShadeOpen
 
-    /** 音乐锁屏激活且仍在锁屏界面时才过滤普通通知（OS4：锁屏=通知中心，不区分 shade） */
+    fun isControlCenterOpen(): Boolean = controlCenterOpen
+
+    /** 通知中心或控制中心临时展开（仍可能在音乐锁屏 keyguard 上）。 */
+    fun isTemporaryPanelOpen(): Boolean = notificationShadeOpen || controlCenterOpen
+
+    /**
+     * 是否应主动过滤/藏普通通知。
+     * 面板展开时必须 false，否则 onLayout 持续 scheduleRemove 与动画抢帧。
+     */
     fun shouldFilterNotifications(): Boolean {
-        return WallpaperController.isShowing() && isOnKeyguard()
+        return NotificationReleasePolicy.shouldActivelyHideNotifications(
+            musicWallpaperShowing = WallpaperController.isShowing(),
+            onKeyguard = isOnKeyguard(),
+            notificationShadeOpen = notificationShadeOpen,
+            controlCenterOpen = controlCenterOpen,
+        )
     }
 
     /** 通知栈里是否有可见的普通通知行（通知列表正在展示）。 */
@@ -63,7 +87,7 @@ object LockscreenNotificationController {
     fun shouldShowNumState(): Boolean {
         if (!isOnKeyguard()) return false
         if (WallpaperController.isShowing()) return false
-        if (notificationShadeOpen) return false
+        if (notificationShadeOpen || controlCenterOpen) return false
         return true
     }
 
@@ -120,6 +144,10 @@ object LockscreenNotificationController {
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         val stack = notificationStackView ?: return@OnLayoutChangeListener
         stack.post {
+            // 面板展开期间不做扫描 / rehide / overlay 同步，避免下拉控制中心掉帧
+            if (isTemporaryPanelOpen()) {
+                return@post
+            }
             if (shouldFilterNotifications()) {
                 var needRehide = false
                 for (i in 0 until stack.childCount) {
@@ -139,6 +167,7 @@ object LockscreenNotificationController {
             } else if (NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
                     shouldFilter = false,
                     moduleHidden = isHidden,
+                    temporaryPanelOpen = isTemporaryPanelOpen(),
                 )
             ) {
                 releaseToSystemUi()

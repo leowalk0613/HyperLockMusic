@@ -13,11 +13,55 @@ class NotificationReleasePolicyTest {
     }
 
     @Test
-    fun releaseWhenFilterInactive_onlyIfStillHidden() {
+    fun activelyHide_onlyOnCleanMusicKeyguard() {
+        assertTrue(
+            NotificationReleasePolicy.shouldActivelyHideNotifications(
+                musicWallpaperShowing = true,
+                onKeyguard = true,
+                notificationShadeOpen = false,
+                controlCenterOpen = false,
+            )
+        )
+        assertFalse(
+            NotificationReleasePolicy.shouldActivelyHideNotifications(
+                musicWallpaperShowing = true,
+                onKeyguard = true,
+                notificationShadeOpen = true,
+                controlCenterOpen = false,
+            )
+        )
+        assertFalse(
+            NotificationReleasePolicy.shouldActivelyHideNotifications(
+                musicWallpaperShowing = true,
+                onKeyguard = true,
+                notificationShadeOpen = false,
+                controlCenterOpen = true,
+            )
+        )
+        assertFalse(
+            NotificationReleasePolicy.shouldActivelyHideNotifications(
+                musicWallpaperShowing = true,
+                onKeyguard = false,
+                notificationShadeOpen = false,
+                controlCenterOpen = false,
+            )
+        )
+    }
+
+    @Test
+    fun releaseWhenFilterInactive_skipsTemporaryPanel() {
         assertTrue(
             NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
                 shouldFilter = false,
                 moduleHidden = true,
+                temporaryPanelOpen = false,
+            )
+        )
+        assertFalse(
+            NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
+                shouldFilter = false,
+                moduleHidden = true,
+                temporaryPanelOpen = true,
             )
         )
         assertFalse(
