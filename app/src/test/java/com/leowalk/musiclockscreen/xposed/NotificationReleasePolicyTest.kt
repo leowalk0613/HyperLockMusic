@@ -133,4 +133,12 @@ class NotificationReleasePolicyTest {
             ),
         )
     }
+
+    @Test
+    fun onlyVisibleRowsShouldBeHiddenByModule() {
+        // SystemUI 已在锁屏 GONE 的行不得再写 ViewState.gone
+        assertTrue(NotificationReleasePolicy.shouldHideVisibleRowOnly(android.view.View.VISIBLE))
+        assertFalse(NotificationReleasePolicy.shouldHideVisibleRowOnly(android.view.View.GONE))
+        assertFalse(NotificationReleasePolicy.shouldHideVisibleRowOnly(android.view.View.INVISIBLE))
+    }
 }

@@ -102,4 +102,9 @@ internal object NotificationReleasePolicy {
     fun isIntervening(phase: HidePhase): Boolean {
         return phase == HidePhase.HIDDEN || phase == HidePhase.PANEL_CC
     }
+
+    /** 只应对当前 VISIBLE 行执行模块隐藏（GONE/INVISIBLE 留给 SystemUI）。 */
+    fun shouldHideVisibleRowOnly(visibility: Int): Boolean {
+        return visibility == android.view.View.VISIBLE
+    }
 }

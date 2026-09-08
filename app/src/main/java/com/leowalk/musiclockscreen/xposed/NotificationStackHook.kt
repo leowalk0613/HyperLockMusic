@@ -109,7 +109,9 @@ class NotificationStackHook {
             when {
                 NotificationStackChildClassifier.isMiuiMediaHeaderView(child) -> Unit
                 NotificationStackChildClassifier.shouldHideNotificationRow(child) -> {
-                    SystemNotificationAnimator.hideImmediately(child)
+                    if (child.visibility == View.VISIBLE) {
+                        SystemNotificationAnimator.hideImmediately(child)
+                    }
                 }
                 // 媒体行：勿 ensureVisible，避免与 SystemUI ViewState 抢
             }

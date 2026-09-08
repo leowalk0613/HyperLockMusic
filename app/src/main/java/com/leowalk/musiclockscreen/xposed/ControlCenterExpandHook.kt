@@ -1,13 +1,13 @@
 package com.leowalk.musiclockscreen.xposed
 
+import android.os.Handler
+import android.os.Looper
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Proxy
 
 /**
- * 挂钩 HyperOS 控制中心展开（[ControlCenterImpl] / [ShadeWrapper.OnExpandChangedListener]）。
- *
- * 反编译：CC 展开不改 STATUS_SHADE，音乐锁屏下 StatusBar 仍为 KEYGUARD；
- * 若不暂停过滤与 overlay，NSSL onLayout 会持续 scheduleRemove 导致下拉掉帧。
+ * 挂钩 HyperOS 控制中心展开。
+ * 展开回调里先置 flag 停 NSSL 过滤，重活 post 出去，避免卡住展开动画。
  */
 object ControlCenterExpandHook {
 
@@ -18,6 +18,7 @@ object ControlCenterExpandHook {
 
     private var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
     private var registered = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun install(
         classLoader: ClassLoader,
@@ -82,32 +83,47 @@ object ControlCenterExpandHook {
 
     private fun onExpandChanged(expanded: Boolean) {
         try {
+            // 最先置位：让同帧 NSSL onLayout hook 直接 return
             LockscreenNotificationController.setControlCenterOpen(expanded)
             if (expanded) {
-                // 与 STATUS_SHADE 暂停路径对齐，但不 release 通知（避免展开动画中 snapVisible）
-                MusicLockscreenManager.hideTransitionMaskImmediately()
-                MusicLockscreenManager.pauseAlbumOverlay()
-                MediaFollowController.onMusicLockscreenHidden()
-                KeepScreenController.sync()
-                (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.setShadeOpen(true)
-                MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
-                LockscreenClockController.sync()
-                SystemWallpaperBlurController.sync()
-                NumStateViewController.syncVisibility()
-                logI("control center expanded -> pause music LS work")
-            } else {
-                (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.setShadeOpen(false)
-                MediaKeyguardButtonHook.refreshSlots(onKeyguard = true)
-                if (WallpaperController.isShowing()) {
-                    LockscreenNotificationController.forceHideNormalNotifications()
-                    LockscreenNotificationController.syncKeyguardOverlayVisibility()
-                    (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
-                    MediaFollowController.onKeyguardShown()
-                    KeepScreenController.sync()
-                    logI("control center collapsed -> resume music LS UI")
+                MusicLockscreenManager.lyricView?.setShadeOpen(true)
+                // 重活离开动画帧，避免控制中心掉帧
+                mainHandler.post {
+                    try {
+                        if (!LockscreenNotificationController.isControlCenterOpen()) return@post
+                        MusicLockscreenManager.hideTransitionMaskImmediately()
+                        MusicLockscreenManager.pauseAlbumOverlay()
+                        MediaFollowController.onMusicLockscreenHidden()
+                        MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
+                        NumStateViewController.syncVisibility()
+                        // 刻意不做 SystemWallpaperBlurController.sync / Clock.sync：反射+布局太重
+                        logI("control center expanded -> paused music LS (deferred)")
+                    } catch (e: Throwable) {
+                        logE("CC expand deferred error", e)
+                    }
                 }
-                LockscreenClockController.sync()
-                NumStateViewController.syncVisibility()
+            } else {
+                MusicLockscreenManager.lyricView?.setShadeOpen(false)
+                mainHandler.post {
+                    try {
+                        if (LockscreenNotificationController.isControlCenterOpen()) return@post
+                        MediaKeyguardButtonHook.refreshSlots(onKeyguard = true)
+                        if (WallpaperController.isShowing()) {
+                            // 已是 HIDDEN 则勿再全栈扫描 hide
+                            if (!LockscreenNotificationController.isHidden()) {
+                                LockscreenNotificationController.forceHideNormalNotifications()
+                            } else {
+                                LockscreenNotificationController.syncKeyguardOverlayVisibility()
+                            }
+                            (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
+                            MediaFollowController.onKeyguardShown()
+                            logI("control center collapsed -> resume music LS (deferred)")
+                        }
+                        NumStateViewController.syncVisibility()
+                    } catch (e: Throwable) {
+                        logE("CC collapse deferred error", e)
+                    }
+                }
             }
         } catch (e: Throwable) {
             logE("onExpandChanged error", e)

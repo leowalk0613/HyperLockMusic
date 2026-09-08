@@ -237,8 +237,11 @@ object LockscreenNotificationController {
                         keptCount++
                     }
                     NotificationStackChildClassifier.shouldHideNotificationRow(child) -> {
-                        SystemNotificationAnimator.hideImmediately(child)
-                        hiddenCount++
+                        // 只藏 VISIBLE；已 GONE 的交给 SystemUI（锁屏敏感/静音等）
+                        if (child.visibility == View.VISIBLE) {
+                            SystemNotificationAnimator.hideImmediately(child)
+                            hiddenCount++
+                        }
                     }
                     NotificationStackChildClassifier.isExpandableNotificationRow(child) -> {
                         keptCount++
@@ -264,29 +267,14 @@ object LockscreenNotificationController {
             if (stack == null) {
                 logE("release failed: notificationStackView is null")
                 phase = NotificationReleasePolicy.HidePhase.IDLE
+                SystemNotificationAnimator.reset()
                 return
             }
 
-            val wasIntervening = NotificationReleasePolicy.isIntervening(phase)
             phase = NotificationReleasePolicy.phaseAfterRelease(WallpaperController.isShowing())
-            SystemNotificationAnimator.reset()
-
-            var restoredRows = 0
-            for (i in 0 until stack.childCount) {
-                val child = stack.getChildAt(i)
-                when {
-                    NotificationStackChildClassifier.isMiuiMediaHeaderView(child) -> {
-                        releaseMediaHeaderToSystem(child)
-                    }
-                    NotificationStackChildClassifier.isExpandableNotificationRow(child) &&
-                        (wasIntervening ||
-                            SystemNotificationAnimator.isHidden(child) ||
-                            child.visibility == View.GONE) -> {
-                        SystemNotificationAnimator.snapVisible(child)
-                        restoredRows++
-                    }
-                }
-            }
+            // 只还原本模块标记的行；绝不强行 VISIBLE 掉 SystemUI 自己的锁屏隐藏行
+            val restoredRows = SystemNotificationAnimator.releaseMarkedInStack(stack)
+            SystemNotificationAnimator.scheduleReleaseSweep(stack)
             logI("released to SystemUI, restored $restoredRows row(s), phase=$phase")
             KeyguardOverlayVisibilitySync.reset()
             syncKeyguardOverlayVisibility()
@@ -295,10 +283,6 @@ object LockscreenNotificationController {
             logE("releaseToSystemUi error", e)
             phase = NotificationReleasePolicy.HidePhase.IDLE
         }
-    }
-
-    private fun releaseMediaHeaderToSystem(header: View) {
-        header.animate().cancel()
     }
 
     fun isHidden(): Boolean = NotificationReleasePolicy.isIntervening(phase)
