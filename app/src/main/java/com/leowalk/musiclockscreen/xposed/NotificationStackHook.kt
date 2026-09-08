@@ -78,12 +78,9 @@ class NotificationStackHook {
         }
 
         if (!LockscreenNotificationController.shouldFilterNotifications()) {
-            // 解锁后 wallpaper 仍 showing、仅 keyguard 已解除时，showing 边沿不会触发；
-            // 过滤条件失效后必须补 release，避免 GONE 通知卡数秒。
-            // 控制中心/通知中心临时展开：勿 release（保持 GONE，收回后再 hide）。
             if (NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
                     shouldFilter = false,
-                    moduleHidden = LockscreenNotificationController.isHidden(),
+                    phase = LockscreenNotificationController.hidePhase(),
                     temporaryPanelOpen = LockscreenNotificationController.isTemporaryPanelOpen(),
                 )
             ) {
@@ -92,7 +89,7 @@ class NotificationStackHook {
             return
         }
 
-        // 已全部藏起且无新 VISIBLE 行：跳过子树扫描，降低 onLayout 成本
+        // 已全部藏起且无新 VISIBLE 行：跳过子树扫描
         if (LockscreenNotificationController.isHidden()) {
             var anyVisibleHideable = false
             for (i in 0 until parent.childCount) {
@@ -110,26 +107,12 @@ class NotificationStackHook {
         for (i in 0 until parent.childCount) {
             val child = parent.getChildAt(i)
             when {
-                NotificationStackChildClassifier.isMiuiMediaHeaderView(child) -> {
-                    // 媒体 header 交给 SystemUI；逐帧 ensureVisible 会和 Full AOD 动画抢 alpha/scale
-                }
+                NotificationStackChildClassifier.isMiuiMediaHeaderView(child) -> Unit
                 NotificationStackChildClassifier.shouldHideNotificationRow(child) -> {
-                    SystemNotificationAnimator.scheduleRemove(parent, child)
+                    SystemNotificationAnimator.hideImmediately(child)
                 }
-                NotificationStackChildClassifier.isExpandableNotificationRow(child) -> {
-                    ensureVisible(child)
-                }
+                // 媒体行：勿 ensureVisible，避免与 SystemUI ViewState 抢
             }
-        }
-    }
-
-    private fun ensureVisible(child: View) {
-        if (child.visibility != View.VISIBLE || child.alpha != 1f || child.scaleY != 1f) {
-            child.animate().cancel()
-            child.visibility = View.VISIBLE
-            child.alpha = 1f
-            child.scaleX = 1f
-            child.scaleY = 1f
         }
     }
 

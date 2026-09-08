@@ -1,48 +1,105 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 解锁 / 通知中心 / 控制中心与「隐藏普通通知」的时机。
+ * 音乐锁屏「隐藏普通通知」状态机与时机（对齐 HyperOS SystemUI 反编译）。
  *
- * 反编译对照（HyperOS SystemUI）：
- * - [KeyguardViewMediatorInjector.keyguardUnlockHide]：解锁时常已是 STATUS_SHADE，
- *   早于 KeyguardManager 解锁；SHADE 上应立刻 release，勿再等 KM。
- * - [ControlCenterImpl] 经 [ShadeWrapper.OnExpandChangedListener] 展开，
- *   **不**改 StatusBarState；音乐锁屏下仍 KEYGUARD，若继续 onLayout 过滤会与动画抢帧。
- * - 面板临时展开时应停主动 hide，但勿 release（行保持 GONE，收回面板后再 hide）。
+ * StatusBarState：0 SHADE / 1 KEYGUARD / 2 SHADE_LOCKED。
+ * - 干净音乐 KEYGUARD：主动 GONE 非媒体行，并尽量同步 ViewState.gone（否则 applyToView 会打回 VISIBLE）。
+ * - SHADE / SHADE_LOCKED：通知中心或解锁路径，必须 release（SHADE 常早于 KM 解锁）。
+ * - 控制中心：不改 StatusBarState，停过滤但保持 GONE，勿 release。
  */
 internal object NotificationReleasePolicy {
 
-    /**
-     * 是否应在 layout / StackHook 上主动藏普通通知。
-     * 通知中心或控制中心展开时必须为 false，否则会与展开动画打架掉帧。
-     */
+    const val STATUS_SHADE = 0
+    const val STATUS_KEYGUARD = 1
+    const val STATUS_SHADE_LOCKED = 2
+
+    enum class HidePhase {
+        /** 未干预 */
+        IDLE,
+        /** 干净音乐锁屏，行已 GONE */
+        HIDDEN,
+        /** 控制中心展开：保持 GONE，不做 layout 过滤 */
+        PANEL_CC,
+        /** 已交还 SystemUI（NC / 解锁 / 退出音乐锁屏） */
+        RELEASED,
+    }
+
+    /** 仅 KEYGUARD 且未开控制中心时主动藏通知。 */
     fun shouldActivelyHideNotifications(
         musicWallpaperShowing: Boolean,
-        onKeyguard: Boolean,
-        notificationShadeOpen: Boolean,
+        statusBarState: Int,
         controlCenterOpen: Boolean,
     ): Boolean {
-        if (!musicWallpaperShowing || !onKeyguard) return false
-        if (notificationShadeOpen || controlCenterOpen) return false
+        if (!musicWallpaperShowing) return false
+        if (statusBarState != STATUS_KEYGUARD) return false
+        if (controlCenterOpen) return false
         return true
     }
 
-    /**
-     * 进入 STATUS_SHADE 时是否应立刻交还通知栈（解锁竞态 + 通知中心需要可见行）。
-     */
-    fun shouldReleaseOnStatusShade(moduleHidden: Boolean): Boolean = moduleHidden
+    fun shouldReleaseOnStatusBarState(
+        newState: Int,
+        phase: HidePhase,
+    ): Boolean {
+        if (phase != HidePhase.HIDDEN && phase != HidePhase.PANEL_CC) return false
+        return newState == STATUS_SHADE || newState == STATUS_SHADE_LOCKED
+    }
 
-    /**
-     * 过滤条件已失效但仍标记 hidden 时是否 release。
-     * [temporaryPanelOpen]：仍在音乐锁屏 keyguard 上，仅 shade/CC 临时展开 → 不清 GONE。
-     */
+    fun phaseAfterStatusBarState(
+        newState: Int,
+        musicWallpaperShowing: Boolean,
+        controlCenterOpen: Boolean,
+        current: HidePhase,
+    ): HidePhase {
+        return when (newState) {
+            STATUS_SHADE, STATUS_SHADE_LOCKED -> HidePhase.RELEASED
+            STATUS_KEYGUARD -> when {
+                !musicWallpaperShowing -> HidePhase.IDLE
+                controlCenterOpen -> HidePhase.PANEL_CC
+                current == HidePhase.HIDDEN || current == HidePhase.PANEL_CC -> HidePhase.HIDDEN
+                else -> HidePhase.HIDDEN // 将执行 hide
+            }
+            else -> current
+        }
+    }
+
+    fun phaseAfterControlCenter(
+        expanded: Boolean,
+        musicWallpaperShowing: Boolean,
+        statusBarState: Int,
+        current: HidePhase,
+    ): HidePhase {
+        if (!musicWallpaperShowing || statusBarState != STATUS_KEYGUARD) {
+            return if (expanded) current else current
+        }
+        return if (expanded) {
+            if (current == HidePhase.HIDDEN || current == HidePhase.PANEL_CC) HidePhase.PANEL_CC
+            else current
+        } else {
+            if (current == HidePhase.PANEL_CC) HidePhase.HIDDEN else current
+        }
+    }
+
+    fun phaseAfterHideApplied(controlCenterOpen: Boolean): HidePhase {
+        return if (controlCenterOpen) HidePhase.PANEL_CC else HidePhase.HIDDEN
+    }
+
+    fun phaseAfterRelease(musicWallpaperShowing: Boolean): HidePhase {
+        return if (musicWallpaperShowing) HidePhase.RELEASED else HidePhase.IDLE
+    }
+
+    /** 过滤失效时是否 release：临时 CC 面板保持 GONE。 */
     fun shouldReleaseWhenFilterInactive(
         shouldFilter: Boolean,
-        moduleHidden: Boolean,
-        temporaryPanelOpen: Boolean = false,
+        phase: HidePhase,
+        temporaryPanelOpen: Boolean,
     ): Boolean {
-        if (!moduleHidden) return false
+        if (phase != HidePhase.HIDDEN && phase != HidePhase.PANEL_CC) return false
         if (temporaryPanelOpen) return false
         return !shouldFilter
+    }
+
+    fun isIntervening(phase: HidePhase): Boolean {
+        return phase == HidePhase.HIDDEN || phase == HidePhase.PANEL_CC
     }
 }

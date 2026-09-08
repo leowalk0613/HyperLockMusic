@@ -4,38 +4,63 @@ import android.view.View
 import android.view.ViewGroup
 
 /**
- * SystemUI 通知动画：原地收缩隐藏 / 展开恢复。
+ * 通知行隐藏：立刻 GONE，并尽量同步 ExpandableView.ViewState.gone。
+ *
+ * 反编译 [ViewState.applyToView]：gone==true 时直接 return，不会把 visibility 打回 VISIBLE；
+ * 若仅做 scaleY/alpha 动画而仍 VISIBLE，会与每帧 applyToView 打架并触发更多 onLayout。
  */
 object SystemNotificationAnimator {
 
     private const val tag = "HyperLockMusic_SysAnim"
-    private const val COLLAPSE_MS = 260L
-    private const val EXPAND_MS = 200L
 
-    private val easeIn by lazy { android.view.animation.PathInterpolator(0.4f, 0f, 1f, 1f) }
-    private val easeOut by lazy { android.view.animation.PathInterpolator(0.25f, 0.1f, 0.25f, 1f) }
-
-    private val collapsing = HashSet<View>()
+    private val hiddenByUs = HashSet<View>()
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
     fun isHidden(row: View): Boolean {
-        return row.visibility == View.GONE || collapsing.contains(row)
+        return row.visibility == View.GONE || hiddenByUs.contains(row)
     }
 
     fun scheduleRemove(stack: ViewGroup, row: View): Boolean {
-        if (!HookUtils.isOnKeyguard(stack.context)) return false
-        if (isHidden(row)) return true
-        collapseInPlace(row)
+        if (!LockscreenNotificationController.shouldFilterNotifications()) return false
+        if (row.visibility == View.GONE) {
+            markViewStateGone(row, true)
+            hiddenByUs.add(row)
+            return true
+        }
+        hideImmediately(row)
         return true
+    }
+
+    fun hideImmediately(row: View) {
+        try {
+            if (row.parent == null) return
+            row.animate().cancel()
+            row.scaleX = 1f
+            row.scaleY = 1f
+            row.alpha = 1f
+            row.pivotY = 0f
+            row.visibility = View.GONE
+            markViewStateGone(row, true)
+            hiddenByUs.add(row)
+        } catch (e: Throwable) {
+            logE("hideImmediately error", e)
+            try {
+                row.visibility = View.GONE
+                hiddenByUs.add(row)
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     fun snapVisible(row: View) {
         try {
             if (row.parent == null) return
-            collapsing.remove(row)
+            hiddenByUs.remove(row)
             row.animate().cancel()
+            markViewStateGone(row, false)
             row.visibility = View.VISIBLE
+            row.scaleX = 1f
             row.scaleY = 1f
             row.alpha = 1f
             row.pivotY = 0f
@@ -47,82 +72,53 @@ object SystemNotificationAnimator {
         }
     }
 
-    fun expandInPlace(row: View): Boolean {
-        try {
-            if (row.parent == null) return false
-            if (row.visibility == View.VISIBLE && row.scaleY >= 0.99f && row.alpha >= 0.99f) {
-                return true
-            }
-            setPivot(row)
-            row.animate().cancel()
-            row.visibility = View.VISIBLE
-            row.scaleY = 0f
-            row.alpha = 0f
-            row.animate()
-                .scaleY(1f)
-                .alpha(1f)
-                .setDuration(EXPAND_MS)
-                .setInterpolator(easeOut)
-                .start()
-            return true
-        } catch (e: Throwable) {
-            logE("expandInPlace error", e)
-            row.scaleY = 1f
-            row.alpha = 1f
-            row.visibility = View.VISIBLE
-            return false
-        }
-    }
-
     fun reset() {
-        collapsing.toList().forEach { reset(it) }
-        collapsing.clear()
+        hiddenByUs.toList().forEach { reset(it) }
+        hiddenByUs.clear()
     }
 
     fun reset(row: View) {
-        collapsing.remove(row)
+        hiddenByUs.remove(row)
         row.animate().cancel()
         row.scaleY = 1f
+        row.scaleX = 1f
         row.alpha = 1f
         row.pivotY = 0f
-        // 解锁交还时若仍停在收缩中，取消动画后立刻可见，勿等 withEndAction 写成 GONE
+        markViewStateGone(row, false)
         if (row.parent != null && row.visibility != View.VISIBLE) {
             row.visibility = View.VISIBLE
         }
     }
 
-    private fun collapseInPlace(row: View) {
+    /**
+     * 同步 SystemUI ViewState.gone，避免下一帧 applyToView 把 GONE 行设回 VISIBLE。
+     */
+    private fun markViewStateGone(row: View, gone: Boolean) {
         try {
-            if (row.parent == null) return
-            val fullyVisible = row.visibility == View.VISIBLE && row.alpha >= 0.99f && row.scaleY >= 0.99f
-            if (collapsing.contains(row) && !fullyVisible) return
-            collapsing.add(row)
-            setPivot(row)
-            row.animate().cancel()
-            row.alpha = 1f
-            row.scaleY = 1f
-            row.animate()
-                .scaleY(0f)
-                .alpha(0f)
-                .setDuration(COLLAPSE_MS)
-                .setInterpolator(easeIn)
-                .withEndAction {
-                    collapsing.remove(row)
-                    row.scaleY = 1f
-                    row.alpha = 1f
-                    row.visibility = View.GONE
-                }
-                .start()
-        } catch (e: Throwable) {
-            logE("collapseInPlace error", e)
-            collapsing.remove(row)
-            row.visibility = View.GONE
+            val viewState = resolveViewState(row) ?: return
+            val goneField = HookUtils.findField(viewState.javaClass, "gone") ?: return
+            goneField.setBoolean(viewState, gone)
+        } catch (_: Throwable) {
         }
     }
 
-    private fun setPivot(row: View) {
-        val h = row.height.toFloat()
-        if (h > 0f) row.pivotY = h / 2f
+    private fun resolveViewState(row: View): Any? {
+        try {
+            val getter = row.javaClass.methods.firstOrNull {
+                it.name == "getViewState" && it.parameterCount == 0
+            }
+            if (getter != null) {
+                getter.isAccessible = true
+                val vs = getter.invoke(row)
+                if (vs != null) return vs
+            }
+        } catch (_: Throwable) {
+        }
+        return try {
+            HookUtils.findField(row.javaClass, "mViewState")?.get(row)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun logE(msg: String, e: Throwable? = null) {

@@ -6,20 +6,20 @@ import java.lang.reflect.Method
 /**
  * 状态栏状态 Hook（HyperOS 4）
  *
- * OS4 锁屏即通知中心；锁屏上展开通知列表时 SystemUI 也会进入 STATUS_SHADE：
- * - STATUS_KEYGUARD：普通锁屏 → 勿扰可显示（非音乐锁屏时）
- * - STATUS_SHADE：通知中心 / 已解锁 → 隐藏勿扰与音乐锁屏 overlay
+ * - STATUS_KEYGUARD(1)：干净锁屏 → 音乐锁屏时 hide 普通通知
+ * - STATUS_SHADE(0) / STATUS_SHADE_LOCKED(2)：通知中心或解锁 → 立刻 release
  */
 object StatusBarStateHook {
 
     private const val TAG = "HyperLockMusic_StatusBarState"
-    private const val STATUS_SHADE = 0
-    private const val STATUS_KEYGUARD = 1
 
     private var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
-    fun install(classLoader: ClassLoader, module: XposedModule,
-                logCb: (Int, String, String, Throwable?) -> Unit) {
+    fun install(
+        classLoader: ClassLoader,
+        module: XposedModule,
+        logCb: (Int, String, String, Throwable?) -> Unit,
+    ) {
         logCallback = logCb
         try {
             val controllerClass = findControllerClass(classLoader) ?: run {
@@ -38,60 +38,19 @@ object StatusBarStateHook {
                 try {
                     val newState = chain.args.firstOrNull() as? Int
                     if (newState != null) {
+                        LockscreenNotificationController.setStatusBarState(newState)
                         when (newState) {
-                            STATUS_SHADE -> {
-                                // 已离开锁屏，或 OS4 锁屏上展开通知中心
-                                LockscreenNotificationController.setNotificationShadeOpen(true)
-                                MusicLockscreenManager.hideTransitionMaskImmediately()
-                                MusicLockscreenManager.pauseAlbumOverlay()
-                                MediaFollowController.onMusicLockscreenHidden()
-                                KeepScreenController.sync()
-                                (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onLeftKeyguard()
-                                MusicLockscreenManager.lyricView?.setShadeOpen(true)
-                                MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
-                                LockscreenClockController.sync()
-                                SystemWallpaperBlurController.sync()
-                                // 勿用 KeyguardManager 门禁：解锁时 SHADE 常早于 isKeyguardLocked=false，
-                                // 否则通知会保持 GONE 数秒。Shade 上需要可见通知；回 KEYGUARD 会再 hide。
-                                if (NotificationReleasePolicy.shouldReleaseOnStatusShade(
-                                        LockscreenNotificationController.isHidden()
-                                    )
-                                ) {
-                                    LockscreenNotificationController.releaseToSystemUi()
-                                    logI("STATUS_SHADE -> release notification stack to SystemUI")
-                                } else {
-                                    logI("STATUS_SHADE (nothing hidden)")
-                                }
-                                NumStateViewController.syncVisibility()
-                            }
-                            STATUS_KEYGUARD -> {
-                                LockscreenNotificationController.setNotificationShadeOpen(false)
-                                MusicLockscreenManager.lyricView?.setShadeOpen(false)
-                                MediaKeyguardButtonHook.refreshSlots(onKeyguard = true)
-                                if (WallpaperController.isShowing()) {
-                                    LockscreenNotificationController.forceHideNormalNotifications()
-                                    LockscreenNotificationController.syncKeyguardOverlayVisibility()
-                                    (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
-                                    MediaFollowController.onKeyguardShown()
-                                    KeepScreenController.sync()
-                                    // 亮屏 / AOD 回到锁屏：同步壁纸与歌词背景（解锁或 AOD 期间切歌也要即时追上）
-                                    val ctx = MusicLockscreenManager.lyricView?.context
-                                    if (ctx != null) {
-                                        WallpaperController.refreshMusicWallpaper(ctx)
-                                        SystemWallpaperBlurController.sync(ctx)
-                                    }
-                                    logI("keyguard shown -> resume music lockscreen UI")
-                                }
-                                LockscreenClockController.sync()
-                                NumStateViewController.syncVisibility()
-                            }
+                            NotificationReleasePolicy.STATUS_SHADE,
+                            NotificationReleasePolicy.STATUS_SHADE_LOCKED,
+                            -> onShadeOrLocked(newState)
+
+                            NotificationReleasePolicy.STATUS_KEYGUARD -> onKeyguard()
                         }
                         logI("setState -> $newState")
                     }
                 } catch (e: Throwable) {
                     logE("setState intercept error", e)
                 }
-                // HyperOS setState(int, boolean) 返回 boolean，不能 return null
                 result
             }
             logI("hooked ${controllerClass.name}.${setState.name}")
@@ -100,11 +59,56 @@ object StatusBarStateHook {
         }
     }
 
+    private fun onShadeOrLocked(state: Int) {
+        LockscreenNotificationController.setNotificationShadeOpen(true)
+        MusicLockscreenManager.hideTransitionMaskImmediately()
+        MusicLockscreenManager.pauseAlbumOverlay()
+        MediaFollowController.onMusicLockscreenHidden()
+        KeepScreenController.sync()
+        (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onLeftKeyguard()
+        MusicLockscreenManager.lyricView?.setShadeOpen(true)
+        MediaKeyguardButtonHook.refreshSlots(onKeyguard = false)
+        LockscreenClockController.sync()
+        SystemWallpaperBlurController.sync()
+        if (NotificationReleasePolicy.shouldReleaseOnStatusBarState(
+                newState = state,
+                phase = LockscreenNotificationController.hidePhase(),
+            )
+        ) {
+            LockscreenNotificationController.releaseToSystemUi()
+            logI("state=$state -> release notification stack")
+        } else {
+            logI("state=$state (nothing to release, phase=${LockscreenNotificationController.hidePhase()})")
+        }
+        NumStateViewController.syncVisibility()
+    }
+
+    private fun onKeyguard() {
+        LockscreenNotificationController.setNotificationShadeOpen(false)
+        MusicLockscreenManager.lyricView?.setShadeOpen(false)
+        MediaKeyguardButtonHook.refreshSlots(onKeyguard = true)
+        if (WallpaperController.isShowing()) {
+            LockscreenNotificationController.forceHideNormalNotifications()
+            LockscreenNotificationController.syncKeyguardOverlayVisibility()
+            (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onKeyguardShown()
+            MediaFollowController.onKeyguardShown()
+            KeepScreenController.sync()
+            val ctx = MusicLockscreenManager.lyricView?.context
+            if (ctx != null) {
+                WallpaperController.refreshMusicWallpaper(ctx)
+                SystemWallpaperBlurController.sync(ctx)
+            }
+            logI("keyguard shown -> resume music lockscreen UI")
+        }
+        LockscreenClockController.sync()
+        NumStateViewController.syncVisibility()
+    }
+
     private fun findControllerClass(classLoader: ClassLoader): Class<*>? {
         val candidates = listOf(
             "com.android.systemui.statusbar.StatusBarStateControllerImpl",
             "com.android.systemui.statusbar.policy.StatusBarStateControllerImpl",
-            "com.android.systemui.statusbar.policy.StatusBarStateController"
+            "com.android.systemui.statusbar.policy.StatusBarStateController",
         )
         for (name in candidates) {
             try {

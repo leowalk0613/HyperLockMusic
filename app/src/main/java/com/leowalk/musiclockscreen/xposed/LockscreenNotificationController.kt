@@ -6,28 +6,34 @@ import android.view.ViewGroup
 /**
  * 锁屏通知控制器（HyperOS 4）
  *
- * OS4 锁屏即通知中心，无「锁屏下拉通知中心」；仅在 [isOnKeyguard] 且音乐壁纸激活时隐藏普通通知。
- * 仅隐藏 [ExpandableNotificationRow] 中的非媒体行；
- * 音乐锁屏过滤期间 [MiuiMediaHeaderView] 保持可见；解锁或退出音乐锁屏时交还 SystemUI 默认布局。
+ * 隐藏策略对齐 SystemUI StatusBarState + ViewState.gone（见 [NotificationReleasePolicy]）。
+ * 仅隐藏非媒体 [ExpandableNotificationRow]；[MiuiMediaHeaderView] 保持可见。
  */
 object LockscreenNotificationController {
 
     private const val tag = "HyperLockMusic_NotifCtrl"
 
     private var notificationStackView: ViewGroup? = null
-    private var isHidden: Boolean = false
-    /** OS4 锁屏上展开通知中心时 SystemUI 会切到 STATUS_SHADE（人仍可处于锁屏）。 */
-    private var notificationShadeOpen: Boolean = false
-    /** 控制中心展开（不改 StatusBarState，仍 KEYGUARD）。 */
+    private var phase: NotificationReleasePolicy.HidePhase = NotificationReleasePolicy.HidePhase.IDLE
+    private var statusBarState: Int = NotificationReleasePolicy.STATUS_KEYGUARD
     private var controlCenterOpen: Boolean = false
+    /** 兼容 NumState / overlay：STATUS_SHADE 时为 true。 */
+    private var notificationShadeOpen: Boolean = false
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
+
+    fun setStatusBarState(state: Int) {
+        statusBarState = state
+        notificationShadeOpen =
+            state == NotificationReleasePolicy.STATUS_SHADE ||
+                state == NotificationReleasePolicy.STATUS_SHADE_LOCKED
+    }
 
     fun setNotificationShadeOpen(open: Boolean) {
         if (notificationShadeOpen == open) return
         notificationShadeOpen = open
         NumStateViewController.syncVisibility()
-        if (WallpaperController.isShowing() && isOnKeyguard()) {
+        if (WallpaperController.isShowing() && isKeyguardUi()) {
             syncKeyguardOverlayVisibility()
         }
     }
@@ -35,8 +41,14 @@ object LockscreenNotificationController {
     fun setControlCenterOpen(open: Boolean) {
         if (controlCenterOpen == open) return
         controlCenterOpen = open
+        phase = NotificationReleasePolicy.phaseAfterControlCenter(
+            expanded = open,
+            musicWallpaperShowing = WallpaperController.isShowing(),
+            statusBarState = statusBarState,
+            current = phase,
+        )
         NumStateViewController.syncVisibility()
-        if (WallpaperController.isShowing() && isOnKeyguard()) {
+        if (WallpaperController.isShowing() && isKeyguardUi()) {
             syncKeyguardOverlayVisibility()
         }
     }
@@ -45,25 +57,21 @@ object LockscreenNotificationController {
 
     fun isControlCenterOpen(): Boolean = controlCenterOpen
 
-    /** 通知中心或控制中心临时展开（仍可能在音乐锁屏 keyguard 上）。 */
-    fun isTemporaryPanelOpen(): Boolean = notificationShadeOpen || controlCenterOpen
+    fun isTemporaryPanelOpen(): Boolean =
+        controlCenterOpen ||
+            statusBarState == NotificationReleasePolicy.STATUS_SHADE ||
+            statusBarState == NotificationReleasePolicy.STATUS_SHADE_LOCKED
 
-    /**
-     * 是否应主动过滤/藏普通通知。
-     * 面板展开时必须 false，否则 onLayout 持续 scheduleRemove 与动画抢帧。
-     */
     fun shouldFilterNotifications(): Boolean {
         return NotificationReleasePolicy.shouldActivelyHideNotifications(
             musicWallpaperShowing = WallpaperController.isShowing(),
-            onKeyguard = isOnKeyguard(),
-            notificationShadeOpen = notificationShadeOpen,
+            statusBarState = statusBarState,
             controlCenterOpen = controlCenterOpen,
         )
     }
 
-    /** 通知栈里是否有可见的普通通知行（通知列表正在展示）。 */
     fun isNotificationListVisible(): Boolean {
-        if (!isOnKeyguard()) return false
+        if (!isKeyguardUi()) return false
         val stack = notificationStackView ?: return false
         for (i in 0 until stack.childCount) {
             val child = stack.getChildAt(i)
@@ -80,26 +88,17 @@ object LockscreenNotificationController {
         return false
     }
 
-    /**
-     * 「勿扰 | N 个通知」仅出现在普通锁屏（非音乐锁屏、非通知中心 shade）。
-     * 注意：OS4 普通锁屏上通知行默认可见，不能据此判定为通知中心。
-     */
     fun shouldShowNumState(): Boolean {
-        if (!isOnKeyguard()) return false
+        if (!isKeyguardUi()) return false
         if (WallpaperController.isShowing()) return false
-        if (notificationShadeOpen || controlCenterOpen) return false
+        if (isTemporaryPanelOpen()) return false
         return true
     }
 
-    /**
-     * 通知列表里是否仍有普通通知行可见（= 通知中心界面）。
-     * 音乐锁屏 overlay（大专辑/歌词）只应出现在隐藏通知后的干净锁屏，不应叠在通知中心上。
-     */
     fun isNotificationCenterVisible(): Boolean {
         return shouldFilterNotifications() && isNotificationListVisible()
     }
 
-    /** 干净锁屏（已隐藏普通通知）才显示大专辑/歌词 overlay。 */
     fun shouldShowKeyguardOverlays(): Boolean {
         return shouldFilterNotifications() && !isNotificationCenterVisible()
     }
@@ -109,7 +108,7 @@ object LockscreenNotificationController {
         if (!KeyguardOverlayVisibilitySync.shouldApply(shouldShow)) return
         if (shouldShow) {
             MusicLockscreenManager.resumeAlbumOverlay()
-        } else if (WallpaperController.isShowing() && isOnKeyguard()) {
+        } else if (WallpaperController.isShowing() && isKeyguardUi()) {
             MusicLockscreenManager.pauseAlbumOverlay()
         }
         (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.refreshVisibility()
@@ -118,10 +117,15 @@ object LockscreenNotificationController {
 
     fun setNotificationStackView(view: ViewGroup?) {
         notificationStackView?.removeOnLayoutChangeListener(layoutChangeListener)
+        notificationStackView?.setOnHierarchyChangeListener(null)
         notificationStackView = view
         if (view != null) {
             view.addOnLayoutChangeListener(layoutChangeListener)
-            if (isHidden) {
+            view.setOnHierarchyChangeListener(hierarchyChangeListener)
+            // 仅退出音乐锁屏时交还；勿在 rebind 时因 phase=HIDDEN 误 release 闪一下
+            if (!WallpaperController.isShowing() &&
+                NotificationReleasePolicy.isIntervening(phase)
+            ) {
                 releaseToSystemUi()
             }
             MediaFollowController.bindMediaView(findMiuiMediaHeaderView())
@@ -129,7 +133,6 @@ object LockscreenNotificationController {
         logI("notificationStackView set: ${view != null}, childCount=${view?.childCount ?: 0}")
     }
 
-    /** 锁屏媒体控件容器（MiuiMediaHeaderView） */
     fun findMiuiMediaHeaderView(): View? {
         val stack = notificationStackView ?: return null
         for (i in 0 until stack.childCount) {
@@ -141,42 +144,60 @@ object LockscreenNotificationController {
         return null
     }
 
+    private val hierarchyChangeListener = object : ViewGroup.OnHierarchyChangeListener {
+        override fun onChildViewAdded(parent: View?, child: View?) {
+            if (child == null || !shouldFilterNotifications()) return
+            if (NotificationStackChildClassifier.shouldHideNotificationRow(child) &&
+                child.visibility == View.VISIBLE
+            ) {
+                SystemNotificationAnimator.hideImmediately(child)
+                phase = NotificationReleasePolicy.phaseAfterHideApplied(controlCenterOpen)
+            }
+        }
+
+        override fun onChildViewRemoved(parent: View?, child: View?) = Unit
+    }
+
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         val stack = notificationStackView ?: return@OnLayoutChangeListener
         stack.post {
-            // 面板展开期间不做扫描 / rehide / overlay 同步，避免下拉控制中心掉帧
-            if (isTemporaryPanelOpen()) {
+            if (isTemporaryPanelOpen()) return@post
+            if (!shouldFilterNotifications()) {
+                if (NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
+                        shouldFilter = false,
+                        phase = phase,
+                        temporaryPanelOpen = isTemporaryPanelOpen(),
+                    )
+                ) {
+                    releaseToSystemUi()
+                }
                 return@post
             }
-            if (shouldFilterNotifications()) {
-                var needRehide = false
-                for (i in 0 until stack.childCount) {
-                    val child = stack.getChildAt(i)
-                    if (NotificationStackChildClassifier.shouldHideNotificationRow(child) &&
-                        child.visibility == View.VISIBLE
-                    ) {
-                        needRehide = true
-                        break
-                    }
+            // 仅当有 VISIBLE 应藏行时再 hide（ViewState 偶发打回时的安全网）
+            var needRehide = false
+            for (i in 0 until stack.childCount) {
+                val child = stack.getChildAt(i)
+                if (NotificationStackChildClassifier.shouldHideNotificationRow(child) &&
+                    child.visibility == View.VISIBLE
+                ) {
+                    needRehide = true
+                    break
                 }
-                if (needRehide) {
-                    doHide()
-                } else {
-                    syncKeyguardOverlayVisibility()
-                }
-            } else if (NotificationReleasePolicy.shouldReleaseWhenFilterInactive(
-                    shouldFilter = false,
-                    moduleHidden = isHidden,
-                    temporaryPanelOpen = isTemporaryPanelOpen(),
-                )
-            ) {
-                releaseToSystemUi()
             }
-            NumStateViewController.syncVisibility()
+            if (needRehide) {
+                doHide()
+            }
         }
     }
 
-    private fun isOnKeyguard(): Boolean {
+    /** UI 是否处于锁屏态（优先 StatusBarState，避免 KM 滞后）。 */
+    private fun isKeyguardUi(): Boolean {
+        if (statusBarState == NotificationReleasePolicy.STATUS_KEYGUARD) return true
+        if (statusBarState == NotificationReleasePolicy.STATUS_SHADE ||
+            statusBarState == NotificationReleasePolicy.STATUS_SHADE_LOCKED
+        ) {
+            return false
+        }
         return try {
             val stack = notificationStackView ?: return false
             val km = stack.context.getSystemService(android.app.KeyguardManager::class.java)
@@ -191,8 +212,8 @@ object LockscreenNotificationController {
             logI("skip hide: music wallpaper not active")
             return
         }
-        if (!isOnKeyguard()) {
-            logI("skip hide: not on keyguard")
+        if (!shouldFilterNotifications()) {
+            logI("skip hide: not clean music keyguard (state=$statusBarState cc=$controlCenterOpen)")
             return
         }
         doHide()
@@ -212,21 +233,20 @@ object LockscreenNotificationController {
                 val child = stack.getChildAt(i)
                 when {
                     NotificationStackChildClassifier.isMiuiMediaHeaderView(child) -> {
-                        ensureVisible(child)
+                        // 媒体 header 交 SystemUI；勿每帧 ensureVisible
                         keptCount++
                     }
                     NotificationStackChildClassifier.shouldHideNotificationRow(child) -> {
-                        SystemNotificationAnimator.scheduleRemove(stack, child)
+                        SystemNotificationAnimator.hideImmediately(child)
                         hiddenCount++
                     }
                     NotificationStackChildClassifier.isExpandableNotificationRow(child) -> {
-                        ensureVisible(child)
                         keptCount++
                     }
                 }
             }
-            isHidden = true
-            logI("hidden $hiddenCount rows, kept $keptCount (media header + media rows)")
+            phase = NotificationReleasePolicy.phaseAfterHideApplied(controlCenterOpen)
+            logI("hidden $hiddenCount rows, kept $keptCount, phase=$phase")
             MediaFollowController.bindMediaView(findMiuiMediaHeaderView())
             syncKeyguardOverlayVisibility()
             NumStateViewController.syncVisibility()
@@ -236,21 +256,19 @@ object LockscreenNotificationController {
     }
 
     /**
-     * 解锁 / 退出音乐锁屏：撤销模块对通知栈的干预，恢复 SystemUI 默认行为。
-     * 仅还原本模块藏起的通知行，不强制 [MiuiMediaHeaderView] 展开或可见。
+     * 解锁 / 通知中心 / 退出音乐锁屏：撤销干预，恢复 SystemUI 默认行为。
      */
     fun releaseToSystemUi() {
         try {
             val stack = notificationStackView
             if (stack == null) {
                 logE("release failed: notificationStackView is null")
-                isHidden = false
+                phase = NotificationReleasePolicy.HidePhase.IDLE
                 return
             }
 
-            val wasHidden = isHidden
-            // 先清标记再还原：避免 reset/layout 重入时仍按 hidden 过滤
-            isHidden = false
+            val wasIntervening = NotificationReleasePolicy.isIntervening(phase)
+            phase = NotificationReleasePolicy.phaseAfterRelease(WallpaperController.isShowing())
             SystemNotificationAnimator.reset()
 
             var restoredRows = 0
@@ -261,41 +279,31 @@ object LockscreenNotificationController {
                         releaseMediaHeaderToSystem(child)
                     }
                     NotificationStackChildClassifier.isExpandableNotificationRow(child) &&
-                        (wasHidden ||
+                        (wasIntervening ||
                             SystemNotificationAnimator.isHidden(child) ||
-                            child.visibility == View.GONE ||
-                            child.alpha < 0.99f ||
-                            child.scaleY < 0.99f) -> {
+                            child.visibility == View.GONE) -> {
                         SystemNotificationAnimator.snapVisible(child)
                         restoredRows++
                     }
                 }
             }
-            stack.requestLayout()
-            logI("released to SystemUI, restored $restoredRows hidden row(s)")
+            logI("released to SystemUI, restored $restoredRows row(s), phase=$phase")
             KeyguardOverlayVisibilitySync.reset()
             syncKeyguardOverlayVisibility()
             NumStateViewController.syncVisibility()
         } catch (e: Throwable) {
             logE("releaseToSystemUi error", e)
-            isHidden = false
+            phase = NotificationReleasePolicy.HidePhase.IDLE
         }
     }
 
-    /** 停止干预媒体 header，高度/可见性交还 SystemUI（如无媒体则自行收起）。 */
     private fun releaseMediaHeaderToSystem(header: View) {
         header.animate().cancel()
     }
 
-    fun isHidden(): Boolean = isHidden
+    fun isHidden(): Boolean = NotificationReleasePolicy.isIntervening(phase)
 
-    private fun ensureVisible(view: View) {
-        view.animate().cancel()
-        view.visibility = View.VISIBLE
-        view.alpha = 1f
-        view.scaleX = 1f
-        view.scaleY = 1f
-    }
+    internal fun hidePhase(): NotificationReleasePolicy.HidePhase = phase
 
     private fun logI(msg: String) {
         logCallback?.invoke(android.util.Log.INFO, tag, msg, null)
