@@ -20,7 +20,6 @@ import android.text.TextPaint
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -57,15 +56,14 @@ class LockscreenLyricView(context: Context) : View(context) {
     private val immersiveMaxSecondLines = 2
     /** 沉浸歌词文字混入专辑主色的比例 */
     private val immersiveTintWeight = 0.28f
-    /** 锁屏歌词切行：淡出 / 淡入时长（合计 250ms） */
-    private val lineFadeOutMs = 125L
-    private val lineFadeInMs = 125L
+    /** 锁屏歌词切行：离场 / 入场时长见 [LyricMotionPolicy] */
+    private val lineFadeOutMs = LyricMotionPolicy.LINE_EXIT_MS
+    private val lineFadeInMs = LyricMotionPolicy.LINE_ENTER_MS
 
     private var lineContentAlpha = 1f
     private var lineContentTx = 0f
     private var lineContentTy = 0f
     private var lineTransitionAnimator: ValueAnimator? = null
-    private val lineTransitionInterpolator = LinearInterpolator()
 
     /** 沉浸三行上滑 */
     private var cfgImmersiveLyricStack: Boolean = false
@@ -86,7 +84,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var stackScrollOffset = 0f
     private var stackAnimator: ValueAnimator? = null
     private var lastStackLineIndex = -1
-    private val stackAnimMs = 280L
+    private val stackAnimMs = LyricMotionPolicy.STACK_SCROLL_MS
     private val endFadeMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     // ============================================================
@@ -2985,7 +2983,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         stackScrollOffset = step
         stackAnimator = ValueAnimator.ofFloat(step, 0f).apply {
             duration = stackAnimMs
-            interpolator = lineTransitionInterpolator
+            interpolator = LyricMotionPolicy.easeInOut()
             addUpdateListener {
                 stackScrollOffset = it.animatedValue as Float
                 invalidate()
@@ -3045,7 +3043,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun lineSlidePx(): Float {
-        return 48f * resources.displayMetrics.density
+        return LyricMotionPolicy.lineSlidePx(resources.displayMetrics.density)
     }
 
     /** 切行：先离场再换词入场；AOD 不走此路径。 */
@@ -3057,7 +3055,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         fun startEnter() {
             lineTransitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = lineFadeInMs
-                interpolator = lineTransitionInterpolator
+                interpolator = LyricMotionPolicy.forLineEnter(mode)
                 addUpdateListener {
                     val p = it.animatedValue as Float
                     applyLineTransform(
@@ -3091,7 +3089,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
         lineTransitionAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = (lineFadeOutMs * lineContentAlpha).toLong().coerceIn(40L, lineFadeOutMs)
-            interpolator = lineTransitionInterpolator
+            interpolator = LyricMotionPolicy.forLineExit(mode)
             addUpdateListener {
                 val p = it.animatedValue as Float
                 applyLineTransform(

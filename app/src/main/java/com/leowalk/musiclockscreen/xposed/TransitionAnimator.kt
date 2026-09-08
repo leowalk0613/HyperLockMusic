@@ -6,31 +6,17 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.view.View
-import android.view.animation.PathInterpolator
 
 /**
  * 过渡动画管理器
  *
- * 音乐锁屏进入/退出过渡动画，使用系统原生 Animator 方案。
+ * 音乐锁屏进入/退出过渡动画；插值与位移统一走 [LyricMotionPolicy]。
  */
 object TransitionAnimator {
 
-    private const val DURATION_LYRIC_ENTER = 400L
-    private const val DURATION_LYRIC_EXIT = 150L
-    private const val DURATION_NOTIFICATION_HIDE = 280L
-    private const val DURATION_NOTIFICATION_SHOW = 280L
-    private const val LYRIC_ENTER_DELAY_MS = 120L
-
-    private const val LYRIC_ENTER_TRANSLATION_DP = 36f
-    private const val NOTIFICATION_TRANSLATION_DP = 8f
-
-    private val easeOutInterpolator by lazy {
-        PathInterpolator(0.05f, 0.7f, 0.1f, 1f)
-    }
-
-    private val easeInInterpolator by lazy {
-        PathInterpolator(0.3f, 0f, 0.8f, 0.15f)
-    }
+    private const val DURATION_NOTIFICATION_HIDE = 320L
+    private const val DURATION_NOTIFICATION_SHOW = 320L
+    private const val NOTIFICATION_TRANSLATION_DP = 6f
 
     private var currentAnimator: AnimatorSet? = null
 
@@ -42,29 +28,31 @@ object TransitionAnimator {
     ) {
         cancelCurrent()
 
-        val translationPx = LYRIC_ENTER_TRANSLATION_DP * lyricView.resources.displayMetrics.density
+        val translationPx = LyricMotionPolicy.surfaceSlidePx(lyricView.resources.displayMetrics.density)
+        val duration = LyricMotionPolicy.LYRIC_SURFACE_ENTER_MS
+        val ease = LyricMotionPolicy.easeOut()
 
         lyricView.alpha = 0f
         lyricView.translationY = translationPx
-        lyricView.scaleX = 0.94f
-        lyricView.scaleY = 0.94f
+        lyricView.scaleX = 0.96f
+        lyricView.scaleY = 0.96f
         lyricView.visibility = View.VISIBLE
 
         val alpha = ObjectAnimator.ofFloat(lyricView, "alpha", 0f, 1f).apply {
-            duration = DURATION_LYRIC_ENTER
-            interpolator = easeOutInterpolator
+            this.duration = duration
+            interpolator = ease
         }
         val translate = ObjectAnimator.ofFloat(lyricView, "translationY", translationPx, 0f).apply {
-            duration = DURATION_LYRIC_ENTER
-            interpolator = easeOutInterpolator
+            this.duration = duration
+            interpolator = LyricMotionPolicy.easeInOut()
         }
-        val scaleX = ObjectAnimator.ofFloat(lyricView, "scaleX", 0.94f, 1f).apply {
-            duration = DURATION_LYRIC_ENTER
-            interpolator = easeOutInterpolator
+        val scaleX = ObjectAnimator.ofFloat(lyricView, "scaleX", 0.96f, 1f).apply {
+            this.duration = duration
+            interpolator = ease
         }
-        val scaleY = ObjectAnimator.ofFloat(lyricView, "scaleY", 0.94f, 1f).apply {
-            duration = DURATION_LYRIC_ENTER
-            interpolator = easeOutInterpolator
+        val scaleY = ObjectAnimator.ofFloat(lyricView, "scaleY", 0.96f, 1f).apply {
+            this.duration = duration
+            interpolator = ease
         }
 
         val set = AnimatorSet()
@@ -96,23 +84,26 @@ object TransitionAnimator {
     ) {
         cancelCurrent()
 
-        val translationPx = LYRIC_ENTER_TRANSLATION_DP * lyricView.resources.displayMetrics.density
+        val translationPx = LyricMotionPolicy.surfaceSlidePx(lyricView.resources.displayMetrics.density)
+        val duration = LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS
+        val easeIn = LyricMotionPolicy.easeIn()
+        val easeSlide = LyricMotionPolicy.easeInOut()
 
         val alpha = ObjectAnimator.ofFloat(lyricView, "alpha", 1f, 0f).apply {
-            duration = DURATION_LYRIC_EXIT
-            interpolator = easeInInterpolator
+            this.duration = duration
+            interpolator = easeIn
         }
         val translate = ObjectAnimator.ofFloat(lyricView, "translationY", 0f, translationPx).apply {
-            duration = DURATION_LYRIC_EXIT
-            interpolator = easeInInterpolator
+            this.duration = duration
+            interpolator = easeSlide
         }
-        val scaleX = ObjectAnimator.ofFloat(lyricView, "scaleX", 1f, 0.94f).apply {
-            duration = DURATION_LYRIC_EXIT
-            interpolator = easeInInterpolator
+        val scaleX = ObjectAnimator.ofFloat(lyricView, "scaleX", 1f, 0.96f).apply {
+            this.duration = duration
+            interpolator = easeIn
         }
-        val scaleY = ObjectAnimator.ofFloat(lyricView, "scaleY", 1f, 0.94f).apply {
-            duration = DURATION_LYRIC_EXIT
-            interpolator = easeInInterpolator
+        val scaleY = ObjectAnimator.ofFloat(lyricView, "scaleY", 1f, 0.96f).apply {
+            this.duration = duration
+            interpolator = easeIn
         }
 
         val set = AnimatorSet()
@@ -151,18 +142,19 @@ object TransitionAnimator {
         }
         val animators = mutableListOf<Animator>()
         val translationPx = NOTIFICATION_TRANSLATION_DP * views[0].resources.displayMetrics.density
+        val ease = LyricMotionPolicy.easeInOut()
 
         for ((index, view) in views.withIndex()) {
             val delay = (index * staggerDelayMs).coerceAtMost(maxStaggerMs)
             val alpha = ObjectAnimator.ofFloat(view, "alpha", 1f, 0f).apply {
                 duration = DURATION_NOTIFICATION_HIDE
                 startDelay = delay
-                interpolator = easeOutInterpolator
+                interpolator = LyricMotionPolicy.easeOut()
             }
             val translate = ObjectAnimator.ofFloat(view, "translationY", 0f, -translationPx).apply {
                 duration = DURATION_NOTIFICATION_HIDE
                 startDelay = delay
-                interpolator = easeOutInterpolator
+                interpolator = ease
             }
             animators.addAll(listOf(alpha, translate))
         }
@@ -193,6 +185,7 @@ object TransitionAnimator {
         }
         val animators = mutableListOf<Animator>()
         val translationPx = NOTIFICATION_TRANSLATION_DP * views[0].resources.displayMetrics.density
+        val ease = LyricMotionPolicy.easeInOut()
 
         for ((index, view) in views.withIndex()) {
             val delay = (index * staggerDelayMs).coerceAtMost(maxStaggerMs)
@@ -202,12 +195,12 @@ object TransitionAnimator {
             val alpha = ObjectAnimator.ofFloat(view, "alpha", 0f, 1f).apply {
                 duration = DURATION_NOTIFICATION_SHOW
                 startDelay = delay
-                interpolator = easeOutInterpolator
+                interpolator = LyricMotionPolicy.easeOut()
             }
             val translate = ObjectAnimator.ofFloat(view, "translationY", -translationPx, 0f).apply {
                 duration = DURATION_NOTIFICATION_SHOW
                 startDelay = delay
-                interpolator = easeOutInterpolator
+                interpolator = ease
             }
             animators.addAll(listOf(alpha, translate))
         }
@@ -234,7 +227,7 @@ object TransitionAnimator {
     ): ValueAnimator {
         val animator = ValueAnimator.ofArgb(fromColor, toColor).apply {
             this.duration = duration
-            interpolator = easeOutInterpolator
+            interpolator = LyricMotionPolicy.easeOut()
         }
         animator.addUpdateListener {
             onUpdate(it.animatedValue as Int)

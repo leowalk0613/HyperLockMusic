@@ -49,4 +49,21 @@ class LyricLineTransitionPolicyTest {
         assertEquals(0.5f, inn.alpha, 0.001f)
         assertEquals(0f, inn.tx, 0.001f)
     }
+
+    @Test
+    fun smoothstep_softMidpoint() {
+        assertEquals(0f, LyricLineTransitionPolicy.smoothstep(0f), 0.001f)
+        assertEquals(1f, LyricLineTransitionPolicy.smoothstep(1f), 0.001f)
+        assertEquals(0.5f, LyricLineTransitionPolicy.smoothstep(0.5f), 0.001f)
+    }
+
+    @Test
+    fun slideExit_alphaFinishesAheadOfTravel() {
+        val mid = LyricLineTransitionPolicy.exitTransform(
+            LyricLineTransitionPolicy.SLIDE_LEFT, 0.5f, 40f,
+        )
+        // mid 位移约一半，透明度应更低（先淡）
+        assertEquals(-20f, mid.tx, 0.01f)
+        assertTrue(mid.alpha < 0.5f)
+    }
 }
