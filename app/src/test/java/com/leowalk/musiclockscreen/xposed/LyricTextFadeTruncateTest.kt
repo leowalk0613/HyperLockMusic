@@ -15,7 +15,6 @@ class LyricTextFadeTruncateTest {
 
     @Test
     fun visibleTextEndOffset_clipsToMaxLines() {
-        // 模拟满布局 3 行，行尾分别在 5/10/15
         val ends = intArrayOf(5, 10, 15)
         assertEquals(
             10,
@@ -67,8 +66,83 @@ class LyricTextFadeTruncateTest {
     }
 
     @Test
+    fun needsEndFadeForLineWidth_whenOverflow() {
+        assertTrue(LyricTextFadeTruncate.needsEndFadeForLineWidth(320f, 300f))
+        assertFalse(LyricTextFadeTruncate.needsEndFadeForLineWidth(300f, 300f))
+    }
+
+    @Test
     fun lastCodePointStart_forBmpChar() {
         assertEquals(2, LyricTextFadeTruncate.lastCodePointStart("abc", 0, 3))
+    }
+
+    @Test
+    fun trimTrailingWhitespaceEnd_skipsSpacesAndNewline() {
+        assertEquals(3, LyricTextFadeTruncate.trimTrailingWhitespaceEnd("abc  \n", 0, 6))
+        assertEquals(5, LyricTextFadeTruncate.trimTrailingWhitespaceEnd("hello", 0, 5))
+    }
+
+    @Test
+    fun resolveFadeWidthPx_expandsPastThinLastGlyph() {
+        val text = "Hello"
+        val widths = mapOf(
+            (4 to 5) to 8f,
+            (3 to 5) to 16f,
+            (2 to 5) to 28f,
+        )
+        val fadeW = LyricTextFadeTruncate.resolveFadeWidthPx(
+            text = text,
+            lineStart = 0,
+            lineEnd = 5,
+            textSizePx = 20f,
+        ) { s, e -> widths[s to e] ?: ((e - s) * 10f) }
+        // 单个窄字母不够，往回扩到至少 1.25em
+        assertTrue(fadeW >= 20f * LyricTextFadeTruncate.MIN_FADE_EM - 0.01f)
+        assertEquals(28f, fadeW, 0.01f)
+    }
+
+    @Test
+    fun resolveFadeWidthPx_ignoresTrailingWhitespace() {
+        val text = "word  "
+        val fadeW = LyricTextFadeTruncate.resolveFadeWidthPx(
+            text = text,
+            lineStart = 0,
+            lineEnd = 6,
+            textSizePx = 10f,
+        ) { s, e ->
+            if (e <= 4) (e - s) * 12f else if (s >= 4) 1f else (4 - s) * 12f
+        }
+        assertTrue(fadeW >= 10f * LyricTextFadeTruncate.MIN_FADE_EM - 0.01f)
+    }
+
+    @Test
+    fun endFadeGeometry_ltr_clipsToLayoutWidth() {
+        val geo = LyricTextFadeTruncate.endFadeGeometry(
+            lineLeft = 0f,
+            lineRight = 400f,
+            layoutWidth = 300f,
+            fadeWidthPx = 40f,
+            rtl = false,
+        )
+        assertEquals(0f, geo.layerLeft, 0.01f)
+        assertEquals(300f, geo.layerRight, 0.01f)
+        assertEquals(260f, geo.fadeOpaqueX, 0.01f)
+        assertEquals(300f, geo.fadeTransparentX, 0.01f)
+    }
+
+    @Test
+    fun endFadeGeometry_rtl_fadesAtLeadingEdge() {
+        val geo = LyricTextFadeTruncate.endFadeGeometry(
+            lineLeft = 0f,
+            lineRight = 300f,
+            layoutWidth = 300f,
+            fadeWidthPx = 40f,
+            rtl = true,
+        )
+        assertEquals(0f, geo.layerLeft, 0.01f)
+        assertEquals(300f, geo.layerRight, 0.01f)
+        assertEquals(40f, geo.fadeOpaqueX, 0.01f)
+        assertEquals(0f, geo.fadeTransparentX, 0.01f)
     }
 
     @Test
