@@ -31,6 +31,7 @@ object TransitionAnimator {
         val translationPx = LyricMotionPolicy.surfaceSlidePx(lyricView.resources.displayMetrics.density)
         val duration = LyricMotionPolicy.LYRIC_SURFACE_ENTER_MS
         val ease = LyricMotionPolicy.easeOut()
+        val spring = LyricMotionPolicy.springSurface()
 
         lyricView.alpha = 0f
         lyricView.translationY = translationPx
@@ -44,15 +45,15 @@ object TransitionAnimator {
         }
         val translate = ObjectAnimator.ofFloat(lyricView, "translationY", translationPx, 0f).apply {
             this.duration = duration
-            interpolator = LyricMotionPolicy.easeInOut()
+            interpolator = spring
         }
         val scaleX = ObjectAnimator.ofFloat(lyricView, "scaleX", 0.96f, 1f).apply {
             this.duration = duration
-            interpolator = ease
+            interpolator = spring
         }
         val scaleY = ObjectAnimator.ofFloat(lyricView, "scaleY", 0.96f, 1f).apply {
             this.duration = duration
-            interpolator = ease
+            interpolator = spring
         }
 
         val set = AnimatorSet()
@@ -87,7 +88,7 @@ object TransitionAnimator {
         val translationPx = LyricMotionPolicy.surfaceSlidePx(lyricView.resources.displayMetrics.density)
         val duration = LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS
         val easeIn = LyricMotionPolicy.easeIn()
-        val easeSlide = LyricMotionPolicy.easeInOut()
+        val spring = LyricMotionPolicy.springSlide()
 
         val alpha = ObjectAnimator.ofFloat(lyricView, "alpha", 1f, 0f).apply {
             this.duration = duration
@@ -95,7 +96,7 @@ object TransitionAnimator {
         }
         val translate = ObjectAnimator.ofFloat(lyricView, "translationY", 0f, translationPx).apply {
             this.duration = duration
-            interpolator = easeSlide
+            interpolator = spring
         }
         val scaleX = ObjectAnimator.ofFloat(lyricView, "scaleX", 1f, 0.96f).apply {
             this.duration = duration
@@ -142,7 +143,7 @@ object TransitionAnimator {
         }
         val animators = mutableListOf<Animator>()
         val translationPx = NOTIFICATION_TRANSLATION_DP * views[0].resources.displayMetrics.density
-        val ease = LyricMotionPolicy.easeInOut()
+        val spring = LyricMotionPolicy.springSlide()
 
         for ((index, view) in views.withIndex()) {
             val delay = (index * staggerDelayMs).coerceAtMost(maxStaggerMs)
@@ -154,7 +155,7 @@ object TransitionAnimator {
             val translate = ObjectAnimator.ofFloat(view, "translationY", 0f, -translationPx).apply {
                 duration = DURATION_NOTIFICATION_HIDE
                 startDelay = delay
-                interpolator = ease
+                interpolator = spring
             }
             animators.addAll(listOf(alpha, translate))
         }
@@ -185,7 +186,7 @@ object TransitionAnimator {
         }
         val animators = mutableListOf<Animator>()
         val translationPx = NOTIFICATION_TRANSLATION_DP * views[0].resources.displayMetrics.density
-        val ease = LyricMotionPolicy.easeInOut()
+        val spring = LyricMotionPolicy.springSlide()
 
         for ((index, view) in views.withIndex()) {
             val delay = (index * staggerDelayMs).coerceAtMost(maxStaggerMs)
@@ -200,7 +201,7 @@ object TransitionAnimator {
             val translate = ObjectAnimator.ofFloat(view, "translationY", -translationPx, 0f).apply {
                 duration = DURATION_NOTIFICATION_SHOW
                 startDelay = delay
-                interpolator = ease
+                interpolator = spring
             }
             animators.addAll(listOf(alpha, translate))
         }

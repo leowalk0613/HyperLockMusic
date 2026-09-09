@@ -7,8 +7,13 @@ import org.junit.Test
 class LyricMotionPolicyTest {
 
     @Test
-    fun stackScroll_longerSoftWindow() {
-        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS >= 400L)
+    fun stackScroll_usesAmllSettleWindow() {
+        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS >= 280L)
+        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 900L)
+        assertEquals(
+            AmllSpringMotion.settleMs(AmllSpringMotion.POS_Y),
+            LyricMotionPolicy.STACK_SCROLL_MS,
+        )
     }
 
     @Test
@@ -18,8 +23,8 @@ class LyricMotionPolicyTest {
 
     @Test
     fun lineSlidePx_scalesWithDensity() {
-        assertEquals(28f, LyricMotionPolicy.lineSlidePx(1f), 0.01f)
-        assertEquals(84f, LyricMotionPolicy.lineSlidePx(3f), 0.01f)
+        assertEquals(24f, LyricMotionPolicy.lineSlidePx(1f), 0.01f)
+        assertEquals(72f, LyricMotionPolicy.lineSlidePx(3f), 0.01f)
     }
 
     @Test
@@ -39,11 +44,11 @@ class LyricMotionPolicyTest {
     }
 
     @Test
-    fun easeInOut_softMid() {
-        val ease = LyricMotionPolicy.easeInOut()
+    fun springSlide_settlesToOne() {
+        val ease = LyricMotionPolicy.springSlide()
         assertEquals(0f, ease.getInterpolation(0f), 0.01f)
         assertEquals(1f, ease.getInterpolation(1f), 0.01f)
-        assertEquals(0.5f, ease.getInterpolation(0.5f), 0.01f)
+        assertTrue(ease.getInterpolation(0.4f) > 0.45f)
     }
 
     @Test

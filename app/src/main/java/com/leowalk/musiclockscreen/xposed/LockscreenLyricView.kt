@@ -2983,7 +2983,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         stackScrollOffset = step
         stackAnimator = ValueAnimator.ofFloat(step, 0f).apply {
             duration = stackAnimMs
-            interpolator = LyricMotionPolicy.easeInOut()
+            interpolator = LyricMotionPolicy.springSlide()
             addUpdateListener {
                 stackScrollOffset = it.animatedValue as Float
                 invalidate()
