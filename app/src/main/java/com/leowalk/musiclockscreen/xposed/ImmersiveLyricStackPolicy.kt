@@ -2,13 +2,17 @@ package com.leowalk.musiclockscreen.xposed
 
 /**
  * 沉浸歌词「三行上滑」：上一句 / 当前(+翻译) / 下一句。
- * 独立开关 + 沉浸歌词 + 亮屏；AOD / 息屏退回单行无动画。
- * 共用「切行动画」在未开三行上滑时对普通/沉浸均生效。
+ *
+ * 布局自底向上：歌词区域底边固定，内容增高时往上长。
+ * 切行：当前行先单独上滑到落点，再到齐后展开邻行/翻译。
  */
 internal object ImmersiveLyricStackPolicy {
 
     /** 邻行相对当前行的不透明度（更透）。 */
     const val NEIGHBOR_ALPHA = 0.28f
+
+    /** 切行动画中「上滑」占前段比例，其后为展开。 */
+    const val FOCUS_FRACTION = 0.55f
 
     fun shouldUseStack(
         immersiveLyric: Boolean,
@@ -19,14 +23,10 @@ internal object ImmersiveLyricStackPolicy {
     data class Triplet(
         val prev: String,
         val current: String,
-        /** 当前行的另一语文案（翻译或原文）；空则无翻译行 */
         val currentSecondary: String,
         val next: String,
     )
 
-    /**
-     * @param swapEnabled 与「歌词翻译互换」一致：主行优先翻译时，副行显示原文。
-     */
     fun resolveTriplet(
         lines: List<LineText>,
         index: Int,
@@ -56,22 +56,121 @@ internal object ImmersiveLyricStackPolicy {
         )
     }
 
-    /** 与 [LockscreenLyricView.LyricLine] 解耦的最小行文本。 */
     data class LineText(val text: String, val translation: String = "")
 
     /**
-     * 切行上滑距离：主行高度 + 邻行空隙。
-     * 不含翻译副行，避免有无翻译时步长跳动显得乱。
+     * 自底向上几何。
+     * [expand] 0=仅当前行（落点贴底）；1=完整 prev/当前/翻译/下一句。
      */
+    data class BottomGeometry(
+        val heightPx: Float,
+        val prevTop: Float,
+        val currentTop: Float,
+        val secondaryTop: Float,
+        val nextTop: Float,
+        val showPrev: Boolean,
+        val showSecondary: Boolean,
+        val showNext: Boolean,
+    )
+
+    fun bottomGeometry(
+        vPaddingPx: Float,
+        gapPx: Float,
+        prevHeightPx: Float,
+        currentHeightPx: Float,
+        secondaryHeightPx: Float,
+        nextHeightPx: Float,
+        expand: Float,
+    ): BottomGeometry {
+        val e = expand.coerceIn(0f, 1f)
+        val gap = gapPx.coerceAtLeast(0f)
+        val curH = currentHeightPx.coerceAtLeast(1f)
+        val prevH = prevHeightPx.coerceAtLeast(0f)
+        val secH = secondaryHeightPx.coerceAtLeast(0f)
+        val nextH = nextHeightPx.coerceAtLeast(0f)
+
+        val showNext = e > 0.001f && nextH > 0f
+        val showSecondary = e > 0.001f && secH > 0f
+        val showPrev = e > 0.001f && prevH > 0f
+
+        // 展开高度：邻行/翻译高度按 expand 插值，底边始终在内容底部
+        val nextBlock = if (nextH > 0f) (nextH + gap) * e else 0f
+        val secBlock = if (secH > 0f) (secH + gap) * e else 0f
+        val prevBlock = if (prevH > 0f) (prevH + gap) * e else 0f
+        val height = vPaddingPx * 2f + prevBlock + curH + secBlock + nextBlock
+
+        var y = height - vPaddingPx
+        val nextTop: Float
+        if (nextH > 0f && e > 0f) {
+            val drawnNext = nextH * e
+            y -= drawnNext
+            nextTop = y
+            y -= gap * e
+        } else {
+            nextTop = y
+        }
+        val secondaryTop: Float
+        if (secH > 0f && e > 0f) {
+            val drawnSec = secH * e
+            y -= drawnSec
+            secondaryTop = y
+            y -= gap * e
+        } else {
+            secondaryTop = y
+        }
+        y -= curH
+        val currentTop = y
+        val prevTop = if (prevH > 0f && e > 0f) {
+            currentTop - gap * e - prevH * e
+        } else {
+            currentTop - gap - prevH
+        }
+        return BottomGeometry(
+            heightPx = height.coerceAtLeast(1f),
+            prevTop = prevTop,
+            currentTop = currentTop,
+            secondaryTop = secondaryTop,
+            nextTop = nextTop,
+            showPrev = showPrev,
+            showSecondary = showSecondary,
+            showNext = showNext,
+        )
+    }
+
+    /** 上滑段落进度 0→1（整段动画进度映射）。 */
+    fun focusProgress(animProgress: Float): Float {
+        val p = animProgress.coerceIn(0f, 1f)
+        val f = FOCUS_FRACTION.coerceIn(0.2f, 0.85f)
+        return (p / f).coerceIn(0f, 1f)
+    }
+
+    /** 展开段落进度 0→1。 */
+    fun expandProgress(animProgress: Float): Float {
+        val p = animProgress.coerceIn(0f, 1f)
+        val f = FOCUS_FRACTION.coerceIn(0.2f, 0.85f)
+        if (p <= f) return 0f
+        return ((p - f) / (1f - f)).coerceIn(0f, 1f)
+    }
+
+    /** 当前行自下方滑入：focus=0 在落点下方一步，focus=1 在落点。 */
+    fun currentSlideOffsetPx(focusProgress: Float, stepPx: Float): Float {
+        val f = focusProgress.coerceIn(0f, 1f)
+        return stepPx.coerceAtLeast(0f) * (1f - f)
+    }
+
     fun scrollStepPx(currentHeightPx: Float, gapPx: Float): Float {
         return currentHeightPx.coerceAtLeast(1f) + gapPx.coerceAtLeast(0f)
     }
 
-    /**
-     * 上一句顶边：当前行顶边上方留 [gapPx]，再减去上一句高度。
-     * 保证 prev 底边 ↔ current 顶边间距恒为 gap（与翻译↔下一句一致）。
-     */
     fun prevTopPx(currentTop: Float, prevHeight: Float, gapPx: Float): Float {
         return currentTop - gapPx.coerceAtLeast(0f) - prevHeight.coerceAtLeast(0f)
+    }
+
+    fun neighborAlphaForExpand(expand: Float): Float {
+        return NEIGHBOR_ALPHA * expand.coerceIn(0f, 1f)
+    }
+
+    fun secondaryAlphaForExpand(expand: Float): Float {
+        return 0.72f * expand.coerceIn(0f, 1f)
     }
 }
