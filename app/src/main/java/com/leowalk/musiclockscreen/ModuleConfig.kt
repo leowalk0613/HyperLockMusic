@@ -42,6 +42,31 @@ object ModuleConfig {
     private const val KEY_LOCKSCREEN_CHROME = "lockscreen_chrome"
     /** 退出画报模式时恢复的普通封面样式 */
     private const val KEY_LAST_NORMAL_CHROME = "last_normal_chrome"
+    /** 画报右划页样式（big_album / immersive），与锁屏 chrome 分离 */
+    private const val KEY_MAGAZINE_PAGE_CHROME = "magazine_page_chrome"
+
+    // 画报页独立档案（与普通锁屏键互不影响）
+    private const val KEY_MAGAZINE_BLUR_RADIUS = "magazine_blur_radius"
+    private const val KEY_MAGAZINE_DARK_OVERLAY = "magazine_dark_overlay"
+    private const val KEY_MAGAZINE_ALBUM_SIZE = "magazine_album_size"
+    private const val KEY_MAGAZINE_ALBUM_OFFSET_Y = "magazine_album_offset_y"
+    private const val KEY_MAGAZINE_ALBUM_CORNER = "magazine_album_corner"
+    private const val KEY_MAGAZINE_ALBUM_NETWORK_HD = "magazine_album_sr_enhance"
+    private const val KEY_MAGAZINE_IMMERSIVE_ALBUM_CENTER_Y = "magazine_immersive_album_center_y"
+    private const val KEY_MAGAZINE_IMMERSIVE_ALBUM_EDGE_GRADIENT = "magazine_immersive_album_edge_gradient"
+    private const val KEY_MAGAZINE_SHOW_LYRIC = "magazine_show_lyric"
+    private const val KEY_MAGAZINE_LYRIC_SIZE = "magazine_lyric_size"
+    private const val KEY_MAGAZINE_SWAP_LYRIC = "magazine_swap_lyric"
+    private const val KEY_MAGAZINE_LYRIC_WIDTH = "magazine_lyric_width"
+    private const val KEY_MAGAZINE_LYRIC_BG_ANCHOR_Y = "magazine_lyric_bg_anchor_y"
+    private const val KEY_MAGAZINE_IMMERSIVE_LYRIC = "magazine_immersive_lyric"
+    private const val KEY_MAGAZINE_LYRIC_HIDE_BACKGROUND = "magazine_lyric_hide_background"
+    private const val KEY_MAGAZINE_LYRIC_ALIGN = "magazine_lyric_align"
+    private const val KEY_MAGAZINE_LYRIC_TRANSITION = "magazine_lyric_transition"
+    private const val KEY_MAGAZINE_IMMERSIVE_LYRIC_STACK = "magazine_immersive_lyric_stack"
+    private const val KEY_MAGAZINE_KEEP_LOCKSCREEN_ON = "magazine_keep_lockscreen_on"
+    private const val KEY_MAGAZINE_TITLE_BRACKET_MODE = "magazine_title_bracket_mode"
+
     private const val KEY_MINIMAL_CLOCK = "minimal_clock"
     private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
@@ -258,8 +283,234 @@ object ModuleConfig {
             getPrefs().edit().putString(KEY_LAST_NORMAL_CHROME, normalized).apply()
         }
 
+    /**
+     * 画报右划 [MagazineMusicActivity] 的封面样式；不影响锁屏本体。
+     * 未设置时回落到 [lastNormalChrome]。
+     */
+    var magazinePageChrome: String
+        get() {
+            val raw = getPrefs().getString(KEY_MAGAZINE_PAGE_CHROME, null)
+            return when {
+                raw == CHROME_IMMERSIVE -> CHROME_IMMERSIVE
+                raw == CHROME_BIG_ALBUM -> CHROME_BIG_ALBUM
+                else -> lastNormalChrome
+            }
+        }
+        set(value) {
+            val normalized = if (value == CHROME_IMMERSIVE) CHROME_IMMERSIVE else CHROME_BIG_ALBUM
+            getPrefs().edit().putString(KEY_MAGAZINE_PAGE_CHROME, normalized).apply()
+        }
+
     val isMagazineMode: Boolean
         get() = lockscreenChrome == CHROME_MAGAZINE
+
+    // ---------- 画报页独立读写（未写入前回落普通档案当前值） ----------
+
+    var magazineBlurRadius: Float
+        get() = magazineFloat(KEY_MAGAZINE_BLUR_RADIUS, blurRadius)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_BLUR_RADIUS, value).apply()
+
+    var magazineDarkOverlay: Int
+        get() = magazineInt(KEY_MAGAZINE_DARK_OVERLAY, darkOverlay)
+        set(value) = getPrefs().edit().putInt(KEY_MAGAZINE_DARK_OVERLAY, value).apply()
+
+    var magazineAlbumSize: Float
+        get() = magazineFloat(KEY_MAGAZINE_ALBUM_SIZE, albumSize)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_ALBUM_SIZE, value).apply()
+
+    var magazineAlbumAnchorY: Float
+        get() = magazineFloat(KEY_MAGAZINE_ALBUM_OFFSET_Y, albumAnchorY)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_ALBUM_OFFSET_Y, value).apply()
+
+    var magazineAlbumCorner: Float
+        get() = magazineFloat(KEY_MAGAZINE_ALBUM_CORNER, albumCorner)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_ALBUM_CORNER, value).apply()
+
+    var magazineAlbumNetworkHd: Boolean
+        get() = magazineBool(KEY_MAGAZINE_ALBUM_NETWORK_HD, albumNetworkHd)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_ALBUM_NETWORK_HD, value).apply()
+
+    var magazineImmersiveAlbumCenterY: Float
+        get() = magazineFloat(KEY_MAGAZINE_IMMERSIVE_ALBUM_CENTER_Y, immersiveAlbumCenterY)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_IMMERSIVE_ALBUM_CENTER_Y, value).apply()
+
+    var magazineImmersiveAlbumEdgeGradient: Boolean
+        get() = magazineBool(KEY_MAGAZINE_IMMERSIVE_ALBUM_EDGE_GRADIENT, immersiveAlbumEdgeGradient)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_IMMERSIVE_ALBUM_EDGE_GRADIENT, value).apply()
+
+    var magazineShowLyric: Boolean
+        get() = magazineBool(KEY_MAGAZINE_SHOW_LYRIC, showLyric)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_SHOW_LYRIC, value).apply()
+
+    var magazineLyricSize: Float
+        get() = magazineFloat(KEY_MAGAZINE_LYRIC_SIZE, lyricSize)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_LYRIC_SIZE, value).apply()
+
+    var magazineSwapLyric: Boolean
+        get() = magazineBool(KEY_MAGAZINE_SWAP_LYRIC, swapLyric)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_SWAP_LYRIC, value).apply()
+
+    var magazineLyricWidth: Float
+        get() = magazineFloat(KEY_MAGAZINE_LYRIC_WIDTH, lyricWidth)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_LYRIC_WIDTH, value).apply()
+
+    var magazineLyricBgAnchorY: Float
+        get() = magazineFloat(KEY_MAGAZINE_LYRIC_BG_ANCHOR_Y, lyricBgAnchorY)
+        set(value) = getPrefs().edit().putFloat(KEY_MAGAZINE_LYRIC_BG_ANCHOR_Y, value).apply()
+
+    var magazineImmersiveLyric: Boolean
+        get() = magazineBool(KEY_MAGAZINE_IMMERSIVE_LYRIC, immersiveLyric)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_IMMERSIVE_LYRIC, value).apply()
+
+    var magazineLyricHideBackground: Boolean
+        get() = magazineBool(KEY_MAGAZINE_LYRIC_HIDE_BACKGROUND, lyricHideBackground)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_LYRIC_HIDE_BACKGROUND, value).apply()
+
+    var magazineLyricAlign: String
+        get() = magazineString(KEY_MAGAZINE_LYRIC_ALIGN, lyricAlign)
+        set(value) = getPrefs().edit().putString(KEY_MAGAZINE_LYRIC_ALIGN, value).apply()
+
+    var magazineLyricTransition: String
+        get() = magazineString(KEY_MAGAZINE_LYRIC_TRANSITION, lyricTransition)
+        set(value) = getPrefs().edit().putString(KEY_MAGAZINE_LYRIC_TRANSITION, value).apply()
+
+    var magazineImmersiveLyricStack: Boolean
+        get() = magazineBool(KEY_MAGAZINE_IMMERSIVE_LYRIC_STACK, immersiveLyricStack)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_IMMERSIVE_LYRIC_STACK, value).apply()
+
+    var magazineKeepLockScreenOn: Boolean
+        get() = magazineBool(KEY_MAGAZINE_KEEP_LOCKSCREEN_ON, keepLockScreenOn)
+        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_KEEP_LOCKSCREEN_ON, value).apply()
+
+    var magazineTitleBracketMode: String
+        get() = magazineString(KEY_MAGAZINE_TITLE_BRACKET_MODE, titleBracketMode)
+        set(value) = getPrefs().edit().putString(KEY_MAGAZINE_TITLE_BRACKET_MODE, value).apply()
+
+    /** 设置页：按是否画报模式读写对应档案 */
+    var editBlurRadius: Float
+        get() = if (isMagazineMode) magazineBlurRadius else blurRadius
+        set(value) { if (isMagazineMode) magazineBlurRadius = value else blurRadius = value }
+
+    var editDarkOverlay: Int
+        get() = if (isMagazineMode) magazineDarkOverlay else darkOverlay
+        set(value) { if (isMagazineMode) magazineDarkOverlay = value else darkOverlay = value }
+
+    var editAlbumSize: Float
+        get() = if (isMagazineMode) magazineAlbumSize else albumSize
+        set(value) { if (isMagazineMode) magazineAlbumSize = value else albumSize = value }
+
+    var editAlbumAnchorY: Float
+        get() = if (isMagazineMode) magazineAlbumAnchorY else albumAnchorY
+        set(value) { if (isMagazineMode) magazineAlbumAnchorY = value else albumAnchorY = value }
+
+    var editAlbumCorner: Float
+        get() = if (isMagazineMode) magazineAlbumCorner else albumCorner
+        set(value) { if (isMagazineMode) magazineAlbumCorner = value else albumCorner = value }
+
+    var editAlbumNetworkHd: Boolean
+        get() = if (isMagazineMode) magazineAlbumNetworkHd else albumNetworkHd
+        set(value) { if (isMagazineMode) magazineAlbumNetworkHd = value else albumNetworkHd = value }
+
+    var editImmersiveAlbumCenterY: Float
+        get() = if (isMagazineMode) magazineImmersiveAlbumCenterY else immersiveAlbumCenterY
+        set(value) {
+            if (isMagazineMode) magazineImmersiveAlbumCenterY = value else immersiveAlbumCenterY = value
+        }
+
+    var editImmersiveAlbumEdgeGradient: Boolean
+        get() = if (isMagazineMode) magazineImmersiveAlbumEdgeGradient else immersiveAlbumEdgeGradient
+        set(value) {
+            if (isMagazineMode) magazineImmersiveAlbumEdgeGradient = value
+            else immersiveAlbumEdgeGradient = value
+        }
+
+    var editShowLyric: Boolean
+        get() = if (isMagazineMode) magazineShowLyric else showLyric
+        set(value) { if (isMagazineMode) magazineShowLyric = value else showLyric = value }
+
+    var editLyricSize: Float
+        get() = if (isMagazineMode) magazineLyricSize else lyricSize
+        set(value) { if (isMagazineMode) magazineLyricSize = value else lyricSize = value }
+
+    var editSwapLyric: Boolean
+        get() = if (isMagazineMode) magazineSwapLyric else swapLyric
+        set(value) { if (isMagazineMode) magazineSwapLyric = value else swapLyric = value }
+
+    var editLyricWidth: Float
+        get() = if (isMagazineMode) magazineLyricWidth else lyricWidth
+        set(value) { if (isMagazineMode) magazineLyricWidth = value else lyricWidth = value }
+
+    var editLyricBgAnchorY: Float
+        get() = if (isMagazineMode) magazineLyricBgAnchorY else lyricBgAnchorY
+        set(value) { if (isMagazineMode) magazineLyricBgAnchorY = value else lyricBgAnchorY = value }
+
+    var editImmersiveLyric: Boolean
+        get() = if (isMagazineMode) magazineImmersiveLyric else immersiveLyric
+        set(value) { if (isMagazineMode) magazineImmersiveLyric = value else immersiveLyric = value }
+
+    var editLyricHideBackground: Boolean
+        get() = if (isMagazineMode) magazineLyricHideBackground else lyricHideBackground
+        set(value) {
+            if (isMagazineMode) magazineLyricHideBackground = value else lyricHideBackground = value
+        }
+
+    var editLyricAlign: String
+        get() = if (isMagazineMode) magazineLyricAlign else lyricAlign
+        set(value) { if (isMagazineMode) magazineLyricAlign = value else lyricAlign = value }
+
+    var editLyricTransition: String
+        get() = if (isMagazineMode) magazineLyricTransition else lyricTransition
+        set(value) { if (isMagazineMode) magazineLyricTransition = value else lyricTransition = value }
+
+    var editImmersiveLyricStack: Boolean
+        get() = if (isMagazineMode) magazineImmersiveLyricStack else immersiveLyricStack
+        set(value) {
+            if (isMagazineMode) magazineImmersiveLyricStack = value else immersiveLyricStack = value
+        }
+
+    var editKeepLockScreenOn: Boolean
+        get() = if (isMagazineMode) magazineKeepLockScreenOn else keepLockScreenOn
+        set(value) {
+            if (isMagazineMode) magazineKeepLockScreenOn = value else keepLockScreenOn = value
+        }
+
+    var editTitleBracketMode: String
+        get() = if (isMagazineMode) magazineTitleBracketMode else titleBracketMode
+        set(value) {
+            if (isMagazineMode) magazineTitleBracketMode = value else titleBracketMode = value
+        }
+
+    private fun magazineFloat(key: String, fallback: Float): Float {
+        val p = getPrefs()
+        return com.leowalk.musiclockscreen.xposed.DualModeSettingsPolicy.resolveStoredOrFallback(
+            magazineKeyPresent = p.contains(key),
+            magazineValue = p.getFloat(key, fallback),
+            normalValue = fallback,
+        )
+    }
+
+    private fun magazineInt(key: String, fallback: Int): Int {
+        val p = getPrefs()
+        return if (p.contains(key)) p.getInt(key, fallback) else fallback
+    }
+
+    private fun magazineBool(key: String, fallback: Boolean): Boolean {
+        val p = getPrefs()
+        return com.leowalk.musiclockscreen.xposed.DualModeSettingsPolicy.resolveStoredOrFallback(
+            magazineKeyPresent = p.contains(key),
+            magazineValue = p.getBoolean(key, fallback),
+            normalValue = fallback,
+        )
+    }
+
+    private fun magazineString(key: String, fallback: String): String {
+        val p = getPrefs()
+        return com.leowalk.musiclockscreen.xposed.DualModeSettingsPolicy.resolveStoredOrFallback(
+            magazineKeyPresent = p.contains(key),
+            magazineValue = p.getString(key, fallback) ?: fallback,
+            normalValue = fallback,
+        )
+    }
 
     /**
      * 主界面：普通模式 ↔ 画报模式。
@@ -295,15 +546,27 @@ object ModuleConfig {
      * 专辑样式 ↔ 歌词样式绑定：
      * - 沉浸封面 → 普通歌词 + 无背景
      * - 大专辑（非沉浸封面）→ 沉浸歌词
+     * 画报模式写 magazine_*，普通模式写锁屏档案。
      */
     fun applyAlbumLyricBinding(immersiveAlbumOn: Boolean) {
-        if (immersiveAlbumOn) {
-            immersiveLyric = false
-            lyricHideBackground = true
+        val d = com.leowalk.musiclockscreen.xposed.AlbumLyricBindingPolicy
+            .defaultsForImmersiveAlbum(immersiveAlbumOn)
+        if (isMagazineMode) {
+            magazineImmersiveLyric = d.immersiveLyric
+            magazineLyricHideBackground = d.lyricHideBackground
         } else {
-            immersiveLyric = true
-            lyricHideBackground = false
+            immersiveLyric = d.immersiveLyric
+            lyricHideBackground = d.lyricHideBackground
         }
+    }
+
+    /**
+     * 画报页封面样式切换：写 [magazinePageChrome] 并套用专辑↔歌词默认绑定。
+     */
+    fun applyMagazinePageChrome(chrome: String) {
+        val normalized = if (chrome == CHROME_IMMERSIVE) CHROME_IMMERSIVE else CHROME_BIG_ALBUM
+        magazinePageChrome = normalized
+        applyAlbumLyricBinding(immersiveAlbumOn = normalized == CHROME_IMMERSIVE)
     }
 
     /**
@@ -316,9 +579,7 @@ object ModuleConfig {
                 lockscreenChrome = CHROME_MAGAZINE
                 showBigAlbum = false
                 immersiveAlbum = false
-                immersiveLyric = false
-                lyricHideBackground = true
-                immersiveLyricStack = false
+                // 不改普通歌词档案；画报页歌词用 magazine_* 独立键
             }
             CHROME_IMMERSIVE -> {
                 lockscreenChrome = CHROME_IMMERSIVE

@@ -81,9 +81,10 @@ class TrackLyricGateTest {
     }
 
     @Test
-    fun waiting_showsAlbum_whenEmptyAndVersionBumped() {
+    fun waiting_ignoresEmpty_whenVersionBumpedButTitleLag() {
+        // 网络源常先 bump 空/弱包，不能当成「确认无词」
         assertEquals(
-            TrackLyricGate.Decision.SHOW_ALBUM,
+            TrackLyricGate.Decision.IGNORE,
             TrackLyricGate.decide(
                 input(
                     phase = TrackLyricGate.Phase.WAITING,
@@ -110,15 +111,49 @@ class TrackLyricGateTest {
     }
 
     @Test
-    fun waiting_showsAlbum_onTimeout() {
+    fun waiting_timeoutWithoutLines_keepsWaitingForNetworkSource() {
         assertEquals(
-            TrackLyricGate.Decision.SHOW_ALBUM,
+            TrackLyricGate.Decision.IGNORE,
             TrackLyricGate.decide(
                 input(
                     phase = TrackLyricGate.Phase.WAITING,
                     now = 1000L + TrackLyricGate.WAIT_TIMEOUT_MS,
                     hasValidLines = false,
                     titleMatches = false,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun idle_acceptsLateNetworkLyric_whenFdBumpedAfterSwitch() {
+        assertEquals(
+            TrackLyricGate.Decision.SHOW_LYRIC,
+            TrackLyricGate.decide(
+                input(
+                    phase = TrackLyricGate.Phase.IDLE,
+                    titleMatches = false,
+                    hasValidLines = true,
+                    vLyric = 3,
+                    vFd = 8,
+                    contentFromSwitch = false,
+                    contentFromCurrent = false,
+                )
+            )
+        )
+    }
+
+    @Test
+    fun idle_acceptsLateNetworkLyric_whenContentDiffersFromSwitchSnapshot() {
+        assertEquals(
+            TrackLyricGate.Decision.SHOW_LYRIC,
+            TrackLyricGate.decide(
+                input(
+                    phase = TrackLyricGate.Phase.IDLE,
+                    titleMatches = false,
+                    hasValidLines = true,
+                    contentFromSwitch = true,
+                    contentFromCurrent = false,
                 )
             )
         )

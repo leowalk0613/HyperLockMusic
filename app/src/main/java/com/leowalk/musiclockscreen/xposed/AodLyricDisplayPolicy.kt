@@ -294,6 +294,21 @@ internal object AodLyricDisplayPolicy {
         return snapshotEmpty
     }
 
+    /**
+     * ContentObserver / 切歌门闩触发了 dataDirty，但 LyricFocus 未 bump version：
+     * 仍必须重拉轻量包（l/s/ctx 常就地更新）。
+     */
+    fun shouldForceProviderReadOnDirty(
+        dataDirty: Boolean,
+        versionsChanged: Boolean,
+    ): Boolean = dataDirty || versionsChanged
+
+    /** 版本未变时每轮轮询是否仍应合并最新轻量 l/s（LyricFocus 就地刷新）。 */
+    fun shouldSoftMergeLightLyricEachPoll(
+        versionsChanged: Boolean,
+        hasDisplayableCache: Boolean,
+    ): Boolean = !versionsChanged
+
     /** 原文/翻译互换：仅当第二行确认为翻译时生效。 */
     fun applyLyricSwap(
         rawMain: String,

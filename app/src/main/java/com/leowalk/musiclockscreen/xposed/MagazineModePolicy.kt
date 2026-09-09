@@ -14,11 +14,15 @@ internal object MagazineModePolicy {
     fun isMagazineChrome(chrome: String): Boolean =
         chrome == CHROME_MAGAZINE
 
-    /** 音乐锁屏激活且为画报样式时，强制 [isMagazineWallpaper]=true。 */
+    /**
+     * 是否强制 [isMagazineWallpaper]=true。
+     * 一律 false：伪装 gallery 会让息屏偏离「锁屏样式一致」FullAOD，掉进万象/自定义 AOD。
+     * 画报模式只劫持右划 Intent，不改锁屏壁纸类型。
+     */
     fun shouldForceMagazineWallpaper(
         chromeMagazine: Boolean,
         musicWallpaperShowing: Boolean,
-    ): Boolean = chromeMagazine && musicWallpaperShowing
+    ): Boolean = false
 
     /** 画报样式下不显示方形大专辑。 */
     fun shouldShowSquareAlbum(
@@ -58,18 +62,27 @@ internal object MagazineModePolicy {
     ): Boolean = false
 
     /**
-     * 画报模式：锁屏右划/左滑进画报与官方同路径，仅劫持目标 Activity。
-     * 不依赖模块主动写壁纸（系统画报本身也是被动触发）。
+     * 画报模式 + 有音乐时，才把左滑/右划进画报改到模块 Activity。
+     * 无音乐播放时不能进音乐锁屏画报页。
      */
     fun shouldRedirectMagazineLeftSwipe(
         chromeMagazine: Boolean,
-    ): Boolean = chromeMagazine
+        musicActive: Boolean,
+    ): Boolean = chromeMagazine && musicActive
 
-    /** @deprecated 请用单参数版本；保留兼容旧调用。 */
-    fun shouldRedirectMagazineLeftSwipe(
-        chromeMagazine: Boolean,
-        musicWallpaperShowing: Boolean,
-    ): Boolean = shouldRedirectMagazineLeftSwipe(chromeMagazine)
+    /**
+     * 可算「有音乐」的播放态。null / STOPPED / NONE 等不算，避免关掉后仍能划进黑页。
+     */
+    fun isUsableMusicPlaybackState(state: Int?): Boolean {
+        return when (state) {
+            android.media.session.PlaybackState.STATE_PLAYING,
+            android.media.session.PlaybackState.STATE_PAUSED,
+            android.media.session.PlaybackState.STATE_BUFFERING,
+            android.media.session.PlaybackState.STATE_CONNECTING,
+            -> true
+            else -> false
+        }
+    }
 
     /**
      * 画报模式与普通模式的差异：不隐藏通知、不改勿扰条、不改写媒体控件槽位。
@@ -105,16 +118,16 @@ internal object MagazineModePolicy {
         "com.leowalk.musiclockscreen.MagazineMusicActivity"
 
     /**
-     * 遮罩动画校验：官方 emag，或画报模式下的模块包。
-     * 对齐 KeyguardMagazineHelper.checkIsMagazineRemoteAnimation。
+     * 遮罩动画校验：仅官方 emag。
+     * 模块自建页不参与 magazine remote animation，否则灭屏会走画报 FullAOD / 万象自定义，
+     * 与「锁屏本体」样式不一致。
      */
     fun isMagazineRemoteAnimationPackage(
         packageName: String?,
         chromeMagazine: Boolean,
     ): Boolean {
         if (packageName.isNullOrBlank()) return false
-        if (packageName == OFFICIAL_MAGAZINE_PACKAGE) return true
-        return chromeMagazine && packageName == MODULE_PACKAGE
+        return packageName == OFFICIAL_MAGAZINE_PACKAGE
     }
 
     /** 画报模式：把「emag 已安装」查询伪装为 true，卸载后仍可走右划入口。 */

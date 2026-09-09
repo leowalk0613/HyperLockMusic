@@ -63,6 +63,24 @@ internal object LyricTextFadeTruncate {
         return lineWidthPx > layoutWidthPx + 0.5f
     }
 
+    /**
+     * 单行歌曲信息：是否需要末尾渐隐。
+     * 中文等可断行时行宽常≈框宽，须同时看期望宽与可见末下标。
+     */
+    fun needsEndFadeForSingleLineInfo(
+        desiredWidthPx: Float,
+        contentWidthPx: Float,
+        trimmedTextEnd: Int,
+        visibleLineEnd: Int,
+        layoutLineCount: Int,
+    ): Boolean {
+        if (contentWidthPx <= 1f || trimmedTextEnd <= 0) return false
+        if (needsEndFade(desiredWidthPx, contentWidthPx)) return true
+        if (visibleLineEnd < trimmedTextEnd) return true
+        if (layoutLineCount > 1) return true
+        return false
+    }
+
     /** 去掉行尾空白 / 换行后的 exclusive end，便于落到真实字形。 */
     fun trimTrailingWhitespaceEnd(text: CharSequence, start: Int, end: Int): Int {
         var e = end.coerceIn(start, text.length)

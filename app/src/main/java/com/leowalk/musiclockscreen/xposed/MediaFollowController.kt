@@ -62,13 +62,28 @@ object MediaFollowController {
     }
 
     fun requestReflow() {
+        requestReflow(clearLyricPin = false)
+    }
+
+    /**
+     * @param clearLyricPin 锚点百分比变更时必须清钉，否则底边卡在旧像素上，滑条无效。
+     */
+    fun requestReflow(clearLyricPin: Boolean) {
         ConfigReader.invalidate()
-        // 软失效：保留歌词底边钉与高度，避免每次 reflow 把底边弹回百分比
         lastAlbumAnchor = Float.NaN
         lastLyricAnchor = Float.NaN
         lastAlbumSize = -1
+        if (clearLyricPin) {
+            pinnedLyricBottomY = -1
+            lastLyricHeight = -1
+        }
         zOrderPinned = false
         layoutAll()
+    }
+
+    /** 配置锚点变更：清钉并重排。 */
+    fun clearLyricPinAndReflow() {
+        requestReflow(clearLyricPin = true)
     }
 
     /** 歌词自调高度后同步缓存，避免下一帧 MediaFollow 再挪一次造成闪 */
@@ -251,7 +266,8 @@ object MediaFollowController {
         }
 
         if (immersiveLyric) {
-            val bottomY = if (pinnedLyricBottomY > 0) {
+            // 锚点变了必须重算底边，不能沿用旧 pin
+            val bottomY = if (pinnedLyricBottomY > 0 && lastLyricAnchor == anchor) {
                 pinnedLyricBottomY
             } else {
                 (bg.height * (anchor / 100f)).toInt().also { pinnedLyricBottomY = it }
@@ -263,6 +279,8 @@ object MediaFollowController {
             if (placeByScreenHeight(lyric, w, h, anchor)) {
                 logI("lyric bottom=${anchor}% h=$h bgH=${bg.height}")
             }
+            // 普通歌词：按百分比落下后同步 pin，避免 View 自调高度时用旧 pin
+            pinnedLyricBottomY = (bg.height * (anchor / 100f)).toInt()
             lastLyricAnchor = anchor
             lastLyricHeight = h
         }

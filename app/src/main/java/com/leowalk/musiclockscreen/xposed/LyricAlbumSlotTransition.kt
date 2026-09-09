@@ -17,8 +17,8 @@ internal object LyricAlbumSlotTransition {
      */
     const val AOD_VISIBILITY_PIN_MS = 2800L
 
-    /** 切歌后优先占歌词位、等待首句的最长时间。 */
-    const val PREFER_LYRIC_WAIT_MS = TrackLyricGate.WAIT_TIMEOUT_MS
+    /** 切歌后优先占歌词位的最长时间；网络源歌词可更晚到达，门闩另见 [TrackLyricGate.WAIT_TIMEOUT_MS]。 */
+    const val PREFER_LYRIC_WAIT_MS = 2500L
 
     /**
      * 是否仍应按「播放中」对待歌词显示。

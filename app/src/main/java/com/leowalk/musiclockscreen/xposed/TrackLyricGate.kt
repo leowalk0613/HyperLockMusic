@@ -14,7 +14,8 @@ package com.leowalk.musiclockscreen.xposed
  */
 internal object TrackLyricGate {
 
-    const val WAIT_TIMEOUT_MS = 2500L
+    /** 切歌后等 LyricFocus 网络源回填的最长时间（本地源通常更快）。 */
+    const val WAIT_TIMEOUT_MS = 10000L
 
     enum class Phase {
         IDLE,
@@ -74,6 +75,8 @@ internal object TrackLyricGate {
             Phase.IDLE -> decideIdle(
                 hasValidLines = input.hasValidLines,
                 titleMatchesMedia = input.titleMatchesMedia,
+                bumped = bumped,
+                contentChangedFromSwitch = input.contentChangedFromSwitchSnapshot,
                 contentChangedFromCurrent = input.contentChangedFromCurrentDisplay,
             )
         }
@@ -93,9 +96,12 @@ internal object TrackLyricGate {
             }
             return Decision.IGNORE
         }
-        // 无有效歌词行：标题已对齐 / version 已变 / 超时 → 确认无词，出专辑
-        if (titleMatchesMedia || bumped || timedOut) {
+        // 无有效歌词行：标题已对齐才确认无词。超时只让出专辑位，不丢切歌快照判定
+        if (titleMatchesMedia) {
             return Decision.SHOW_ALBUM
+        }
+        if (timedOut) {
+            return Decision.IGNORE
         }
         return Decision.IGNORE
     }
@@ -103,11 +109,14 @@ internal object TrackLyricGate {
     private fun decideIdle(
         hasValidLines: Boolean,
         titleMatchesMedia: Boolean,
+        bumped: Boolean,
+        contentChangedFromSwitch: Boolean,
         contentChangedFromCurrent: Boolean,
     ): Decision {
         if (hasValidLines) {
             if (titleMatchesMedia) return Decision.SHOW_LYRIC
-            // 同曲进度行：标题仍可能短暂不一致，但 l/s 已变
+            // 网络源迟到：version/相对切歌快照已变，标题可能仍滞后
+            if (bumped || contentChangedFromSwitch) return Decision.SHOW_LYRIC
             if (contentChangedFromCurrent) return Decision.SHOW_LYRIC
             return Decision.IGNORE
         }

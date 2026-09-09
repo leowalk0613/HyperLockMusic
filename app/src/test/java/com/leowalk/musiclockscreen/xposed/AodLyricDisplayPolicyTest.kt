@@ -278,6 +278,46 @@ class AodLyricDisplayPolicyTest {
     }
 
     @Test
+    fun forceProviderRead_whenDirtyEvenIfVersionUnchanged() {
+        assertTrue(
+            AodLyricDisplayPolicy.shouldForceProviderReadOnDirty(
+                dataDirty = true,
+                versionsChanged = false,
+            ),
+        )
+        assertTrue(
+            AodLyricDisplayPolicy.shouldForceProviderReadOnDirty(
+                dataDirty = false,
+                versionsChanged = true,
+            ),
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldForceProviderReadOnDirty(
+                dataDirty = false,
+                versionsChanged = false,
+            ),
+        )
+        assertTrue(
+            AodLyricDisplayPolicy.shouldSoftMergeLightLyricEachPoll(
+                versionsChanged = false,
+                hasDisplayableCache = true,
+            ),
+        )
+        assertTrue(
+            AodLyricDisplayPolicy.shouldSoftMergeLightLyricEachPoll(
+                versionsChanged = false,
+                hasDisplayableCache = false,
+            ),
+        )
+        assertFalse(
+            AodLyricDisplayPolicy.shouldSoftMergeLightLyricEachPoll(
+                versionsChanged = true,
+                hasDisplayableCache = true,
+            ),
+        )
+    }
+
+    @Test
     fun cachedLineDisplay_prefersLineTranslationOverLightS() {
         val display = AodLyricDisplayPolicy.resolveCachedLineDisplay(
             currentText = "line",

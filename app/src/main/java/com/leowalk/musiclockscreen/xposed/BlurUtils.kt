@@ -44,12 +44,20 @@ object BlurUtils {
     }
 
     /**
-     * 取专辑图下半区域的主色调（缩小采样后求平均，跳过过亮/过暗像素）。
+     * Lower-half tint: contrast (mean luminance) + accent (chroma-weighted, normalized).
+     * extractLowerHalfDominantColor returns accent; use LowerHalfTint.contrast for light/dark.
      */
-    fun extractLowerHalfDominantColor(albumBitmap: Bitmap): Int {
+    data class LowerHalfTint(val contrast: Int, val accent: Int)
+
+    fun extractLowerHalfTintColors(albumBitmap: Bitmap): LowerHalfTint {
         val w = albumBitmap.width
         val h = albumBitmap.height
-        if (w <= 0 || h <= 0) return Color.BLACK
+        if (w <= 0 || h <= 0) {
+            return LowerHalfTint(
+                Color.rgb(40, 40, 44),
+                AlbumTintExtractPolicy.normalizeAccentTint(Color.GRAY),
+            )
+        }
 
         val sampleW = 48
         val sampleH = 48
@@ -60,6 +68,12 @@ object BlurUtils {
         var gSum = 0L
         var bSum = 0L
         var count = 0
+
+        var accentR = 0.0
+        var accentG = 0.0
+        var accentB = 0.0
+        var accentW = 0.0
+
         for (y in startRow until sampleH) {
             for (x in 0 until sampleW) {
                 val pixel = small.getPixel(x, y)
@@ -68,34 +82,46 @@ object BlurUtils {
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
-                val lum = 0.299 * r + 0.587 * g + 0.114 * b
-                if (lum < 18 || lum > 235) continue
                 rSum += r
                 gSum += g
                 bSum += b
                 count++
-            }
-        }
-        if (count == 0) {
-            for (y in startRow until sampleH) {
-                for (x in 0 until sampleW) {
-                    val pixel = small.getPixel(x, y)
-                    rSum += Color.red(pixel)
-                    gSum += Color.green(pixel)
-                    bSum += Color.blue(pixel)
-                    count++
+                val wChroma = AlbumTintExtractPolicy.chromaWeight(r, g, b)
+                if (wChroma > 0f) {
+                    accentR += r * wChroma
+                    accentG += g * wChroma
+                    accentB += b * wChroma
+                    accentW += wChroma
                 }
             }
         }
         if (small !== albumBitmap) small.recycle()
-        if (count == 0) return Color.BLACK
-        return Color.rgb(
+        if (count == 0) {
+            return LowerHalfTint(
+                Color.rgb(40, 40, 44),
+                AlbumTintExtractPolicy.normalizeAccentTint(Color.GRAY),
+            )
+        }
+        val contrast = Color.rgb(
             (rSum / count).toInt().coerceIn(0, 255),
             (gSum / count).toInt().coerceIn(0, 255),
-            (bSum / count).toInt().coerceIn(0, 255)
+            (bSum / count).toInt().coerceIn(0, 255),
         )
+        val rawAccent = if (accentW > 1e-3) {
+            Color.rgb(
+                (accentR / accentW).toInt().coerceIn(0, 255),
+                (accentG / accentW).toInt().coerceIn(0, 255),
+                (accentB / accentW).toInt().coerceIn(0, 255),
+            )
+        } else {
+            contrast
+        }
+        return LowerHalfTint(contrast, AlbumTintExtractPolicy.normalizeAccentTint(rawAccent))
     }
 
+    /** Accent from lower half. For light/dark use extractLowerHalfTintColors().contrast. */
+    fun extractLowerHalfDominantColor(albumBitmap: Bitmap): Int =
+        extractLowerHalfTintColors(albumBitmap).accent
     /**
      * iOS 风格模糊 + 大专辑封面合成。
      *

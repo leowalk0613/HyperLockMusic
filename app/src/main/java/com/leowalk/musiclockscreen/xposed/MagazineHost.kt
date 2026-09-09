@@ -10,8 +10,7 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 /**
- * 画报基底宿主：在 SystemUI 杂志层注入歌名/文案，并强制 isMagazineWallpaper；
- * 左滑/右划入口改写到模块 [MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY]。
+ * 画报宿主：劫持左滑/右划到模块 Activity；不强制 isMagazineWallpaper（避免 AOD 变自定义）。
  */
 object MagazineHost {
 
@@ -49,8 +48,199 @@ object MagazineHost {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    @Volatile
+    private var magazineHelper: Any? = null
+
+    @Volatile
+    private var keyguardViewMediator: Any? = null
+
+    /** 本轮已拉起模块画报页；仅此时灭屏需要清 occlude / 护住 FullAOD。 */
+    @Volatile
+    private var magazinePageLaunched: Boolean = false
+
+    /** 灭屏保护窗：拦住 changeAodStyleShown，并允许补发 full_aod=1。 */
+    @Volatile
+    private var protectFullAodForMagazineSleep: Boolean = false
+
+    @Volatile
+    private var sleepBroadcastRegistered: Boolean = false
+
+    private val magazineSleepReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            if (intent?.action != MagazinePageSleepPolicy.ACTION_MAGAZINE_PAGE_GOING_TO_SLEEP) return
+            logI("magazine page going to sleep broadcast")
+            releaseOccludeForSystemAod(restoreFullAod = true)
+        }
+    }
+
     fun bindModule(module: XposedModule) {
         this.module = module
+    }
+
+    fun attachMagazineHelper(helper: Any) {
+        magazineHelper = helper
+        try {
+            val f = helper.javaClass.getDeclaredField("mKeyguardViewMediator")
+            f.isAccessible = true
+            keyguardViewMediator = f.get(helper)
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun markMagazinePageLaunched() {
+        magazinePageLaunched = true
+    }
+
+    fun shouldBlockFullAodStyleChange(): Boolean {
+        val fullAodOn = isFullScreenAodOn()
+        return MagazinePageSleepPolicy.shouldBlockChangeAodStyleShown(
+            magazinePageLaunched || protectFullAodForMagazineSleep,
+            fullAodOn,
+        )
+    }
+
+    private fun isFullScreenAodOn(): Boolean {
+        val ctx = appContext ?: return false
+        return try {
+            android.provider.Settings.Secure.getInt(
+                ctx.contentResolver,
+                "full_screen_aod_on",
+                0,
+            ) == 1
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun ensureSleepBroadcastRegistered(context: Context) {
+        if (sleepBroadcastRegistered) return
+        try {
+            val filter = android.content.IntentFilter(
+                MagazinePageSleepPolicy.ACTION_MAGAZINE_PAGE_GOING_TO_SLEEP,
+            )
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(
+                    magazineSleepReceiver,
+                    filter,
+                    Context.RECEIVER_EXPORTED,
+                )
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                context.registerReceiver(magazineSleepReceiver, filter)
+            }
+            sleepBroadcastRegistered = true
+            logI("registered magazine sleep broadcast")
+            ModeSwitchExit.ensureSystemUiReceiverRegistered(context.applicationContext)
+        } catch (e: Throwable) {
+            logE("register magazine sleep broadcast failed", e)
+        }
+    }
+
+    /**
+     * 画报页灭屏后清 occlude，交回与「锁屏直接灭屏」相同的系统 AOD。
+     * 仅当确实拉起过模块页时执行，避免普通锁屏息屏被打扰。
+     * 未开 FullAOD 时只清 occlude，不 block / 不 push full_aod=1。
+     */
+    fun releaseOccludeForSystemAod(restoreFullAod: Boolean = false) {
+        if (!magazinePageLaunched && !protectFullAodForMagazineSleep) return
+        val ctx = appContext
+        if (ctx != null &&
+            !MagazinePageSleepPolicy.shouldReleaseOccludeForLockscreenMatchedAod(
+                ConfigReader.isMagazineChrome(ctx),
+            )
+        ) {
+            magazinePageLaunched = false
+            protectFullAodForMagazineSleep = false
+            return
+        }
+        val didRelease = magazinePageLaunched || protectFullAodForMagazineSleep
+        val fullAodOn = isFullScreenAodOn()
+        if (fullAodOn) {
+            protectFullAodForMagazineSleep = true
+        } else {
+            protectFullAodForMagazineSleep = false
+        }
+        magazinePageLaunched = false
+        try {
+            val mediator = keyguardViewMediator
+            if (mediator != null) {
+                val m = mediator.javaClass.methods.firstOrNull {
+                    it.name == "setOccluded" && it.parameterTypes.size >= 1 &&
+                        it.parameterTypes[0] == Boolean::class.javaPrimitiveType
+                }
+                when (m?.parameterTypes?.size) {
+                    1 -> m.invoke(mediator, false)
+                    2 -> m.invoke(mediator, false, false)
+                    else -> {
+                        val m2 = mediator.javaClass.getMethod("setOccluded", Boolean::class.javaPrimitiveType)
+                        m2.invoke(mediator, false)
+                    }
+                }
+                logI("releaseOccludeForSystemAod: setOccluded(false) fullAodOn=$fullAodOn")
+            }
+            val helper = magazineHelper
+            if (helper != null) {
+                try {
+                    val finish = helper.javaClass.getDeclaredMethod("finishMagazineActivity")
+                    finish.isAccessible = true
+                    finish.invoke(helper)
+                } catch (_: Throwable) {
+                }
+                try {
+                    val playing = helper.javaClass.getDeclaredMethod("isOccludedAnimationPlaying")
+                    playing.isAccessible = true
+                    playing.invoke(helper)
+                } catch (_: Throwable) {
+                }
+            }
+            if (restoreFullAod &&
+                MagazinePageSleepPolicy.shouldRestoreFullAodAfterMagazineSleep(didRelease, fullAodOn)
+            ) {
+                pushFullAodStyleEnabled(true)
+            }
+        } catch (e: Throwable) {
+            logE("releaseOccludeForSystemAod failed", e)
+        } finally {
+            if (fullAodOn) {
+                mainHandler.postDelayed({
+                    protectFullAodForMagazineSleep = false
+                }, 2500L)
+            }
+        }
+    }
+
+    /** 向 AOD 进程推送 full_aod state（1=锁屏样式一致，0=关掉 FullAOD）。 */
+    fun pushFullAodStyleEnabled(enabled: Boolean) {
+        try {
+            val cl = appContext?.classLoader ?: return
+            val mgr = Class.forName(
+                "com.miui.systemui.interfacesmanager.InterfacesImplManager",
+                false,
+                cl,
+            )
+            val iface = Class.forName("com.miui.sysuiinterfaces.IDozeServiceHost", false, cl)
+            val host = mgr.getMethod("getImpl", Class::class.java).invoke(null, iface) ?: return
+            val field = host.javaClass.getDeclaredField("dozeServices").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val services = field.get(host) as? java.util.ArrayList<Any?> ?: return
+            val bundle = android.os.Bundle()
+            bundle.putString("action", "full_aod")
+            bundle.putInt("state", if (enabled) 1 else 0)
+            for (svc in services) {
+                if (svc == null) continue
+                try {
+                    svc.javaClass.getMethod(
+                        "onSystemUIAction",
+                        Int::class.javaPrimitiveType,
+                        android.os.Bundle::class.java,
+                    ).invoke(svc, 64, bundle)
+                } catch (_: Throwable) {
+                }
+            }
+            logI("pushFullAodStyleEnabled($enabled)")
+        } catch (e: Throwable) {
+            logE("pushFullAodStyleEnabled failed", e)
+        }
     }
 
     fun attachController(ctrl: Any) {
@@ -68,7 +258,10 @@ object MagazineHost {
                 supportLeftField = ctrl.javaClass.getDeclaredField("mIsSupportLockScreenMagazineLeft")
                     .apply { isAccessible = true }
             }
-            resolveContext(ctrl)?.let { appContext = it.applicationContext }
+            resolveContext(ctrl)?.let {
+                appContext = it.applicationContext
+                ensureSleepBroadcastRegistered(it.applicationContext)
+            }
         } catch (e: Throwable) {
             logE("attachController reflect failed", e)
         }
@@ -87,12 +280,32 @@ object MagazineHost {
 
     fun shouldSuppressLeft(context: Context?): Boolean = false
 
-    /** 是否把左滑/右划画报入口改到模块 Activity（与官方同手势，不依赖模块壁纸）。 */
+    /** 是否把左滑/右划画报入口改到模块 Activity（需画报模式且有音乐）。 */
     fun shouldRedirectLeft(context: Context? = appContext): Boolean {
         val ctx = context ?: appContext ?: return false
         return MagazineModePolicy.shouldRedirectMagazineLeftSwipe(
             chromeMagazine = ConfigReader.isMagazineChrome(ctx),
+            musicActive = isMusicActiveForMagazineEntry(ctx),
         )
+    }
+
+    fun isMagazineChromeActive(context: Context? = appContext): Boolean {
+        val ctx = context ?: appContext ?: return false
+        return ConfigReader.isMagazineChrome(ctx)
+    }
+
+    /** 有白名单可用媒体会话时，才允许进音乐画报页（不用 override 粘滞态）。 */
+    private fun isMusicActiveForMagazineEntry(context: Context): Boolean {
+        return try {
+            com.leowalk.musiclockscreen.MediaSessionAccess.getActiveControllers(context).any { controller ->
+                if (!ConfigReader.isAllowedMusicApp(context, controller.packageName)) {
+                    return@any false
+                }
+                MagazineModePolicy.isUsableMusicPlaybackState(controller.playbackState?.state)
+            }
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     fun buildMusicLeftIntent(): Intent {
@@ -111,10 +324,29 @@ object MagazineHost {
         }
     }
 
-    /** 画报模式：强制左滑能力字段，避免卸载 emag 后 supportMoveToRight=false。 */
+    /** 画报模式：有音乐时强制左滑指向模块页；无音乐时清掉模块页目标并清覆盖，禁止误进黑页。 */
     fun ensureLeftSwipeCapable(ctrl: Any?) {
-        if (!shouldRedirectLeft()) return
         val c = ctrl ?: controller ?: return
+        if (!shouldRedirectLeft()) {
+            try {
+                if (overrideActive) clearOverride()
+                val current = try {
+                    c.javaClass.getDeclaredField("mPreLeftScreenActivityName").apply {
+                        isAccessible = true
+                    }.get(c) as? String
+                } catch (_: Throwable) {
+                    null
+                }
+                if (current == MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY ||
+                    (current != null && current.contains("MagazineMusicActivity"))
+                ) {
+                    setField(c, "mPreLeftScreenActivityName", "")
+                }
+            } catch (e: Throwable) {
+                logE("clear magazine left target failed", e)
+            }
+            return
+        }
         try {
             supportLeftField?.setBoolean(c, true)
             setField(c, "mIsLockScreenMagazinePkgExist", true)
@@ -131,6 +363,7 @@ object MagazineHost {
         lyricLine: String = "",
     ) {
         appContext = context.applicationContext
+        // 锁屏侧不再写 gallery 覆盖；仅缓存文案供划入页 Intent extras
         if (!ConfigReader.isMagazineChrome(context)) {
             clearOverride()
             return
@@ -138,9 +371,8 @@ object MagazineHost {
         title = songTitle.ifBlank { "正在播放" }
         artist = songArtist
         content = lyricLine.ifBlank { songArtist }
-        overrideActive = true
-        applyOverrideAsync()
-        logI("override shown title=$title")
+        overrideActive = false
+        logI("magazine page extras cached title=$title")
     }
 
     fun updateLyricLine(lyricLine: String) {
@@ -169,61 +401,16 @@ object MagazineHost {
         }
     }
 
-    /** 在 updateLockScreenMagazineWallpaperInfo 前后写入覆盖字段。 */
+    /**
+     * 锁屏侧不再注入 gallery WallpaperInfo（易把壁纸类型拖成画报，AOD 变自定义）。
+     * 歌名等只在模块画报页展示。
+     */
     fun applyOverrideToController(ctrl: Any?) {
-        val c = ctrl ?: controller ?: return
-        if (!overrideActive) return
-        try {
-            attachController(c)
-            val infoField = wallpaperInfoField ?: return
-            var info = infoField.get(c)
-            if (info == null) {
-                val infoClass = Class.forName(
-                    "com.android.keyguard.magazine.entity.LockScreenMagazineWallpaperInfo",
-                    false,
-                    c.javaClass.classLoader,
-                )
-                info = infoClass.getDeclaredConstructor().newInstance()
-                infoField.set(c, info)
-            }
-            setField(info, "title", title)
-            setField(info, "content", content)
-            // 锁屏皮仍用系统画报包名；真正划入由 Hook Intent 改到模块 Activity
-            setField(info, "packageName", "com.mfashiongallery.emag")
-            setField(
-                info,
-                "authority",
-                "com.xiaomi.tv.gallerylockscreen.lockscreen_magazine_provider",
-            )
-            setField(
-                info,
-                "ex",
-                MagazineModePolicy.buildMagazineExJson(
-                    entryText = "音乐",
-                    source = artist,
-                ),
-            )
-            try {
-                val initExtra = info.javaClass.getDeclaredMethod("initExtra")
-                initExtra.isAccessible = true
-                initExtra.invoke(info)
-            } catch (_: Throwable) {
-            }
-        } catch (e: Throwable) {
-            logE("applyOverrideToController failed", e)
-        }
+        // no-op：保留调用点兼容
     }
 
     private fun applyOverrideAsync() {
-        val ctrl = controller ?: return
-        mainHandler.post {
-            try {
-                applyOverrideToController(ctrl)
-                updateInfoMethod?.invoke(ctrl)
-            } catch (e: Throwable) {
-                logE("applyOverrideAsync failed", e)
-            }
-        }
+        // no-op
     }
 
     private fun setField(target: Any, name: String, value: Any?) {
@@ -272,45 +459,14 @@ object MagazineHostHook {
 
     fun install(classLoader: ClassLoader, module: XposedModule) {
         MagazineHost.bindModule(module)
-        hookIsMagazineWallpaper(classLoader, module)
+        // 不 hook 强制 isMagazineWallpaper：gallery 判定会把息屏拖成自定义/万象 AOD
         hookMagazineController(classLoader, module)
         hookLeftSwipeLaunch(classLoader, module)
         hookMagazineRemoteAnimation(classLoader, module)
+        hookReleaseOccludeOnSleep(classLoader, module)
+        hookBlockFullAodStyleChange(classLoader, module)
         hookSpoofEmagInstalled(classLoader, module)
         module.log(android.util.Log.INFO, TAG, "MagazineHostHook installed")
-    }
-
-    private fun hookIsMagazineWallpaper(classLoader: ClassLoader, module: XposedModule) {
-        try {
-            val wpClass = Class.forName(
-                "com.android.keyguard.wallpaper.MiuiKeyguardWallPaperManager",
-                false,
-                classLoader,
-            )
-            val method = wpClass.declaredMethods.firstOrNull {
-                it.name == "isMagazineWallpaper" && it.parameterTypes.isEmpty()
-            } ?: run {
-                module.log(android.util.Log.ERROR, TAG, "isMagazineWallpaper not found")
-                return
-            }
-            method.isAccessible = true
-            module.hook(method).intercept { chain ->
-                val original = chain.proceed() as? Boolean ?: false
-                try {
-                    val ctx = MagazineHost.resolveContext(chain.thisObject)
-                    if (MagazineHost.shouldForceMagazine(ctx)) {
-                        true
-                    } else {
-                        original
-                    }
-                } catch (_: Throwable) {
-                    original
-                }
-            }
-            module.log(android.util.Log.INFO, TAG, "hooked isMagazineWallpaper")
-        } catch (e: Throwable) {
-            module.log(android.util.Log.ERROR, TAG, "hookIsMagazineWallpaper failed", e)
-        }
     }
 
     private fun hookMagazineController(classLoader: ClassLoader, module: XposedModule) {
@@ -350,7 +506,10 @@ object MagazineHostHook {
                     MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     val ctx = MagazineHost.resolveContext(chain.thisObject)
                     if (MagazineHost.shouldRedirectLeft(ctx)) {
+                        MagazineHost.markMagazinePageLaunched()
                         MagazineHost.buildMusicLeftIntent()
+                    } else if (MagazineHost.isMagazineChromeActive(ctx)) {
+                        null
                     } else {
                         chain.proceed()
                     }
@@ -370,16 +529,20 @@ object MagazineHostHook {
                     MagazineHost.attachController(chain.thisObject)
                     MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     val ctx = MagazineHost.resolveContext(chain.thisObject)
-                    if (MagazineHost.shouldRedirectLeft(ctx) && ctx != null) {
-                        try {
-                            startActivityAsCurrentUser(ctx, MagazineHost.buildMusicLeftIntent())
-                            module.log(android.util.Log.INFO, TAG, "startMagazineLeftActivity -> module activity")
-                        } catch (e: Throwable) {
-                            module.log(android.util.Log.ERROR, TAG, "start module magazine activity failed", e)
+                    when {
+                        MagazineHost.shouldRedirectLeft(ctx) && ctx != null -> {
+                            try {
+                                MagazineHost.markMagazinePageLaunched()
+                                startActivityAsCurrentUser(ctx, MagazineHost.buildMusicLeftIntent())
+                                module.log(android.util.Log.INFO, TAG, "startMagazineLeftActivity -> module activity")
+                            } catch (e: Throwable) {
+                                module.log(android.util.Log.ERROR, TAG, "start module magazine activity failed", e)
+                            }
+                            null
                         }
-                        null
-                    } else {
-                        chain.proceed()
+                        // 无音乐：吞掉启动，禁止 proceed 拉起残留模块页
+                        MagazineHost.isMagazineChromeActive(ctx) -> null
+                        else -> chain.proceed()
                     }
                 }
                 module.log(android.util.Log.INFO, TAG, "hooked startMagazineLeftActivity")
@@ -441,10 +604,11 @@ object MagazineHostHook {
                 }?.let { method ->
                     method.isAccessible = true
                     module.hook(method).intercept { chain ->
-                        if (MagazineHost.shouldRedirectLeft()) {
-                            true
-                        } else {
-                            chain.proceed()
+                        when {
+                            MagazineHost.shouldRedirectLeft() -> true
+                            // 画报模式无音乐：禁止左滑启动，避免黑页
+                            MagazineHost.isMagazineChromeActive() -> false
+                            else -> chain.proceed()
                         }
                     }
                     module.log(android.util.Log.INFO, TAG, "hooked $name")
@@ -455,7 +619,7 @@ object MagazineHostHook {
         }
     }
 
-    /** 遮罩动画：模块包也算 magazine，否则进我们的页没有官方 occlude 动画。 */
+    /** 遮罩动画：仅放行官方 emag；模块页不参与，保证灭屏回普通锁屏 AOD。 */
     private fun hookMagazineRemoteAnimation(classLoader: ClassLoader, module: XposedModule) {
         try {
             val helperClass = Class.forName(
@@ -463,6 +627,20 @@ object MagazineHostHook {
                 false,
                 classLoader,
             )
+            helperClass.declaredConstructors.forEach { ctor ->
+                try {
+                    ctor.isAccessible = true
+                    module.hook(ctor).intercept { chain ->
+                        val created = chain.proceed()
+                        try {
+                            MagazineHost.attachMagazineHelper(chain.thisObject)
+                        } catch (_: Throwable) {
+                        }
+                        created
+                    }
+                } catch (_: Throwable) {
+                }
+            }
             val method = helperClass.declaredMethods.firstOrNull {
                 it.name == "checkIsMagazineRemoteAnimation" && it.parameterTypes.size == 1
             } ?: run {
@@ -499,6 +677,67 @@ object MagazineHostHook {
             module.log(android.util.Log.INFO, TAG, "hooked checkIsMagazineRemoteAnimation")
         } catch (e: Throwable) {
             module.log(android.util.Log.ERROR, TAG, "hookMagazineRemoteAnimation failed", e)
+        }
+    }
+
+    /**
+     * 灭屏清 occlude：Activity finish 广播抢先清；FinishedGoingToSleep 再兜底并恢复 FullAOD。
+     */
+    private fun hookReleaseOccludeOnSleep(classLoader: ClassLoader, module: XposedModule) {
+        try {
+            val injector = Class.forName(
+                "com.android.keyguard.injector.KeyguardViewMediatorInjector",
+                false,
+                classLoader,
+            )
+            val finished = injector.declaredMethods.firstOrNull {
+                it.name == "handleNotifyFinishedGoingToSleep" && it.parameterTypes.isEmpty()
+            } ?: run {
+                module.log(android.util.Log.INFO, TAG, "handleNotifyFinishedGoingToSleep not found")
+                return
+            }
+            finished.isAccessible = true
+            module.hook(finished).intercept { chain ->
+                try {
+                    MagazineHost.releaseOccludeForSystemAod(restoreFullAod = true)
+                } catch (_: Throwable) {
+                }
+                chain.proceed()
+            }
+            module.log(android.util.Log.INFO, TAG, "hooked handleNotifyFinishedGoingToSleep for aod release")
+        } catch (e: Throwable) {
+            module.log(android.util.Log.ERROR, TAG, "hookReleaseOccludeOnSleep failed", e)
+        }
+    }
+
+    /**
+     * 画报页灭屏窗口内禁止 changeAodStyleShown：否则 occluded+doze 会把 FullAOD 关掉变自定义。
+     */
+    private fun hookBlockFullAodStyleChange(classLoader: ClassLoader, module: XposedModule) {
+        try {
+            val injector = Class.forName(
+                "com.android.keyguard.injector.DozeServiceHostInjector",
+                false,
+                classLoader,
+            )
+            val method = injector.declaredMethods.firstOrNull {
+                it.name == "changeAodStyleShown" && it.parameterTypes.isEmpty()
+            } ?: run {
+                module.log(android.util.Log.INFO, TAG, "changeAodStyleShown not found")
+                return
+            }
+            method.isAccessible = true
+            module.hook(method).intercept { chain ->
+                if (MagazineHost.shouldBlockFullAodStyleChange()) {
+                    module.log(android.util.Log.INFO, TAG, "blocked changeAodStyleShown (magazine sleep)")
+                    null
+                } else {
+                    chain.proceed()
+                }
+            }
+            module.log(android.util.Log.INFO, TAG, "hooked changeAodStyleShown for magazine FullAOD")
+        } catch (e: Throwable) {
+            module.log(android.util.Log.ERROR, TAG, "hookBlockFullAodStyleChange failed", e)
         }
     }
 

@@ -58,6 +58,19 @@ object AlbumArtResolver {
 
     fun getCachedTrackKey(): String? = cachedTrackKey
 
+    /**
+     * 应用进程（画报页）用：仅有 MediaSession 包名时构造 trackKey。
+     */
+    fun computeTrackKeyForPackage(
+        context: Context?,
+        metadata: MediaMetadata?,
+        packageName: String?,
+    ): String? {
+        val stub = packageName?.takeIf { it.isNotBlank() }
+            ?.let { NetworkAlbumArtFetcher.PackageStub(it) }
+        return computeTrackKey(context, metadata, stub)
+    }
+
     fun updateCache(bitmap: Bitmap?, trackKey: String? = null, artUri: String? = null) {
         if (bitmap == null || bitmap.isRecycled) return
         val key = trackKey ?: cachedTrackKey

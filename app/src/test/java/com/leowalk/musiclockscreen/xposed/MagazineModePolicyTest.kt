@@ -8,8 +8,9 @@ import org.junit.Test
 class MagazineModePolicyTest {
 
     @Test
-    fun forceMagazine_requiresChromeAndShowing() {
-        assertTrue(MagazineModePolicy.shouldForceMagazineWallpaper(true, true))
+    fun forceMagazine_never_toProtectLockscreenMatchedAod() {
+        // 强制 gallery 会让息屏走自定义/万象 AOD，画报模式也不再强制
+        assertFalse(MagazineModePolicy.shouldForceMagazineWallpaper(true, true))
         assertFalse(MagazineModePolicy.shouldForceMagazineWallpaper(true, false))
         assertFalse(MagazineModePolicy.shouldForceMagazineWallpaper(false, true))
     }
@@ -67,13 +68,36 @@ class MagazineModePolicyTest {
     }
 
     @Test
-    fun redirectLeftSwipe_whenMagazineModeOnly() {
-        assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true))
-        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false))
-        // 兼容旧签名：有无音乐壁纸都不影响划入劫持
-        assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, false))
+    fun redirectLeftSwipe_requiresMagazineAndMusic() {
         assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, true))
+        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, false))
         assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false, true))
+        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false, false))
+    }
+
+    @Test
+    fun usableMusicPlaybackState_rejectsStoppedAndNull() {
+        assertTrue(
+            MagazineModePolicy.isUsableMusicPlaybackState(
+                android.media.session.PlaybackState.STATE_PLAYING,
+            ),
+        )
+        assertTrue(
+            MagazineModePolicy.isUsableMusicPlaybackState(
+                android.media.session.PlaybackState.STATE_PAUSED,
+            ),
+        )
+        assertFalse(MagazineModePolicy.isUsableMusicPlaybackState(null))
+        assertFalse(
+            MagazineModePolicy.isUsableMusicPlaybackState(
+                android.media.session.PlaybackState.STATE_STOPPED,
+            ),
+        )
+        assertFalse(
+            MagazineModePolicy.isUsableMusicPlaybackState(
+                android.media.session.PlaybackState.STATE_NONE,
+            ),
+        )
     }
 
     @Test
@@ -121,14 +145,15 @@ class MagazineModePolicyTest {
     }
 
     @Test
-    fun remoteAnimation_acceptsModuleWhenMagazine() {
+    fun remoteAnimation_onlyOfficialEmag() {
         assertTrue(
             MagazineModePolicy.isMagazineRemoteAnimationPackage(
                 MagazineModePolicy.OFFICIAL_MAGAZINE_PACKAGE,
                 chromeMagazine = false,
             ),
         )
-        assertTrue(
+        // 模块页故意不参与，避免灭屏进画报 FullAOD
+        assertFalse(
             MagazineModePolicy.isMagazineRemoteAnimationPackage(
                 MagazineModePolicy.MODULE_PACKAGE,
                 chromeMagazine = true,

@@ -14,6 +14,24 @@ class LyricTextFadeTruncateTest {
     }
 
     @Test
+    fun endFadeForSongInfo_artistAndSubtitleUseSameRule() {
+        // 歌名 / 括号副标题 / 歌手共用：行宽或可视宽超限即渐隐
+        assertTrue(LyricTextFadeTruncate.needsEndFadeForLineWidth(240f, 200f))
+        assertTrue(LyricTextFadeTruncate.needsEndFade(240f, 200f))
+        assertFalse(LyricTextFadeTruncate.needsEndFadeForLineWidth(180f, 200f))
+        // 可断行裁切：可见末下标 < 全文 → 与 EndFadeTextView 判定一致
+        assertTrue(
+            LyricTextFadeTruncate.needsEndFadeForClippedLayout(
+                unrestrictedLineCount = 3,
+                clippedLineCount = 1,
+                maxLines = 1,
+                clippedTextEndOffset = 4,
+                fullTextLength = 12,
+            ),
+        )
+    }
+
+    @Test
     fun visibleTextEndOffset_clipsToMaxLines() {
         val ends = intArrayOf(5, 10, 15)
         assertEquals(

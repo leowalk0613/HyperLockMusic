@@ -3,7 +3,6 @@ package com.leowalk.musiclockscreen.xposed
 import android.graphics.Color
 import android.text.SpannableString
 import android.text.Spanned
-import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
@@ -131,6 +130,7 @@ object MediaTitleSubtitleHook {
 
         restoreArtistText(artistText)
         unwrapTitleRow(titleText)
+        artistText?.let { applyArtistEndFadeMode(it) }
 
         titleText.text = when (mode) {
             "shrink" -> {
@@ -149,7 +149,7 @@ object MediaTitleSubtitleHook {
 
     /**
      * 分行：主标题在上、括号副标题在下（垂直 LinearLayout）。
-     * 主标题固定字号，显示不全用省略号；副标题保持较小。
+     * 超宽不走省略号：副标题用 [EndFadeTextView] 渐隐；歌手行去掉省略号。
      */
     private fun applyLineSubtitle(
         titleText: TextView,
@@ -162,8 +162,10 @@ object MediaTitleSubtitleHook {
         if (sub.isEmpty()) {
             unwrapTitleRow(titleText)
             titleText.maxLines = 1
-            titleText.ellipsize = TextUtils.TruncateAt.END
+            titleText.ellipsize = null
+            titleText.setHorizontallyScrolling(false)
             titleText.text = main.ifEmpty { titleText.text }
+            artistText?.let { applyArtistEndFadeMode(it) }
             return
         }
 
@@ -174,7 +176,6 @@ object MediaTitleSubtitleHook {
         val baseSize = rememberBaseSize(titleText)
         val titleColor = titleText.currentTextColor
         val artistSize = artistText?.textSize?.takeIf { it > 0f } ?: (baseSize * 0.72f)
-        // 有副标题时主标题为基准 90%；超出宽度用省略号
         val mainPx = maxOf(baseSize * LINE_MAIN_SIZE_RATIO, artistSize * LINE_TITLE_OVER_ARTIST)
         val subPx = baseSize * LINE_SUB_SIZE_RATIO
         val subTopMargin = dp(titleText.context, LINE_SUB_TOP_MARGIN_DP)
@@ -189,14 +190,16 @@ object MediaTitleSubtitleHook {
         }
 
         titleText.maxLines = 1
-        titleText.ellipsize = TextUtils.TruncateAt.END
+        titleText.ellipsize = null
+        titleText.setHorizontallyScrolling(false)
         titleText.includeFontPadding = false
         titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainPx)
         titleText.text = displayMain
 
         subTv.visibility = View.VISIBLE
         subTv.maxLines = 1
-        subTv.ellipsize = TextUtils.TruncateAt.END
+        subTv.ellipsize = null
+        subTv.setHorizontallyScrolling(false)
         subTv.includeFontPadding = false
         subTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, subPx)
         subTv.setTextColor(
@@ -214,8 +217,19 @@ object MediaTitleSubtitleHook {
                 subTv.layoutParams = slp
             }
         }
-        artistText?.let { tightenArtistGap(it) }
+        artistText?.let {
+            applyArtistEndFadeMode(it)
+            tightenArtistGap(it)
+        }
         titleText.setTag(LINE_APPLIED_TAG, appliedKey)
+    }
+
+    /** 歌手行：去掉省略号；画报 [EndFadeTextView] 走歌词同款渐隐。 */
+    private fun applyArtistEndFadeMode(artistText: TextView) {
+        artistText.maxLines = 1
+        artistText.ellipsize = null
+        artistText.setHorizontallyScrolling(false)
+        artistText.includeFontPadding = false
     }
 
     private fun rememberBaseSize(titleText: TextView): Float {
@@ -265,7 +279,8 @@ object MediaTitleSubtitleHook {
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
         titleText.maxLines = 1
-        titleText.ellipsize = TextUtils.TruncateAt.END
+        titleText.ellipsize = null
+        titleText.setHorizontallyScrolling(false)
         titleText.includeFontPadding = false
         // 交给 row 持有约束 id，title 用 NO_ID 避免重复
         titleText.id = View.NO_ID
@@ -278,7 +293,7 @@ object MediaTitleSubtitleHook {
     }
 
     private fun createLineSubtitleView(titleText: TextView): TextView {
-        return TextView(titleText.context).apply {
+        return EndFadeTextView(titleText.context).apply {
             tag = LINE_SUBTITLE_VIEW_TAG
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -286,9 +301,6 @@ object MediaTitleSubtitleHook {
             ).apply {
                 topMargin = dp(context, LINE_SUB_TOP_MARGIN_DP)
             }
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            includeFontPadding = false
             typeface = titleText.typeface
             gravity = titleText.gravity
             visibility = View.GONE

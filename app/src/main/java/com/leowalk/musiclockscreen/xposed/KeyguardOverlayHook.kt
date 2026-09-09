@@ -54,6 +54,9 @@ class KeyguardOverlayHook {
 
                     // 重启且音乐壁纸残留时自动恢复原壁纸（先恢复，避免随后把残留当成干净源缓存）
                     val bindRoot = chain.args[0] as? ViewGroup
+                    bindRoot?.context?.applicationContext?.let {
+                        ModeSwitchExit.ensureSystemUiReceiverRegistered(it)
+                    }
                     WallpaperController.autoRestoreIfResidual(bindRoot?.context)
                     // 干净状态下持续缓存当前锁屏原壁纸（跟随用户改壁纸）；
                     // 音乐壁纸激活/残留时会内部自动跳过。

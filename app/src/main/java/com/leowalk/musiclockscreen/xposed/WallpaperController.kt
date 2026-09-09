@@ -948,35 +948,12 @@ object WallpaperController {
         } catch (_: Throwable) {
             null
         }
-        when {
-            trackKey?.startsWith(QqMusicSongIdResolver.TRACK_PREFIX) == true ||
-                QqMusicSongIdResolver.isQqCatalogPackage(pkg) -> {
-                return QqMusicAlbumArtSource.fetchVerifiedHighRes(
-                    context, reference, metadata, mediaData, trackKey
-                )
-            }
-            trackKey?.startsWith("netease:") == true ||
-                pkg == "com.netease.cloudmusic" -> {
-                return NetEaseAlbumArtSource.fetchVerifiedHighRes(
-                    context, reference, metadata, mediaData, trackKey
-                )
-            }
-        }
-        // 裸 id:：先试 QQ 官方 songid，再回退网易云
-        val bareId = trackKey
-            ?.takeIf { it.startsWith("id:") }
-            ?.removePrefix("id:")
-            ?.toLongOrNull()
-        if (bareId != null) {
-            QqMusicAlbumArtSource.fetchVerifiedHighRes(
-                context, reference, metadata, mediaData, QqMusicSongIdResolver.trackKey(bareId)
-            )?.let { return it }
-            NetEaseAlbumArtSource.fetchVerifiedHighRes(
-                context, reference, metadata, mediaData, NetEaseSongIdResolver.trackKey(bareId)
-            )?.let { return it }
-        }
-        return NetEaseAlbumArtSource.fetchVerifiedHighRes(
-            context, reference, metadata, mediaData, trackKey
+        return NetworkAlbumArtFetcher.fetchVerifiedHighRes(
+            context = context,
+            reference = reference,
+            metadata = metadata,
+            packageName = pkg,
+            trackKey = trackKey,
         )
     }
 
