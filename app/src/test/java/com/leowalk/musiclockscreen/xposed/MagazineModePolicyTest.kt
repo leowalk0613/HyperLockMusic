@@ -67,11 +67,13 @@ class MagazineModePolicyTest {
     }
 
     @Test
-    fun redirectLeftSwipe_requiresChromeAndShowing() {
+    fun redirectLeftSwipe_whenMagazineModeOnly() {
+        assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true))
+        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false))
+        // 兼容旧签名：有无音乐壁纸都不影响划入劫持
+        assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, false))
         assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, true))
-        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, false))
         assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false, true))
-        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false, false))
     }
 
     @Test

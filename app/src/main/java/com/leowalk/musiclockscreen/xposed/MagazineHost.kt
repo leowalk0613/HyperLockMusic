@@ -87,12 +87,11 @@ object MagazineHost {
 
     fun shouldSuppressLeft(context: Context?): Boolean = false
 
-    /** 是否把左滑/右划画报入口改到模块 Activity。 */
+    /** 是否把左滑/右划画报入口改到模块 Activity（与官方同手势，不依赖模块壁纸）。 */
     fun shouldRedirectLeft(context: Context? = appContext): Boolean {
         val ctx = context ?: appContext ?: return false
         return MagazineModePolicy.shouldRedirectMagazineLeftSwipe(
             chromeMagazine = ConfigReader.isMagazineChrome(ctx),
-            musicWallpaperShowing = WallpaperController.isShowing(),
         )
     }
 

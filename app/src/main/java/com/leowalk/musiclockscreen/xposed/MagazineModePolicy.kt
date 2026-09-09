@@ -58,13 +58,18 @@ internal object MagazineModePolicy {
     ): Boolean = false
 
     /**
-     * 画报样式 + 音乐锁屏激活时，把左滑/右划进画报改到模块自己的 Activity。
-     * SystemUI 写死 emag 包名，必须靠 Hook Intent / 启动路径完成。
+     * 画报模式：锁屏右划/左滑进画报与官方同路径，仅劫持目标 Activity。
+     * 不依赖模块主动写壁纸（系统画报本身也是被动触发）。
      */
     fun shouldRedirectMagazineLeftSwipe(
         chromeMagazine: Boolean,
+    ): Boolean = chromeMagazine
+
+    /** @deprecated 请用单参数版本；保留兼容旧调用。 */
+    fun shouldRedirectMagazineLeftSwipe(
+        chromeMagazine: Boolean,
         musicWallpaperShowing: Boolean,
-    ): Boolean = chromeMagazine && musicWallpaperShowing
+    ): Boolean = shouldRedirectMagazineLeftSwipe(chromeMagazine)
 
     /**
      * 画报模式与普通模式的差异：不隐藏通知、不改勿扰条、不改写媒体控件槽位。

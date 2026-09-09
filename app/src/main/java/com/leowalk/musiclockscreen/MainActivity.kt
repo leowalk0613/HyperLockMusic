@@ -48,8 +48,8 @@ class MainActivity : BaseScrollingActivity() {
         )
         modeCard.addView(
             android.widget.TextView(this).apply {
-                text = "普通：改媒体控件 / 藏通知 / 藏勿扰条，大专辑或沉浸封面。\n" +
-                    "画报：不改媒体控件、通知与勿扰；杂志层壁纸 + 划入自建页。"
+                text =                     "普通：改媒体控件 / 藏通知 / 藏勿扰条，大专辑或沉浸封面。\n" +
+                    "画报：不改媒体控件、通知与勿扰；锁屏右划进自建页（同官方画报手势）。"
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
                 setTextColor(
                     M3.attrColor(
