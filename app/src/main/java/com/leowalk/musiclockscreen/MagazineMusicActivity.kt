@@ -592,10 +592,11 @@ class MagazineMusicActivity : AppCompatActivity() {
                 } catch (_: Throwable) {
                     true
                 }
-                maybeBakeWallpaper(ctrl, metadata)
+                // 先更新歌词门闩/专辑槽，再烘焙，避免仍按旧 hide 标志叠前景
                 if (trackChanged) {
                     lyricView?.onTrackMayHaveChanged()
                 }
+                maybeBakeWallpaper(ctrl, metadata)
             }
 
             override fun onPlaybackStateChanged(state: PlaybackState?) {

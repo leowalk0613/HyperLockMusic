@@ -21,6 +21,20 @@ internal object LyricAlbumSlotTransition {
     const val PREFER_LYRIC_WAIT_MS = 2500L
 
     /**
+     * 等词超时：退出 WAITING → IDLE，保留切歌快照供迟到 lyric_fd。
+     * 若只清 [preferLyricUntilResolved] 而留在 WAITING，[LyricAlbumPriorityPolicy] 会一直藏专辑。
+     */
+    fun trackGatePhaseAfterPreferWaitTimeout(
+        phase: TrackLyricGate.Phase,
+    ): TrackLyricGate.Phase {
+        return if (phase == TrackLyricGate.Phase.WAITING) {
+            TrackLyricGate.Phase.IDLE
+        } else {
+            phase
+        }
+    }
+
+    /**
      * 是否仍应按「播放中」对待歌词显示。
      * 电源联动窗口内忽略假暂停；确认暂停仅在非联动时立刻收起。
      */

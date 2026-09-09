@@ -392,8 +392,9 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var lyricBootstrapBurstGeneration = 0
     private var lyricBootstrapUntilMs = 0L
     private val clearPreferLyricRunnable = Runnable {
-        // 只让出专辑槽；保留切歌快照，否则网络源迟到的 lyric_fd 会被当成旧包丢掉
-        preferLyricUntilResolved = false
+        // 等词超时：退出 WAITING、让出专辑槽，但保留切歌快照（网络 lyric_fd 仍可在 IDLE 接受）。
+        // 不可只清 preferLyricUntilResolved：WAITING 仍会让 LyricAlbumPriorityPolicy 藏专辑。
+        clearPreferLyricUntilResolved()
         if (!hasLyric) {
             updateVisibilityState()
         }
@@ -1257,6 +1258,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             // 先拍快照再清屏：WAITING 用旧 JSON 拒「同内容旧曲」包
             markPreferLyricUntilResolved()
             purgeDisplayedLyrics(resetProviderSnapshot = true)
+            // 同步通知画报藏专辑，避免随后 maybeBake 仍用旧 hide=false 叠前景
+            if (isMagazinePageHost()) {
+                notifyMagazineAlbumSlotIfNeeded()
+            }
         } else {
             clearTrackGate()
         }
@@ -1320,10 +1325,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         val wasWaiting = trackGatePhase == TrackLyricGate.Phase.WAITING
         preferLyricUntilResolved = false
         handler.removeCallbacks(clearPreferLyricRunnable)
-        if (trackGatePhase == TrackLyricGate.Phase.WAITING) {
-            trackGatePhase = TrackLyricGate.Phase.IDLE
-            // 保留 trackGateSnapshot：网络歌词常在超时后才 putlyricfd
-        }
+        trackGatePhase = LyricAlbumSlotTransition.trackGatePhaseAfterPreferWaitTimeout(trackGatePhase)
+        // 保留 trackGateSnapshot：网络歌词常在超时后才 putlyricfd
         // 画报大专辑：等词结束 / 确认无词后须通知宿主重烘焙前景专辑
         if (isMagazinePageHost() && (wasPrefer || wasWaiting)) {
             notifyMagazineAlbumSlotIfNeeded()

@@ -130,6 +130,22 @@ internal object MagazinePageChromePolicy {
         return (areaWidthPx * INFO_ROW_MAX_WIDTH_FRACTION).toInt().coerceAtLeast(1)
     }
 
+    /**
+     * 歌名/副标题/歌手可用最大宽：信息行上限减去左侧小封面与间距。
+     * 文字本身 wrap，整块（封面+文字）在行内水平居中。
+     */
+    fun infoTextMaxWidthPx(
+        infoRowMaxPx: Int,
+        albumArtWidthPx: Int,
+        albumGapPx: Int,
+        minTextPx: Int = 1,
+    ): Int {
+        if (infoRowMaxPx <= 0) return 0
+        val album = albumArtWidthPx.coerceAtLeast(0)
+        val gap = if (album > 0) albumGapPx.coerceAtLeast(0) else 0
+        return (infoRowMaxPx - album - gap).coerceAtLeast(minTextPx.coerceAtLeast(1))
+    }
+
     /** 按钮行最大宽度（像素）。 */
     fun controlsRowMaxWidthPx(areaWidthPx: Int): Int {
         if (areaWidthPx <= 0) return 0

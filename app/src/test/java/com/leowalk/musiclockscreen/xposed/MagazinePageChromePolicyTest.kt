@@ -27,6 +27,36 @@ class MagazinePageChromePolicyTest {
     }
 
     @Test
+    fun infoTextMaxWidth_subtractsAlbumAndGap() {
+        assertEquals(
+            650,
+            MagazinePageChromePolicy.infoTextMaxWidthPx(
+                infoRowMaxPx = 800,
+                albumArtWidthPx = 120,
+                albumGapPx = 30,
+            ),
+        )
+        // 无封面时不扣间距
+        assertEquals(
+            800,
+            MagazinePageChromePolicy.infoTextMaxWidthPx(
+                infoRowMaxPx = 800,
+                albumArtWidthPx = 0,
+                albumGapPx = 30,
+            ),
+        )
+        assertEquals(
+            80,
+            MagazinePageChromePolicy.infoTextMaxWidthPx(
+                infoRowMaxPx = 100,
+                albumArtWidthPx = 50,
+                albumGapPx = 10,
+                minTextPx = 80,
+            ),
+        )
+    }
+
+    @Test
     fun controlsRow_maxWidthEightyFivePercent() {
         assertEquals(0.85f, MagazinePageChromePolicy.CONTROLS_ROW_MAX_WIDTH_FRACTION, 0.001f)
         assertEquals(850, MagazinePageChromePolicy.controlsRowMaxWidthPx(1000))

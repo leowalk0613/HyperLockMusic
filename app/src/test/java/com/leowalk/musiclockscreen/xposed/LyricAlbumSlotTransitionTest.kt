@@ -1,5 +1,6 @@
 package com.leowalk.musiclockscreen.xposed
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -196,6 +197,52 @@ class LyricAlbumSlotTransitionTest {
             LyricAlbumSlotTransition.shouldForceShowAlbumAfterVisibilityUpdate(
                 lyricPriorityOverAlbum = false,
             )
+        )
+    }
+
+    @Test
+    fun preferWaitTimeout_exitsWaitingToIdleForAlbumRestore() {
+        assertEquals(
+            TrackLyricGate.Phase.IDLE,
+            LyricAlbumSlotTransition.trackGatePhaseAfterPreferWaitTimeout(
+                TrackLyricGate.Phase.WAITING,
+            ),
+        )
+        assertEquals(
+            TrackLyricGate.Phase.IDLE,
+            LyricAlbumSlotTransition.trackGatePhaseAfterPreferWaitTimeout(
+                TrackLyricGate.Phase.IDLE,
+            ),
+        )
+        // 超时后 IDLE + prefer=false → 无词时不应再藏专辑
+        assertFalse(
+            LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
+                showLyricEnabled = true,
+                musicLockscreenActive = true,
+                onKeyguard = true,
+                isPlaying = true,
+                lyricCurrentlyDisplayed = false,
+                trackGatePhase = LyricAlbumSlotTransition.trackGatePhaseAfterPreferWaitTimeout(
+                    TrackLyricGate.Phase.WAITING,
+                ),
+                hasLyricData = false,
+                hasDisplayableText = false,
+                preferLyricUntilResolved = false,
+            ),
+        )
+        // 若误留 WAITING，专辑会永远不回来（历史 bug）
+        assertTrue(
+            LyricAlbumPriorityPolicy.shouldHideSquareAlbum(
+                showLyricEnabled = true,
+                musicLockscreenActive = true,
+                onKeyguard = true,
+                isPlaying = true,
+                lyricCurrentlyDisplayed = false,
+                trackGatePhase = TrackLyricGate.Phase.WAITING,
+                hasLyricData = false,
+                hasDisplayableText = false,
+                preferLyricUntilResolved = false,
+            ),
         )
     }
 }
