@@ -44,6 +44,14 @@ class NotificationReleasePolicyTest {
                 controlCenterOpen = false,
             )
         )
+        assertFalse(
+            NotificationReleasePolicy.shouldActivelyHideNotifications(
+                musicWallpaperShowing = true,
+                statusBarState = NotificationReleasePolicy.STATUS_KEYGUARD,
+                controlCenterOpen = false,
+                magazineChrome = true,
+            )
+        )
     }
 
     @Test

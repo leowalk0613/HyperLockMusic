@@ -63,10 +63,12 @@ object LockscreenNotificationController {
             statusBarState == NotificationReleasePolicy.STATUS_SHADE_LOCKED
 
     fun shouldFilterNotifications(): Boolean {
+        val magazine = resolveMagazineChrome()
         return NotificationReleasePolicy.shouldActivelyHideNotifications(
             musicWallpaperShowing = WallpaperController.isShowing(),
             statusBarState = statusBarState,
             controlCenterOpen = controlCenterOpen,
+            magazineChrome = magazine,
         )
     }
 
@@ -90,9 +92,23 @@ object LockscreenNotificationController {
 
     fun shouldShowNumState(): Boolean {
         if (!isKeyguardUi()) return false
-        if (WallpaperController.isShowing()) return false
+        val magazine = resolveMagazineChrome()
+        if (MagazineModePolicy.shouldHideNumStateForMusicLockscreen(
+                chromeMagazine = magazine,
+                musicWallpaperShowing = WallpaperController.isShowing(),
+            )
+        ) {
+            return false
+        }
         if (isTemporaryPanelOpen()) return false
         return true
+    }
+
+    private fun resolveMagazineChrome(): Boolean {
+        val ctx = notificationStackView?.context
+            ?: HookUtils.systemUiApplicationContext()
+            ?: return false
+        return ConfigReader.isMagazineChrome(ctx)
     }
 
     fun isNotificationCenterVisible(): Boolean {

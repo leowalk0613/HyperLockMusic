@@ -40,6 +40,8 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT = "immersive_album_edge_gradient"
     /** 锁屏封面基底：big_album / immersive / magazine */
     private const val KEY_LOCKSCREEN_CHROME = "lockscreen_chrome"
+    /** 退出画报模式时恢复的普通封面样式 */
+    private const val KEY_LAST_NORMAL_CHROME = "last_normal_chrome"
     private const val KEY_MINIMAL_CLOCK = "minimal_clock"
     private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
@@ -242,6 +244,38 @@ object ModuleConfig {
         }
         set(value) = getPrefs().edit().putString(KEY_LOCKSCREEN_CHROME, value).apply()
 
+    /** 退出画报后回到的普通样式（大专辑 / 沉浸）。 */
+    var lastNormalChrome: String
+        get() {
+            val raw = getPrefs().getString(KEY_LAST_NORMAL_CHROME, null)
+            return when (raw) {
+                CHROME_IMMERSIVE -> CHROME_IMMERSIVE
+                else -> CHROME_BIG_ALBUM
+            }
+        }
+        set(value) {
+            val normalized = if (value == CHROME_IMMERSIVE) CHROME_IMMERSIVE else CHROME_BIG_ALBUM
+            getPrefs().edit().putString(KEY_LAST_NORMAL_CHROME, normalized).apply()
+        }
+
+    val isMagazineMode: Boolean
+        get() = lockscreenChrome == CHROME_MAGAZINE
+
+    /**
+     * 主界面：普通模式 ↔ 画报模式。
+     * 画报开启前记下当前普通样式，关闭时还原。
+     */
+    fun setMagazineMode(enabled: Boolean) {
+        if (enabled) {
+            if (lockscreenChrome != CHROME_MAGAZINE) {
+                lastNormalChrome = lockscreenChrome
+            }
+            applyChromeStyle(CHROME_MAGAZINE)
+        } else {
+            applyChromeStyle(lastNormalChrome)
+        }
+    }
+
     /** 音乐锁屏简洁时钟：隐藏系统大时钟，顶部显示一行时间日期 */
     var minimalClock: Boolean
         get() = getPrefs().getBoolean(KEY_MINIMAL_CLOCK, DEFAULT_MINIMAL_CLOCK)
@@ -273,7 +307,7 @@ object ModuleConfig {
     }
 
     /**
-     * 三选一封面基底：大专辑 / 沉浸封面 / 画报。
+     * 普通模式封面基底：大专辑 / 沉浸封面；画报由主界面模式开关控制。
      * 画报：关方形专辑与沉浸烘焙，普通歌词 + 无背景（Overlay 补动画）。
      */
     fun applyChromeStyle(chrome: String) {
@@ -288,12 +322,14 @@ object ModuleConfig {
             }
             CHROME_IMMERSIVE -> {
                 lockscreenChrome = CHROME_IMMERSIVE
+                lastNormalChrome = CHROME_IMMERSIVE
                 showBigAlbum = true
                 immersiveAlbum = true
                 applyAlbumLyricBinding(true)
             }
             else -> {
                 lockscreenChrome = CHROME_BIG_ALBUM
+                lastNormalChrome = CHROME_BIG_ALBUM
                 showBigAlbum = true
                 immersiveAlbum = false
                 applyAlbumLyricBinding(false)

@@ -28,6 +28,7 @@ internal object MediaAodExpandPolicy {
 
     fun shouldKeepExpanded(context: Context?): Boolean {
         if (context == null) return false
+        if (ConfigReader.isMagazineChrome(context)) return false
         return shouldKeepExpandedDuringSleepLinkage(
             aodFullMedia = ConfigReader.aodFullMedia(context),
             onKeyguard = HookUtils.isOnKeyguard(context),

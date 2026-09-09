@@ -25,12 +25,14 @@ internal object NotificationReleasePolicy {
         RELEASED,
     }
 
-    /** 仅 KEYGUARD 且未开控制中心时主动藏通知。 */
+    /** 仅 KEYGUARD 且未开控制中心时主动藏通知（画报模式跳过）。 */
     fun shouldActivelyHideNotifications(
         musicWallpaperShowing: Boolean,
         statusBarState: Int,
         controlCenterOpen: Boolean,
+        magazineChrome: Boolean = false,
     ): Boolean {
+        if (magazineChrome) return false
         if (!musicWallpaperShowing) return false
         if (statusBarState != STATUS_KEYGUARD) return false
         if (controlCenterOpen) return false

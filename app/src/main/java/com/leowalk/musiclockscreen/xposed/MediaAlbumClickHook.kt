@@ -132,7 +132,40 @@ class MediaAlbumClickHook {
                         val isNewSong = newSongUpdateField?.getBoolean(thisObj) ?: false
                         val needRefresh = isArtUpdate || isNewSong || trackChanged
 
-                        if (WallpaperController.isShowing() && needRefresh && ctx != null) {
+                        if (ctx != null && ConfigReader.isMagazineChrome(ctx)) {
+                            val pkg = HookUtils.packageFromMediaData(mediaData)
+                                ?: HookUtils.currentMediaPackage(ctx)
+                            if (HookUtils.isAllowedMusicApp(ctx, pkg) &&
+                                HookUtils.canApplyLockWallpaper(ctx)
+                            ) {
+                                val appCtx = ctx.applicationContext
+                                mainHandler.post {
+                                    try {
+                                        if (!WallpaperController.isShowing()) {
+                                            logI("magazine mode: auto enter music wallpaper")
+                                            WallpaperController.setMusicWallpaper(
+                                                appCtx,
+                                                null,
+                                                true,
+                                                metadata,
+                                            )
+                                        } else if (needRefresh) {
+                                            refreshMusicLockscreenFromBind(
+                                                appCtx,
+                                                mediaData,
+                                                holder,
+                                                albumImageViewField,
+                                                mediaMetadataField,
+                                                thisObj,
+                                                trackChanged,
+                                            )
+                                        }
+                                    } catch (e: Throwable) {
+                                        logE("magazine auto wallpaper error", e)
+                                    }
+                                }
+                            }
+                        } else if (WallpaperController.isShowing() && needRefresh && ctx != null) {
                             logI(
                                 "media bind refresh: art=$isArtUpdate newSong=$isNewSong " +
                                     "trackChanged=$trackChanged"

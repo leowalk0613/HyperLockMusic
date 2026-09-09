@@ -11,6 +11,7 @@ class MainActivity : BaseScrollingActivity() {
 
     private var notificationPermissionRow: M3.PermissionStatusRow? = null
     private var rootPermissionRow: M3.PermissionStatusRow? = null
+    private var albumSwitchRow: android.widget.LinearLayout? = null
 
     override fun titleText() = "HyperLockMusic"
 
@@ -22,6 +23,7 @@ class MainActivity : BaseScrollingActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissionRows()
+        refreshModeDependentRows()
     }
 
     override fun buildContent(list: android.widget.LinearLayout) {
@@ -29,12 +31,44 @@ class MainActivity : BaseScrollingActivity() {
             "基于 LSPosed 的 HyperLockMusic 模块，为锁屏重绘专辑壁纸与歌词。" +
                 "调整后可点右上角重启按钮让改动立即生效。")))
 
+        val modeCard = M3.cardContent(this)
+        modeCard.addView(M3.title(this, "锁屏模式", primary = true))
+        val modeIndex = if (ModuleConfig.isMagazineMode) 1 else 0
+        modeCard.addView(
+            M3.segmentGroup(
+                this,
+                listOf("普通模式", "画报模式"),
+                modeIndex,
+                2,
+            ) { index ->
+                ModuleConfig.setMagazineMode(enabled = index == 1)
+                ModuleConfig.push(this)
+                refreshModeDependentRows()
+            },
+        )
+        modeCard.addView(
+            android.widget.TextView(this).apply {
+                text = "普通：改媒体控件 / 藏通知 / 藏勿扰条，大专辑或沉浸封面。\n" +
+                    "画报：不改媒体控件、通知与勿扰；杂志层壁纸 + 划入自建页。"
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
+                setTextColor(
+                    M3.attrColor(
+                        this@MainActivity,
+                        com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        0xFFCAC4D0.toInt(),
+                    ),
+                )
+                setPadding(0, M3.dp(this@MainActivity, 8f), 0, 0)
+            },
+        )
+        list.addView(M3.card(this, modeCard))
+
         val albumCard = M3.cardContent(this)
         albumCard.addView(
             M3.switchRow(
                 this,
                 "专辑封面",
-                "关闭后锁屏不绘制大专辑 / 沉浸封面",
+                "关闭后锁屏不绘制大专辑 / 沉浸封面（画报模式无效）",
                 ModuleConfig.showBigAlbum,
                 titlePrimary = true,
                 onTitleClick = {
@@ -45,6 +79,7 @@ class MainActivity : BaseScrollingActivity() {
                 ModuleConfig.push(this)
             }
         )
+        albumSwitchRow = albumCard.getChildAt(0) as? android.widget.LinearLayout
         list.addView(M3.card(this, albumCard))
 
         val lyricCard = M3.cardContent(this)
@@ -118,6 +153,12 @@ class MainActivity : BaseScrollingActivity() {
         })
 
         refreshPermissionRows()
+        refreshModeDependentRows()
+    }
+
+    private fun refreshModeDependentRows() {
+        // 画报模式不依赖大专辑开关；仍可进详情页改「切回普通后」的偏好
+        M3.setControlsEnabled(albumSwitchRow, !ModuleConfig.isMagazineMode)
     }
 
     private fun refreshPermissionRows() {

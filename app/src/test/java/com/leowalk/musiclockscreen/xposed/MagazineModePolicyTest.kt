@@ -87,6 +87,38 @@ class MagazineModePolicyTest {
     }
 
     @Test
+    fun magazineSkipsNormalChromeInterventions() {
+        assertTrue(MagazineModePolicy.shouldSkipNormalMusicChromeInterventions(true))
+        assertFalse(MagazineModePolicy.shouldSkipNormalMusicChromeInterventions(false))
+        assertFalse(
+            MagazineModePolicy.shouldHideNotificationsInMusicLockscreen(
+                chromeMagazine = true,
+                musicWallpaperShowing = true,
+            ),
+        )
+        assertTrue(
+            MagazineModePolicy.shouldHideNotificationsInMusicLockscreen(
+                chromeMagazine = false,
+                musicWallpaperShowing = true,
+            ),
+        )
+        assertFalse(
+            MagazineModePolicy.shouldHideNumStateForMusicLockscreen(
+                chromeMagazine = true,
+                musicWallpaperShowing = true,
+            ),
+        )
+        assertTrue(
+            MagazineModePolicy.shouldHideNumStateForMusicLockscreen(
+                chromeMagazine = false,
+                musicWallpaperShowing = true,
+            ),
+        )
+        assertFalse(MagazineModePolicy.shouldRewriteMediaControlSlots(true))
+        assertTrue(MagazineModePolicy.shouldRewriteMediaControlSlots(false))
+    }
+
+    @Test
     fun resolveChrome_migratesFromImmersiveFlag() {
         assertEquals(
             MagazineModePolicy.CHROME_MAGAZINE,

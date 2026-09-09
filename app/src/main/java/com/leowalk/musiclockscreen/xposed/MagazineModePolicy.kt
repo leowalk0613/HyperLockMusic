@@ -66,6 +66,29 @@ internal object MagazineModePolicy {
         musicWallpaperShowing: Boolean,
     ): Boolean = chromeMagazine && musicWallpaperShowing
 
+    /**
+     * 画报模式与普通模式的差异：不隐藏通知、不改勿扰条、不改写媒体控件槽位。
+     * （壁纸仍可走杂志层 / 自建划入页。）
+     */
+    fun shouldSkipNormalMusicChromeInterventions(chromeMagazine: Boolean): Boolean =
+        chromeMagazine
+
+    /** 画报模式下不主动藏通知。 */
+    fun shouldHideNotificationsInMusicLockscreen(
+        chromeMagazine: Boolean,
+        musicWallpaperShowing: Boolean,
+    ): Boolean = !chromeMagazine && musicWallpaperShowing
+
+    /** 画报模式下音乐锁屏不隐藏「勿扰 | N 个通知」。 */
+    fun shouldHideNumStateForMusicLockscreen(
+        chromeMagazine: Boolean,
+        musicWallpaperShowing: Boolean,
+    ): Boolean = !chromeMagazine && musicWallpaperShowing
+
+    /** 画报模式下不改写锁屏媒体 action 槽 / 不拦截系统 custom。 */
+    fun shouldRewriteMediaControlSlots(chromeMagazine: Boolean): Boolean =
+        !chromeMagazine
+
     /** 模块包名（与 applicationId 一致）。 */
     const val MODULE_PACKAGE = "com.leowalk.musiclockscreen"
 

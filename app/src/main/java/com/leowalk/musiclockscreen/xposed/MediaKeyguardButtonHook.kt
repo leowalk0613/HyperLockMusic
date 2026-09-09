@@ -86,6 +86,11 @@ object MediaKeyguardButtonHook {
                         WallpaperController.restoreOriginalWallpaper(ctx.applicationContext)
                     }
 
+                    // 画报模式：不改写媒体控件槽位，保留系统按钮
+                    if (ConfigReader.isMagazineChrome(ctx)) {
+                        return@intercept result
+                    }
+
                     resolveResourceIds(ctx)
                     val action0 = action0Field.get(holder) as? ImageButton
                     val action4 = action4Field.get(holder) as? ImageButton
@@ -145,6 +150,7 @@ object MediaKeyguardButtonHook {
         val album = lastAlbumImageView?.get()
         val ctx = action0?.context ?: action4?.context
         if (ctx == null) return
+        if (ConfigReader.isMagazineChrome(ctx)) return
         applyHeaderSlotState(action0, action4, album, ctx)
     }
 
@@ -178,7 +184,9 @@ object MediaKeyguardButtonHook {
     }
 
     private fun shouldBlockAppCustomSlot(button: ImageButton): Boolean {
-        resolveResourceIds(button.context)
+        val ctx = button.context
+        if (ConfigReader.isMagazineChrome(ctx)) return false
+        resolveResourceIds(ctx)
         if (!isCustomSlot(button)) return false
         return isUnderMiuiMediaHeaderView(button)
     }

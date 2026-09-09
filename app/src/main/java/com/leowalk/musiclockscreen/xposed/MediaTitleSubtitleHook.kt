@@ -72,6 +72,7 @@ object MediaTitleSubtitleHook {
             module.hook(setInfoText).intercept { chain ->
                 val result = chain.proceed()
                 try {
+                    if (shouldSkipMediaTitleRewrite(chain.thisObject)) return@intercept result
                     val h = holderField?.get(chain.thisObject)
                     (artistTextField.get(h) as? TextView)?.let { invalidateArtistCache(it) }
                     applyInlineSubtitle(chain.thisObject, titleTextField, artistTextField)
@@ -85,6 +86,7 @@ object MediaTitleSubtitleHook {
             module.hook(updateForegroundColors).intercept { chain ->
                 val result = chain.proceed()
                 try {
+                    if (shouldSkipMediaTitleRewrite(chain.thisObject)) return@intercept result
                     applyInlineSubtitle(chain.thisObject, titleTextField, artistTextField)
                 } catch (e: Throwable) {
                     logE("after updateForegroundColors error", e)
@@ -95,6 +97,17 @@ object MediaTitleSubtitleHook {
             logI("MediaTitleSubtitleHook installed")
         } catch (e: Throwable) {
             logE("install failed", e)
+        }
+    }
+
+    private fun shouldSkipMediaTitleRewrite(controller: Any): Boolean {
+        return try {
+            val holder = holderField?.get(controller) ?: return false
+            val titleField = holder.javaClass.getDeclaredField("titleText").apply { isAccessible = true }
+            val titleView = titleField.get(holder) as? TextView ?: return false
+            ConfigReader.isMagazineChrome(titleView.context)
+        } catch (_: Throwable) {
+            false
         }
     }
 
