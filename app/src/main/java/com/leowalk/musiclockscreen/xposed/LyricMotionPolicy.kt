@@ -13,10 +13,9 @@ import android.view.animation.Interpolator
 internal object LyricMotionPolicy {
 
     private val settleMs: Long = AmllSpringMotion.settleMs(AmllSpringMotion.UI_SLIDE)
-    private val stackSettleMs: Long = AmllSpringMotion.settleMs(AmllSpringMotion.STACK)
 
-    /** 沉浸三行上滑：AMLL STACK 弹簧 */
-    val STACK_SCROLL_MS: Long = stackSettleMs
+    /** 沉浸三行上滑：与其它位移共用 soft 弹簧，避免欠阻尼过冲显得乱 */
+    val STACK_SCROLL_MS: Long = settleMs
 
     /** 普通切行：离场短、入场略长（串行总时长约 0.5s） */
     val LINE_EXIT_MS: Long = (settleMs * 0.55f).toLong().coerceIn(160L, 240L)
@@ -35,7 +34,6 @@ internal object LyricMotionPolicy {
     const val NOTIFICATION_SLIDE_DP = 8f
 
     private val cachedSpringByDurationMs = HashMap<Long, Interpolator>()
-    private val cachedStackSpringByKey = HashMap<String, Interpolator>()
 
     private fun clamp01(t: Float): Float = t.coerceIn(0f, 1f)
 
@@ -57,25 +55,6 @@ internal object LyricMotionPolicy {
                 key / 1000f,
             )
         }
-    }
-
-    /**
-     * 三行上滑专用 AMLL 弹簧；[intervalMs] 为相邻句时间差，动态刚度 170–220。
-     */
-    fun springStack(
-        durationMs: Long = STACK_SCROLL_MS,
-        intervalMs: Long = 400L,
-    ): Interpolator {
-        val params = AmllSpringMotion.stackParamsForIntervalMs(intervalMs)
-        val dur = durationMs.coerceAtLeast(50L)
-        val key = "${dur}_${params.stiffness.toInt()}_${params.damping.toInt()}"
-        return cachedStackSpringByKey.getOrPut(key) {
-            AmllSpringMotion.interpolator(params, dur / 1000f)
-        }
-    }
-
-    fun stackDurationForIntervalMs(intervalMs: Long): Long {
-        return AmllSpringMotion.settleMs(AmllSpringMotion.stackParamsForIntervalMs(intervalMs))
     }
 
     fun springSurface(durationMs: Long = LYRIC_SURFACE_ENTER_MS): Interpolator {

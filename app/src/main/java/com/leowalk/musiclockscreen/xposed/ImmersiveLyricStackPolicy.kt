@@ -60,52 +60,11 @@ internal object ImmersiveLyricStackPolicy {
     data class LineText(val text: String, val translation: String = "")
 
     /**
-     * 切行上滑距离：约一行字高 + 邻行空隙。
-     * [gapPx] 与翻译↔下一句、上一句↔当前行共用（如 [LockscreenLyricView] 的 lineGapPx）。
+     * 切行上滑距离：主行高度 + 邻行空隙。
+     * 不含翻译副行，避免有无翻译时步长跳动显得乱。
      */
-    fun scrollStepPx(fontLineHeightPx: Float, gapPx: Float): Float {
-        val line = fontLineHeightPx.coerceAtLeast(1f)
-        return line + gapPx.coerceAtLeast(0f)
-    }
-
-    /**
-     * 用实测布局算上滑步长：让「下一句」中心落到当前中心附近（AMLL 连续位移）。
-     * [secondaryHeightPx] 为当前翻译行高度；无翻译传 0。
-     */
-    fun scrollStepFromLayoutsPx(
-        currentHeightPx: Float,
-        secondaryHeightPx: Float,
-        nextHeightPx: Float,
-        gapPx: Float,
-    ): Float {
-        val gap = gapPx.coerceAtLeast(0f)
-        val cur = currentHeightPx.coerceAtLeast(1f)
-        val next = nextHeightPx.coerceAtLeast(1f)
-        var block = cur
-        val sec = secondaryHeightPx.coerceAtLeast(0f)
-        if (sec > 0f) {
-            block += gap + sec
-        }
-        // 下一句顶边相对当前中心的距离 + 半行校正
-        return block + gap + (next - cur) * 0.5f
-    }
-
-    /** 上滑过程中：离开的当前行 1→邻行透明度 */
-    fun leavingCurrentAlpha(progress: Float): Float {
-        val p = progress.coerceIn(0f, 1f)
-        return 1f + (NEIGHBOR_ALPHA - 1f) * p
-    }
-
-    /** 上滑过程中：进入的下一句 邻行→1 */
-    fun enteringNextAlpha(progress: Float): Float {
-        val p = progress.coerceIn(0f, 1f)
-        return NEIGHBOR_ALPHA + (1f - NEIGHBOR_ALPHA) * p
-    }
-
-    /** 翻译副行随上滑淡出 */
-    fun leavingSecondaryAlpha(progress: Float): Float {
-        val p = progress.coerceIn(0f, 1f)
-        return 0.72f * (1f - p)
+    fun scrollStepPx(currentHeightPx: Float, gapPx: Float): Float {
+        return currentHeightPx.coerceAtLeast(1f) + gapPx.coerceAtLeast(0f)
     }
 
     /**

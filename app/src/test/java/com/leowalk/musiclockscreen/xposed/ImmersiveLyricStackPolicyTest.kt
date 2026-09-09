@@ -71,7 +71,6 @@ class ImmersiveLyricStackPolicyTest {
 
     @Test
     fun prevGap_matchesSharedLineGap() {
-        // 上一句↔当前 与 翻译↔下一句 共用同一 gap（如 lineGapPx）
         val gap = 12f
         val currentTop = 200f
         val prevH = 40f
@@ -80,39 +79,9 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
-    fun scrollStep_includesLineAndGap() {
-        val fontH = 40f
-        val gap = 12f
-        val step = ImmersiveLyricStackPolicy.scrollStepPx(fontH, gap)
-        assertEquals(fontH + gap, step, 0.001f)
-    }
-
-    @Test
-    fun scrollStepFromLayouts_centersNextLine() {
-        val cur = 40f
-        val next = 40f
-        val gap = 12f
-        val step = ImmersiveLyricStackPolicy.scrollStepFromLayoutsPx(cur, 0f, next, gap)
-        assertEquals(cur + gap, step, 0.001f)
-        val withSec = ImmersiveLyricStackPolicy.scrollStepFromLayoutsPx(cur, 20f, next, gap)
-        assertEquals(cur + gap + 20f + gap, withSec, 0.001f)
-    }
-
-    @Test
-    fun stackAlphaMorph_crossfadesCurrentAndNext() {
-        assertEquals(1f, ImmersiveLyricStackPolicy.leavingCurrentAlpha(0f), 0.001f)
-        assertEquals(
-            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
-            ImmersiveLyricStackPolicy.leavingCurrentAlpha(1f),
-            0.001f,
-        )
-        assertEquals(
-            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
-            ImmersiveLyricStackPolicy.enteringNextAlpha(0f),
-            0.001f,
-        )
-        assertEquals(1f, ImmersiveLyricStackPolicy.enteringNextAlpha(1f), 0.001f)
-        assertTrue(ImmersiveLyricStackPolicy.leavingSecondaryAlpha(1f) < 0.05f)
+    fun scrollStep_isMainLinePlusGap_only() {
+        val step = ImmersiveLyricStackPolicy.scrollStepPx(40f, 12f)
+        assertEquals(52f, step, 0.001f)
     }
 
     @Test

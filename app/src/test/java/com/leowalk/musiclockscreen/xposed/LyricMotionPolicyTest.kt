@@ -7,11 +7,11 @@ import org.junit.Test
 class LyricMotionPolicyTest {
 
     @Test
-    fun stackScroll_usesStackSpringSettle() {
+    fun stackScroll_usesSoftUiSlide() {
         assertTrue(LyricMotionPolicy.STACK_SCROLL_MS >= 240L)
-        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 480L)
+        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 420L)
         assertEquals(
-            AmllSpringMotion.settleMs(AmllSpringMotion.STACK),
+            AmllSpringMotion.settleMs(AmllSpringMotion.UI_SLIDE),
             LyricMotionPolicy.STACK_SCROLL_MS,
         )
     }
@@ -24,15 +24,7 @@ class LyricMotionPolicyTest {
     }
 
     @Test
-    fun stackSpring_fasterForTightIntervals() {
-        val tight = LyricMotionPolicy.stackDurationForIntervalMs(120L)
-        val loose = LyricMotionPolicy.stackDurationForIntervalMs(800L)
-        // 句间隔短 → 刚度高 → settle 不更慢
-        assertTrue(tight <= loose + 40L)
-    }
-
-    @Test
-    fun slotAndSurface_shorterThanStack() {
+    fun slotAndSurface_shorterThanOrEqualStack() {
         assertTrue(LyricMotionPolicy.SLOT_CROSSFADE_MS <= LyricMotionPolicy.STACK_SCROLL_MS)
         assertTrue(LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS <= LyricMotionPolicy.STACK_SCROLL_MS)
     }
@@ -44,11 +36,12 @@ class LyricMotionPolicyTest {
     }
 
     @Test
-    fun springSlide_settlesToOne() {
+    fun springSlide_settlesToOne_noOvershoot() {
         val ease = LyricMotionPolicy.springSlide()
         assertEquals(0f, ease.getInterpolation(0f), 0.01f)
         assertEquals(1f, ease.getInterpolation(1f), 0.01f)
         assertTrue(ease.getInterpolation(0.4f) > 0.45f)
+        assertTrue(ease.getInterpolation(0.6f) <= 1f)
     }
 
     @Test

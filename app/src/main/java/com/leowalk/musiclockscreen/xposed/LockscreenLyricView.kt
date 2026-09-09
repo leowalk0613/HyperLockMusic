@@ -88,7 +88,6 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var lastStackLineIndex = -1
     private var pendingStackTriplet: ImmersiveLyricStackPolicy.Triplet? = null
     private var pendingStackIndex: Int = -1
-    private var lastStackIntervalMs: Long = 400L
     private val endFadeMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stackLineLayerPaint = Paint()
 
@@ -469,31 +468,13 @@ class LockscreenLyricView(context: Context) : View(context) {
         val centerY = h * 0.5f
         val offset = stackScrollOffset
         val currentTop = centerY + offset - current.height * 0.5f
-        val animating = stackAnimProgress > 0.001f && stackAnimProgress < 0.999f ||
-            (stackAnimator?.isRunning == true)
-        val p = stackAnimProgress.coerceIn(0f, 1f)
-        val currentAlpha = if (animating) {
-            ImmersiveLyricStackPolicy.leavingCurrentAlpha(p)
-        } else {
-            1f
-        }
-        val nextAlpha = if (animating) {
-            ImmersiveLyricStackPolicy.enteringNextAlpha(p)
-        } else {
-            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA
-        }
-        val secondaryAlpha = if (animating) {
-            ImmersiveLyricStackPolicy.leavingSecondaryAlpha(p)
-        } else {
-            0.72f
-        }
-        val prevAlpha = ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA * (if (animating) (1f - p * 0.65f) else 1f)
 
         canvas.save()
         // 允许上一句/下一句被歌词区域上下沿裁切
         canvas.clipRect(0f, 0f, w, h)
 
         // 当前行永远居中；上一句↔当前 = 翻译↔下一句 = lineGapPx
+        // 切行只做整列位移，透明度保持静止角色（避免边滚边淡显得乱）
         val prev = stackPrevLayout
         if (prev != null) {
             val prevTop = ImmersiveLyricStackPolicy.prevTopPx(
@@ -506,7 +487,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 prev,
                 hPaddingPx,
                 prevTop,
-                prevAlpha,
+                ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
                 stackPrevEndFade,
                 mainPaint.textSize,
             )
@@ -516,26 +497,23 @@ class LockscreenLyricView(context: Context) : View(context) {
             current,
             hPaddingPx,
             currentTop,
-            currentAlpha,
+            1f,
             stackCurrentEndFade,
             mainPaint.textSize,
         )
 
-        // 当前行 ↔ 翻译：沿用原来的 lineGapPx；下一句跟在翻译下（可被底边裁切）
         var belowTop = currentTop + current.height + lineGapPx
         val secondary = stackCurrentSecondaryLayout
-        if (secondary != null && secondaryAlpha > 0.02f) {
+        if (secondary != null) {
             drawStackLineTop(
                 canvas,
                 secondary,
                 hPaddingPx,
                 belowTop,
-                secondaryAlpha,
+                0.72f,
                 stackCurrentSecondaryEndFade,
                 secondPaint.textSize,
             )
-            belowTop += secondary.height + lineGapPx
-        } else if (secondary != null) {
             belowTop += secondary.height + lineGapPx
         }
         val next = stackNextLayout
@@ -545,7 +523,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 next,
                 hPaddingPx,
                 belowTop,
-                nextAlpha,
+                ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
                 stackNextEndFade,
                 mainPaint.textSize,
             )
@@ -3018,15 +2996,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                 screenInteractive = HookUtils.isScreenInteractive(context),
             )
 
-        if (indexChanged) {
-            val fromIndex = pendingStackIndex.takeIf { it >= 0 } ?: lastStackLineIndex
-            if (fromIndex in lines.indices) {
-                lastStackIntervalMs = (lines[i].time - lines[fromIndex].time).coerceAtLeast(100L)
-            }
-        }
-
         if (animate) {
-            // AMLL 式：先带着旧词整列上滑，结束再换新 triplet（避免「先换词再弹回」）
+            // 先带着旧词整列上滑，结束再换新 triplet；透明度保持角色不变
             cancelLineTransition()
             cancelStackAnimator(commitPending = true)
             pendingStackTriplet = triplet
@@ -3064,28 +3035,22 @@ class LockscreenLyricView(context: Context) : View(context) {
         ensureStackLayouts((computeLyricWidthPx() - hPaddingPx * 2).toInt().coerceAtLeast(1))
         val current = stackCurrentLayout
         val fontFallback = mainPaint.fontMetrics.run { bottom - top }
-        val step = if (current != null) {
-            ImmersiveLyricStackPolicy.scrollStepFromLayoutsPx(
-                currentHeightPx = current.height.toFloat(),
-                secondaryHeightPx = stackCurrentSecondaryLayout?.height?.toFloat() ?: 0f,
-                nextHeightPx = stackNextLayout?.height?.toFloat() ?: fontFallback,
-                gapPx = lineGapPx,
-            )
-        } else {
-            ImmersiveLyricStackPolicy.scrollStepPx(fontFallback, lineGapPx)
-        }.coerceAtLeast(1f)
+        // 步长只跟主行+间距，不把翻译高度算进位移，避免有无翻译时乱窜
+        val step = ImmersiveLyricStackPolicy.scrollStepPx(
+            currentHeightPx = current?.height?.toFloat() ?: fontFallback,
+            gapPx = lineGapPx,
+        ).coerceAtLeast(1f)
 
-        val duration = LyricMotionPolicy.stackDurationForIntervalMs(lastStackIntervalMs)
-        val spring = LyricMotionPolicy.springStack(duration, lastStackIntervalMs)
+        val duration = LyricMotionPolicy.STACK_SCROLL_MS
+        val spring = LyricMotionPolicy.springSlide(duration) // soft，无过冲
         stackScrollOffset = 0f
         stackAnimProgress = 0f
         stackAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             this.duration = duration
             interpolator = spring
             addUpdateListener {
-                val p = it.animatedValue as Float
-                stackAnimProgress = p.coerceIn(0f, 1f)
-                // 旧词整列上移；插值可略过冲，保留 AMLL 弹性
+                val p = (it.animatedValue as Float).coerceIn(0f, 1f)
+                stackAnimProgress = p
                 stackScrollOffset = -step * p
                 invalidate()
             }
