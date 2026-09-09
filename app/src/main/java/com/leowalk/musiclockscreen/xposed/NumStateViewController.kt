@@ -2,7 +2,6 @@ package com.leowalk.musiclockscreen.xposed
 
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.PathInterpolator
 
 /**
  * 锁屏勿扰/通知数量状态控制器
@@ -13,8 +12,6 @@ import android.view.animation.PathInterpolator
 object NumStateViewController {
 
     private const val tag = "HyperLockMusic_NumState"
-    private const val FADE_MS = 260L
-    private val easeOut by lazy { PathInterpolator(0f, 0f, 0.2f, 1f) }
 
     private var keyguardRoot: ViewGroup? = null
     private val trackedViews = LinkedHashSet<View>()

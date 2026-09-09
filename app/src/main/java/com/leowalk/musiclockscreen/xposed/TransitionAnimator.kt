@@ -10,13 +10,9 @@ import android.view.View
 /**
  * 过渡动画管理器
  *
- * 音乐锁屏进入/退出过渡动画；插值与位移统一走 [LyricMotionPolicy]。
+ * 音乐锁屏进入/退出 / 通知位移；插值与时长统一走 [LyricMotionPolicy] AMLL 弹簧。
  */
 object TransitionAnimator {
-
-    private const val DURATION_NOTIFICATION_HIDE = 320L
-    private const val DURATION_NOTIFICATION_SHOW = 320L
-    private const val NOTIFICATION_TRANSLATION_DP = 6f
 
     private var currentAnimator: AnimatorSet? = null
 
@@ -31,7 +27,7 @@ object TransitionAnimator {
         val translationPx = LyricMotionPolicy.surfaceSlidePx(lyricView.resources.displayMetrics.density)
         val duration = LyricMotionPolicy.LYRIC_SURFACE_ENTER_MS
         val ease = LyricMotionPolicy.easeOut()
-        val spring = LyricMotionPolicy.springSurface()
+        val spring = LyricMotionPolicy.springSurface(duration)
 
         lyricView.alpha = 0f
         lyricView.translationY = translationPx
@@ -88,7 +84,7 @@ object TransitionAnimator {
         val translationPx = LyricMotionPolicy.surfaceSlidePx(lyricView.resources.displayMetrics.density)
         val duration = LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS
         val easeIn = LyricMotionPolicy.easeIn()
-        val spring = LyricMotionPolicy.springSlide()
+        val spring = LyricMotionPolicy.springSlide(duration)
 
         val alpha = ObjectAnimator.ofFloat(lyricView, "alpha", 1f, 0f).apply {
             this.duration = duration
@@ -141,19 +137,20 @@ object TransitionAnimator {
             onEnd?.invoke()
             return
         }
+        val duration = LyricMotionPolicy.NOTIFICATION_SLIDE_MS
         val animators = mutableListOf<Animator>()
-        val translationPx = NOTIFICATION_TRANSLATION_DP * views[0].resources.displayMetrics.density
-        val spring = LyricMotionPolicy.springSlide()
+        val translationPx = LyricMotionPolicy.notificationSlidePx(views[0].resources.displayMetrics.density)
+        val spring = LyricMotionPolicy.springSlide(duration)
 
         for ((index, view) in views.withIndex()) {
             val delay = (index * staggerDelayMs).coerceAtMost(maxStaggerMs)
             val alpha = ObjectAnimator.ofFloat(view, "alpha", 1f, 0f).apply {
-                duration = DURATION_NOTIFICATION_HIDE
+                this.duration = duration
                 startDelay = delay
                 interpolator = LyricMotionPolicy.easeOut()
             }
             val translate = ObjectAnimator.ofFloat(view, "translationY", 0f, -translationPx).apply {
-                duration = DURATION_NOTIFICATION_HIDE
+                this.duration = duration
                 startDelay = delay
                 interpolator = spring
             }
@@ -184,9 +181,10 @@ object TransitionAnimator {
             onEnd?.invoke()
             return
         }
+        val duration = LyricMotionPolicy.NOTIFICATION_SLIDE_MS
         val animators = mutableListOf<Animator>()
-        val translationPx = NOTIFICATION_TRANSLATION_DP * views[0].resources.displayMetrics.density
-        val spring = LyricMotionPolicy.springSlide()
+        val translationPx = LyricMotionPolicy.notificationSlidePx(views[0].resources.displayMetrics.density)
+        val spring = LyricMotionPolicy.springSlide(duration)
 
         for ((index, view) in views.withIndex()) {
             val delay = (index * staggerDelayMs).coerceAtMost(maxStaggerMs)
@@ -194,12 +192,12 @@ object TransitionAnimator {
             view.translationY = -translationPx
             view.visibility = View.VISIBLE
             val alpha = ObjectAnimator.ofFloat(view, "alpha", 0f, 1f).apply {
-                duration = DURATION_NOTIFICATION_SHOW
+                this.duration = duration
                 startDelay = delay
                 interpolator = LyricMotionPolicy.easeOut()
             }
             val translate = ObjectAnimator.ofFloat(view, "translationY", -translationPx, 0f).apply {
-                duration = DURATION_NOTIFICATION_SHOW
+                this.duration = duration
                 startDelay = delay
                 interpolator = spring
             }

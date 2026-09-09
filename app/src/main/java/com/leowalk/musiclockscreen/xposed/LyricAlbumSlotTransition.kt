@@ -5,7 +5,8 @@ package com.leowalk.musiclockscreen.xposed
  */
 internal object LyricAlbumSlotTransition {
 
-    const val CROSSFADE_MS = 220L
+    /** 与 [LyricMotionPolicy.SLOT_CROSSFADE_MS] 对齐（AMLL 弹簧 settle） */
+    val CROSSFADE_MS: Long get() = LyricMotionPolicy.SLOT_CROSSFADE_MS
 
     /** 播放态丢失后的短暂保持（Session 滞后 / AOD 联动窗口）。 */
     const val PLAYBACK_HOLD_MS = 1800L

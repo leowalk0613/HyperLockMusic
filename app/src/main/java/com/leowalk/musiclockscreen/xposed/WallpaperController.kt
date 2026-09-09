@@ -97,9 +97,6 @@ object WallpaperController {
     /** 退出恢复时遮罩停留时长（系统回切原壁纸往往更慢，需更长覆盖切换过程）。 */
     private const val MASK_SETTLE_EXIT_MS = 480L
 
-    /** 遮罩淡出时长 */
-    private const val MASK_FADE_MS = 220L
-
     /**
      * 大专辑↔沉浸布局切换：setBitmap 返回后仍需等待系统壁纸交叉渐变结束，
      * 期间继续用方形 overlay 挡住，再淡出/显示。
@@ -188,7 +185,8 @@ object WallpaperController {
                     }
                     mask.animate()
                         .alpha(0f)
-                        .setDuration(MASK_FADE_MS)
+                        .setDuration(LyricMotionPolicy.SLOT_CROSSFADE_MS)
+                        .setInterpolator(LyricMotionPolicy.springSlide(LyricMotionPolicy.SLOT_CROSSFADE_MS))
                         .withEndAction {
                             mask.visibility = View.INVISIBLE
                             // 遮罩收起后把歌词拉回最上层
@@ -1129,7 +1127,7 @@ object WallpaperController {
                 if (!copy.isRecycled) copy.recycle()
                 SystemWallpaperBlurController.sync(appCtx)
                 val settleDelay = settleDelayMs ?: when {
-                    hadMask -> MASK_SETTLE_MS + MASK_FADE_MS
+                    hadMask -> MASK_SETTLE_MS + LyricMotionPolicy.SLOT_CROSSFADE_MS
                     notifyLyricOnSettle -> 0L
                     else -> 0L
                 }

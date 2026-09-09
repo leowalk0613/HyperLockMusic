@@ -17,14 +17,25 @@ class LyricMotionPolicyTest {
     }
 
     @Test
-    fun lineEnter_longerThanExit() {
-        assertTrue(LyricMotionPolicy.LINE_ENTER_MS > LyricMotionPolicy.LINE_EXIT_MS)
+    fun slideDurations_alignedWithSpringSettle() {
+        assertEquals(LyricMotionPolicy.STACK_SCROLL_MS, LyricMotionPolicy.LINE_EXIT_MS)
+        assertEquals(LyricMotionPolicy.STACK_SCROLL_MS, LyricMotionPolicy.LINE_ENTER_MS)
+        assertEquals(LyricMotionPolicy.STACK_SCROLL_MS, LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS)
+        assertEquals(LyricMotionPolicy.STACK_SCROLL_MS, LyricMotionPolicy.NOTIFICATION_SLIDE_MS)
+        assertEquals(LyricMotionPolicy.STACK_SCROLL_MS, LyricMotionPolicy.SLOT_CROSSFADE_MS)
+        assertEquals(LyricMotionPolicy.SLOT_CROSSFADE_MS, LyricAlbumSlotTransition.CROSSFADE_MS)
     }
 
     @Test
     fun lineSlidePx_scalesWithDensity() {
         assertEquals(24f, LyricMotionPolicy.lineSlidePx(1f), 0.01f)
         assertEquals(72f, LyricMotionPolicy.lineSlidePx(3f), 0.01f)
+    }
+
+    @Test
+    fun slotAndNotificationSlide_scaleWithDensity() {
+        assertEquals(12f, LyricMotionPolicy.slotSlidePx(1f), 0.01f)
+        assertEquals(8f, LyricMotionPolicy.notificationSlidePx(1f), 0.01f)
     }
 
     @Test
@@ -49,6 +60,16 @@ class LyricMotionPolicyTest {
         assertEquals(0f, ease.getInterpolation(0f), 0.01f)
         assertEquals(1f, ease.getInterpolation(1f), 0.01f)
         assertTrue(ease.getInterpolation(0.4f) > 0.45f)
+    }
+
+    @Test
+    fun springSlide_durationMatchedCurve() {
+        val shortMs = 300L
+        val longMs = LyricMotionPolicy.STACK_SCROLL_MS
+        val short = LyricMotionPolicy.springSlide(shortMs).getInterpolation(0.5f)
+        val full = LyricMotionPolicy.springSlide(longMs).getInterpolation(0.5f)
+        // 同一 fraction 映射到不同物理时间，曲线应不同
+        assertTrue(kotlin.math.abs(short - full) > 0.01f || shortMs == longMs)
     }
 
     @Test

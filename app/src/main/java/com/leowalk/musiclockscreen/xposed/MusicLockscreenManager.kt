@@ -54,16 +54,18 @@ object MusicLockscreenManager {
                 if (album.visibility != View.VISIBLE) {
                     album.visibility = View.GONE
                     album.alpha = 1f
+                    album.translationY = 0f
                     MediaFollowController.requestReflow()
                     return
                 }
-                album.animate()
-                    .alpha(0f)
-                    .setDuration(220L)
-                    .withEndAction {
+                val slide = LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
+                LyricMotionPolicy.applySpring(
+                    album.animate().alpha(0f).translationY(slide),
+                ).withEndAction {
                         try {
                             album.visibility = View.GONE
                             album.alpha = 1f
+                            album.translationY = 0f
                             MediaFollowController.requestReflow()
                         } catch (_: Throwable) {
                         }
@@ -72,6 +74,7 @@ object MusicLockscreenManager {
             } else {
                 album.animate().cancel()
                 album.alpha = 1f
+                album.translationY = 0f
                 showAlbumOverlay()
                 MediaFollowController.requestReflow()
             }

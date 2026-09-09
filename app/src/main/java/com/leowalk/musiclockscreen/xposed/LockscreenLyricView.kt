@@ -2094,13 +2094,14 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (isAodVisibilityPinActive()) {
                 animate().cancel()
                 alpha = 1f
+                translationY = 0f
             } else {
                 alpha = 0f
+                translationY = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
                 animate().cancel()
-                animate()
-                    .alpha(1f)
-                    .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                    .start()
+                LyricMotionPolicy.applySpring(
+                    animate().alpha(1f).translationY(0f),
+                ).start()
             }
             invalidate()
             syncImmersiveMiBlur()
@@ -2126,6 +2127,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (snapKeep) {
                 setOverlayVisibilityQuiet(View.VISIBLE)
                 alpha = 1f
+                translationY = 0f
                 elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
                 invalidate()
@@ -2138,12 +2140,13 @@ class LockscreenLyricView(context: Context) : View(context) {
                     translationZ = elevation
                     if (pinActive) {
                         alpha = 1f
+                        translationY = 0f
                     } else {
                         alpha = 0f
-                        animate()
-                            .alpha(1f)
-                            .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                            .start()
+                        translationY = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
+                        LyricMotionPolicy.applySpring(
+                            animate().alpha(1f).translationY(0f),
+                        ).start()
                     }
                     syncImmersiveMiBlur()
                     MediaFollowController.requestReflow()
@@ -2160,14 +2163,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                 if (alpha < 0.99f) {
                     if (pinActive) {
                         alpha = 1f
+                        translationY = 0f
                     } else {
-                        animate()
-                            .alpha(1f)
-                            .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                            .start()
+                        LyricMotionPolicy.applySpring(
+                            animate().alpha(1f).translationY(0f),
+                        ).start()
                     }
                 } else {
                     alpha = 1f
+                    translationY = 0f
                 }
                 elevation = 48f * resources.displayMetrics.density
                 translationZ = elevation
@@ -2193,6 +2197,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (hasDisplayableText()) {
                 setOverlayVisibilityQuiet(View.VISIBLE)
                 alpha = 1f
+                translationY = 0f
             }
             return
         }
@@ -2201,26 +2206,30 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (!isMusicLockscreenActive() || !hasLyric) {
             clearLyricDisplay()
             alpha = 0f
+            translationY = 0f
             setOverlayVisibilityQuiet(View.GONE)
             return
         }
         if (visibility == View.GONE) {
             alpha = 0f
+            translationY = 0f
             return
         }
         if (visibility == View.VISIBLE && alpha > 0.01f) {
-            animate()
-                .alpha(0f)
-                .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                .withEndAction {
+            val slide = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
+            LyricMotionPolicy.applySpring(
+                animate().alpha(0f).translationY(slide),
+            ).withEndAction {
                     if (!shouldShowLyricOverlay()) {
                         setOverlayVisibilityQuiet(View.GONE)
                         alpha = 0f
+                        translationY = 0f
                     }
                 }
                 .start()
         } else {
             alpha = 0f
+            translationY = 0f
             setOverlayVisibilityQuiet(View.GONE)
         }
     }
@@ -2230,14 +2239,15 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (hideAlbum) {
             album.animate().cancel()
             if (animate && album.visibility == View.VISIBLE && album.alpha > 0.01f) {
-                album.animate()
-                    .alpha(0f)
-                    .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                    .withEndAction {
+                val slide = LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
+                LyricMotionPolicy.applySpring(
+                    album.animate().alpha(0f).translationY(slide),
+                ).withEndAction {
                         try {
                             if (isLyricPriorityOverAlbum()) {
                                 album.visibility = View.GONE
                                 album.alpha = 1f
+                                album.translationY = 0f
                                 MediaFollowController.requestReflow()
                             }
                         } catch (_: Throwable) {
@@ -2247,6 +2257,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             } else {
                 album.visibility = View.GONE
                 album.alpha = 1f
+                album.translationY = 0f
                 MediaFollowController.requestReflow()
             }
         } else {
@@ -2262,10 +2273,10 @@ class LockscreenLyricView(context: Context) : View(context) {
                 if (album.visibility == View.VISIBLE) {
                     album.animate().cancel()
                     album.alpha = 0f
-                    album.animate()
-                        .alpha(1f)
-                        .setDuration(LyricAlbumSlotTransition.CROSSFADE_MS)
-                        .start()
+                    album.translationY = LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
+                    LyricMotionPolicy.applySpring(
+                        album.animate().alpha(1f).translationY(0f),
+                    ).start()
                 }
             } else {
                 MusicLockscreenManager.showAlbumOverlay()
@@ -2983,7 +2994,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         stackScrollOffset = step
         stackAnimator = ValueAnimator.ofFloat(step, 0f).apply {
             duration = stackAnimMs
-            interpolator = LyricMotionPolicy.springSlide()
+            interpolator = LyricMotionPolicy.springSlide(stackAnimMs)
             addUpdateListener {
                 stackScrollOffset = it.animatedValue as Float
                 invalidate()
