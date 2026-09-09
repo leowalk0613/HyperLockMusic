@@ -121,6 +121,50 @@ class MagazineModePolicyTest {
     }
 
     @Test
+    fun remoteAnimation_acceptsModuleWhenMagazine() {
+        assertTrue(
+            MagazineModePolicy.isMagazineRemoteAnimationPackage(
+                MagazineModePolicy.OFFICIAL_MAGAZINE_PACKAGE,
+                chromeMagazine = false,
+            ),
+        )
+        assertTrue(
+            MagazineModePolicy.isMagazineRemoteAnimationPackage(
+                MagazineModePolicy.MODULE_PACKAGE,
+                chromeMagazine = true,
+            ),
+        )
+        assertFalse(
+            MagazineModePolicy.isMagazineRemoteAnimationPackage(
+                MagazineModePolicy.MODULE_PACKAGE,
+                chromeMagazine = false,
+            ),
+        )
+    }
+
+    @Test
+    fun spoofEmagInstalled_onlyInMagazineMode() {
+        assertTrue(
+            MagazineModePolicy.shouldSpoofMagazinePackageInstalled(
+                chromeMagazine = true,
+                queriedPackage = MagazineModePolicy.OFFICIAL_MAGAZINE_PACKAGE,
+            ),
+        )
+        assertFalse(
+            MagazineModePolicy.shouldSpoofMagazinePackageInstalled(
+                chromeMagazine = false,
+                queriedPackage = MagazineModePolicy.OFFICIAL_MAGAZINE_PACKAGE,
+            ),
+        )
+        assertFalse(
+            MagazineModePolicy.shouldSpoofMagazinePackageInstalled(
+                chromeMagazine = true,
+                queriedPackage = "com.other.app",
+            ),
+        )
+    }
+
+    @Test
     fun resolveChrome_migratesFromImmersiveFlag() {
         assertEquals(
             MagazineModePolicy.CHROME_MAGAZINE,

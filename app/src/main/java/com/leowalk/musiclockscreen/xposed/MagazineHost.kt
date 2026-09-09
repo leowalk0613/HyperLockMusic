@@ -101,12 +101,26 @@ object MagazineHost {
                 MagazineModePolicy.MODULE_PACKAGE,
                 MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY,
             )
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            // 对齐官方：NEW_TASK | MULTIPLE_TASK (0x10800000)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             putExtra("from", "keyguard")
             putExtra("entry_source", "swipe")
             putExtra(MagazineModePolicy.EXTRA_SONG_TITLE, title)
             putExtra(MagazineModePolicy.EXTRA_SONG_ARTIST, artist)
             putExtra(MagazineModePolicy.EXTRA_LYRIC_LINE, content)
+        }
+    }
+
+    /** 画报模式：强制左滑能力字段，避免卸载 emag 后 supportMoveToRight=false。 */
+    fun ensureLeftSwipeCapable(ctrl: Any?) {
+        if (!shouldRedirectLeft()) return
+        val c = ctrl ?: controller ?: return
+        try {
+            supportLeftField?.setBoolean(c, true)
+            setField(c, "mIsLockScreenMagazinePkgExist", true)
+            setField(c, "mPreLeftScreenActivityName", MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY)
+        } catch (e: Throwable) {
+            logE("ensureLeftSwipeCapable failed", e)
         }
     }
 
@@ -261,6 +275,8 @@ object MagazineHostHook {
         hookIsMagazineWallpaper(classLoader, module)
         hookMagazineController(classLoader, module)
         hookLeftSwipeLaunch(classLoader, module)
+        hookMagazineRemoteAnimation(classLoader, module)
+        hookSpoofEmagInstalled(classLoader, module)
         module.log(android.util.Log.INFO, TAG, "MagazineHostHook installed")
     }
 
@@ -311,8 +327,10 @@ object MagazineHostHook {
                 updateMethod.isAccessible = true
                 module.hook(updateMethod).intercept { chain ->
                     MagazineHost.attachController(chain.thisObject)
+                    MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     MagazineHost.applyOverrideToController(chain.thisObject)
                     val result = chain.proceed()
+                    MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     MagazineHost.applyOverrideToController(chain.thisObject)
                     result
                 }
@@ -329,6 +347,7 @@ object MagazineHostHook {
                 intentMethod.isAccessible = true
                 module.hook(intentMethod).intercept { chain ->
                     MagazineHost.attachController(chain.thisObject)
+                    MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     val ctx = MagazineHost.resolveContext(chain.thisObject)
                     if (MagazineHost.shouldRedirectLeft(ctx)) {
                         MagazineHost.buildMusicLeftIntent()
@@ -349,6 +368,7 @@ object MagazineHostHook {
                 startMethod.isAccessible = true
                 module.hook(startMethod).intercept { chain ->
                     MagazineHost.attachController(chain.thisObject)
+                    MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     val ctx = MagazineHost.resolveContext(chain.thisObject)
                     if (MagazineHost.shouldRedirectLeft(ctx) && ctx != null) {
                         try {
@@ -401,8 +421,8 @@ object MagazineHostHook {
     }
 
     /**
-     * 国内机常走 Overlay 而不 startActivity；音乐画报模式下强制走 Activity 启动路径，
-     * 并放宽 isSupportSwipeToLaunchMagazine 判定。
+     * 国内机常走 Overlay；画报模式强制 Activity 启动路径。
+     * 卸载 emag 后 supportMoveToRight / isSupportSwipeToLaunchMagazine 本会失败，一并放宽。
      */
     private fun hookLeftSwipeLaunch(classLoader: ClassLoader, module: XposedModule) {
         try {
@@ -411,35 +431,109 @@ object MagazineHostHook {
                 false,
                 classLoader,
             )
-            moveClass.declaredMethods.firstOrNull {
-                it.name == "isLeftViewLaunchActivity" && it.parameterTypes.isEmpty()
-            }?.let { method ->
-                method.isAccessible = true
-                module.hook(method).intercept { chain ->
-                    if (MagazineHost.shouldRedirectLeft()) {
-                        true
-                    } else {
-                        chain.proceed()
+            listOf(
+                "isLeftViewLaunchActivity",
+                "isSupportSwipeToLaunchMagazine",
+                "supportMoveToRight",
+            ).forEach { name ->
+                moveClass.declaredMethods.firstOrNull {
+                    it.name == name && it.parameterTypes.isEmpty()
+                }?.let { method ->
+                    method.isAccessible = true
+                    module.hook(method).intercept { chain ->
+                        if (MagazineHost.shouldRedirectLeft()) {
+                            true
+                        } else {
+                            chain.proceed()
+                        }
                     }
+                    module.log(android.util.Log.INFO, TAG, "hooked $name")
                 }
-                module.log(android.util.Log.INFO, TAG, "hooked isLeftViewLaunchActivity")
-            }
-
-            moveClass.declaredMethods.firstOrNull {
-                it.name == "isSupportSwipeToLaunchMagazine" && it.parameterTypes.isEmpty()
-            }?.let { method ->
-                method.isAccessible = true
-                module.hook(method).intercept { chain ->
-                    if (MagazineHost.shouldRedirectLeft()) {
-                        true
-                    } else {
-                        chain.proceed()
-                    }
-                }
-                module.log(android.util.Log.INFO, TAG, "hooked isSupportSwipeToLaunchMagazine")
             }
         } catch (e: Throwable) {
             module.log(android.util.Log.ERROR, TAG, "hookLeftSwipeLaunch failed", e)
+        }
+    }
+
+    /** 遮罩动画：模块包也算 magazine，否则进我们的页没有官方 occlude 动画。 */
+    private fun hookMagazineRemoteAnimation(classLoader: ClassLoader, module: XposedModule) {
+        try {
+            val helperClass = Class.forName(
+                "com.android.keyguard.magazine.KeyguardMagazineHelper",
+                false,
+                classLoader,
+            )
+            val method = helperClass.declaredMethods.firstOrNull {
+                it.name == "checkIsMagazineRemoteAnimation" && it.parameterTypes.size == 1
+            } ?: run {
+                module.log(android.util.Log.ERROR, TAG, "checkIsMagazineRemoteAnimation not found")
+                return
+            }
+            method.isAccessible = true
+            module.hook(method).intercept { chain ->
+                val original = chain.proceed() as? Boolean ?: false
+                if (original) return@intercept true
+                try {
+                    if (!MagazineHost.shouldRedirectLeft()) return@intercept false
+                    val target = chain.args.getOrNull(0) ?: return@intercept false
+                    val taskInfo = target.javaClass.getField("taskInfo").get(target) ?: return@intercept false
+                    val base = try {
+                        taskInfo.javaClass.getField("baseActivity").get(taskInfo) as? ComponentName
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    val real = try {
+                        taskInfo.javaClass.getField("realActivity").get(taskInfo) as? ComponentName
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    val pkg = base?.packageName ?: real?.packageName
+                    MagazineModePolicy.isMagazineRemoteAnimationPackage(
+                        packageName = pkg,
+                        chromeMagazine = true,
+                    )
+                } catch (_: Throwable) {
+                    false
+                }
+            }
+            module.log(android.util.Log.INFO, TAG, "hooked checkIsMagazineRemoteAnimation")
+        } catch (e: Throwable) {
+            module.log(android.util.Log.ERROR, TAG, "hookMagazineRemoteAnimation failed", e)
+        }
+    }
+
+    /** 卸载 emag 后伪装「已安装」，避免其它 SystemUI 门闩关掉右划。 */
+    private fun hookSpoofEmagInstalled(classLoader: ClassLoader, module: XposedModule) {
+        try {
+            val pkgClass = Class.forName(
+                "com.miui.utils.PackageUtils",
+                false,
+                classLoader,
+            )
+            val method = pkgClass.declaredMethods.firstOrNull {
+                it.name == "isAppInstalledForUser" &&
+                    it.parameterTypes.size >= 2 &&
+                    it.parameterTypes[1] == String::class.java
+            } ?: run {
+                module.log(android.util.Log.ERROR, TAG, "isAppInstalledForUser not found")
+                return
+            }
+            method.isAccessible = true
+            module.hook(method).intercept { chain ->
+                val queried = chain.args.getOrNull(1) as? String
+                if (MagazineModePolicy.shouldSpoofMagazinePackageInstalled(
+                        chromeMagazine = MagazineHost.shouldRedirectLeft(),
+                        queriedPackage = queried,
+                    )
+                ) {
+                    true
+                } else {
+                    chain.proceed()
+                }
+            }
+            module.log(android.util.Log.INFO, TAG, "hooked isAppInstalledForUser (emag spoof)")
+        } catch (e: Throwable) {
+            module.log(android.util.Log.ERROR, TAG, "hookSpoofEmagInstalled failed", e)
         }
     }
 }

@@ -69,7 +69,7 @@
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleInstance"
             android:taskAffinity=""
             android:theme="@style/Theme.HyperLockMusic.MagazineLock"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode" />

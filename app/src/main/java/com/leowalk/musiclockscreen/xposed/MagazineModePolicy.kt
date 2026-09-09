@@ -97,9 +97,31 @@ internal object MagazineModePolicy {
     /** 模块包名（与 applicationId 一致）。 */
     const val MODULE_PACKAGE = "com.leowalk.musiclockscreen"
 
+    /** 官方画报包名（可卸载；模块模式不依赖其存在）。 */
+    const val OFFICIAL_MAGAZINE_PACKAGE = "com.mfashiongallery.emag"
+
     /** 画报侧自建页（完整类名）。 */
     const val MAGAZINE_MUSIC_ACTIVITY =
         "com.leowalk.musiclockscreen.MagazineMusicActivity"
+
+    /**
+     * 遮罩动画校验：官方 emag，或画报模式下的模块包。
+     * 对齐 KeyguardMagazineHelper.checkIsMagazineRemoteAnimation。
+     */
+    fun isMagazineRemoteAnimationPackage(
+        packageName: String?,
+        chromeMagazine: Boolean,
+    ): Boolean {
+        if (packageName.isNullOrBlank()) return false
+        if (packageName == OFFICIAL_MAGAZINE_PACKAGE) return true
+        return chromeMagazine && packageName == MODULE_PACKAGE
+    }
+
+    /** 画报模式：把「emag 已安装」查询伪装为 true，卸载后仍可走右划入口。 */
+    fun shouldSpoofMagazinePackageInstalled(
+        chromeMagazine: Boolean,
+        queriedPackage: String?,
+    ): Boolean = chromeMagazine && queriedPackage == OFFICIAL_MAGAZINE_PACKAGE
 
     const val EXTRA_SONG_TITLE = "hyperlockmusic_song_title"
     const val EXTRA_SONG_ARTIST = "hyperlockmusic_song_artist"
