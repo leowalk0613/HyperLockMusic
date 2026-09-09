@@ -78,6 +78,14 @@ internal object LyricAlbumSlotTransition {
     }
 
     /**
+     * 可见性刷新后是否还要强制 [MusicLockscreenManager.showAlbumOverlay]。
+     * 歌词占槽时禁止：否则会把正在淡出的专辑 alpha snap 回 1。
+     */
+    fun shouldForceShowAlbumAfterVisibilityUpdate(
+        lyricPriorityOverAlbum: Boolean,
+    ): Boolean = !lyricPriorityOverAlbum
+
+    /**
      * [View.setVisibility] 副作用是否应跑：同值重入 / 内部静默设值时禁止，
      * 否则 VISIBLE→refreshNow→updateVisibilityState→再设 VISIBLE 会 StackOverflow 拖死 SystemUI。
      */

@@ -22,6 +22,8 @@ object MediaFollowController {
     private var lastLyricAnchor = Float.NaN
     private var lastAlbumSize = -1
     private var lastLyricHeight = -1
+    /** 钉死的沉浸歌词底边（相对 parent）；<0 未钉 */
+    private var pinnedLyricBottomY = -1
 
     var logCallback: ((Int, String, String, Throwable?) -> Unit)? = null
 
@@ -61,7 +63,11 @@ object MediaFollowController {
 
     fun requestReflow() {
         ConfigReader.invalidate()
-        invalidateCache()
+        // 软失效：保留歌词底边钉与高度，避免每次 reflow 把底边弹回百分比
+        lastAlbumAnchor = Float.NaN
+        lastLyricAnchor = Float.NaN
+        lastAlbumSize = -1
+        zOrderPinned = false
         layoutAll()
     }
 
@@ -69,6 +75,17 @@ object MediaFollowController {
     fun syncLyricLaidOut(height: Int) {
         if (height > 0) lastLyricHeight = height
     }
+
+    /**
+     * 钉住歌词区域底边像素，之后 layout 只改 height/top，底边不变。
+     */
+    fun pinLyricBottom(bottomY: Int, height: Int) {
+        if (bottomY > 0) pinnedLyricBottomY = bottomY
+        if (height > 0) lastLyricHeight = height
+    }
+
+    /** 当前钉死的底边；未钉返回 -1 */
+    fun pinnedLyricBottomY(): Int = pinnedLyricBottomY
 
     private fun scheduleRetries() {
         val bg = bgLayer ?: return
@@ -82,6 +99,7 @@ object MediaFollowController {
         lastLyricAnchor = Float.NaN
         lastAlbumSize = -1
         lastLyricHeight = -1
+        pinnedLyricBottomY = -1
         zOrderPinned = false
     }
 
@@ -208,11 +226,23 @@ object MediaFollowController {
         }
 
         val h = when {
-            immersiveLyric -> w
+            immersiveLyric -> {
+                // 三行栈按内容高；禁止用宽度当正方形高，否则底边被顶飞
+                val lpH = lyric.layoutParams?.height ?: 0
+                when {
+                    lpH > 0 -> lpH
+                    lastLyricHeight > 0 -> lastLyricHeight
+                    lyric.height > 0 -> lyric.height
+                    lyric.measuredHeight > 0 -> lyric.measuredHeight
+                    else -> 0
+                }
+            }
             lyric.height > 0 -> lyric.height
             lyric.measuredHeight > 0 -> lyric.measuredHeight
             else -> 0
         }
+
+        if (immersiveLyric && h <= 0) return
 
         if (!immersiveLyric && h <= 0) {
             val guess = (48f * bg.resources.displayMetrics.density).toInt().coerceAtLeast(1)
@@ -220,11 +250,17 @@ object MediaFollowController {
             return
         }
 
-        if (lastLyricAnchor != anchor || lastLyricHeight != h) {
-            if (immersiveLyric) {
-                placeImmersiveLyric(lyric, w, h, anchor)
-                logI("immersive lyric bottom=$anchor% block=${w}x$h")
-            } else if (placeByScreenHeight(lyric, w, h, anchor)) {
+        if (immersiveLyric) {
+            val bottomY = if (pinnedLyricBottomY > 0) {
+                pinnedLyricBottomY
+            } else {
+                (bg.height * (anchor / 100f)).toInt().also { pinnedLyricBottomY = it }
+            }
+            placeImmersiveLyricAtBottom(lyric, w, h, bottomY)
+            lastLyricAnchor = anchor
+            lastLyricHeight = h
+        } else if (lastLyricAnchor != anchor || lastLyricHeight != h) {
+            if (placeByScreenHeight(lyric, w, h, anchor)) {
                 logI("lyric bottom=${anchor}% h=$h bgH=${bg.height}")
             }
             lastLyricAnchor = anchor
@@ -232,6 +268,47 @@ object MediaFollowController {
         }
         lyric.alpha = 1f
         if (lyric.visibility == View.INVISIBLE) lyric.visibility = View.VISIBLE
+    }
+
+    private fun placeImmersiveLyricAtBottom(target: View, width: Int, height: Int, bottomY: Int) {
+        val parent = target.parent as? View ?: return
+        if (parent.height <= 0 || height <= 0) return
+        val top = (bottomY - height).coerceAtLeast(0)
+        val left = ((parent.width - width) / 2f).toInt().coerceAtLeast(0)
+        val lp = target.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        var changed = false
+        if (lp.width != width) {
+            lp.width = width
+            changed = true
+        }
+        if (lp.height != height) {
+            lp.height = height
+            changed = true
+        }
+        if (lp.topMargin != top) {
+            lp.topMargin = top
+            changed = true
+        }
+        if (lp.leftMargin != left) {
+            lp.leftMargin = left
+            changed = true
+        }
+        if (lp.rightMargin != 0) {
+            lp.rightMargin = 0
+            changed = true
+        }
+        if (lp.bottomMargin != 0) {
+            lp.bottomMargin = 0
+            changed = true
+        }
+        if (lp is FrameLayout.LayoutParams &&
+            lp.gravity != (Gravity.TOP or Gravity.START)
+        ) {
+            lp.gravity = Gravity.TOP or Gravity.START
+            changed = true
+        }
+        if (changed) target.layoutParams = lp
+        resetViewTransform(target)
     }
 
     private fun placeImmersiveLyric(target: View, width: Int, height: Int, bottomAnchorPercent: Float) {

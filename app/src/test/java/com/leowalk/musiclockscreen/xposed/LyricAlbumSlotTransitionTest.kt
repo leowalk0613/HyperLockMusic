@@ -184,4 +184,18 @@ class LyricAlbumSlotTransitionTest {
             )
         )
     }
+
+    @Test
+    fun forceShowAlbum_onlyWhenLyricNotOccupyingSlot() {
+        assertFalse(
+            LyricAlbumSlotTransition.shouldForceShowAlbumAfterVisibilityUpdate(
+                lyricPriorityOverAlbum = true,
+            )
+        )
+        assertTrue(
+            LyricAlbumSlotTransition.shouldForceShowAlbumAfterVisibilityUpdate(
+                lyricPriorityOverAlbum = false,
+            )
+        )
+    }
 }

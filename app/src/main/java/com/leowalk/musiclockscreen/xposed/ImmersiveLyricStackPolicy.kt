@@ -1,18 +1,21 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 沉浸歌词「三行上滑」：上一句 / 当前(+翻译) / 下一句。
+ * 沉浸歌词「三行栈」：上一句 / 当前(+翻译展开) / 下一句。
  *
- * 布局自底向上：歌词区域底边固定，内容增高时往上长。
- * 切行：当前行先单独上滑到落点，再到齐后展开邻行/翻译。
+ * 切行：先换上「已展开」的新 triplet，再整块从下方滑入落点（一步到位）。
+ * 避免「先单行下一句再展开翻译」；当前块相对视口底边锚点稳定。
  */
 internal object ImmersiveLyricStackPolicy {
 
-    /** 邻行相对当前行的不透明度（更透）。 */
+    /** 邻行相对当前行的不透明度。 */
     const val NEIGHBOR_ALPHA = 0.28f
 
-    /** 切行动画中「上滑」占前段比例，其后为展开。 */
-    const val FOCUS_FRACTION = 0.55f
+    /** 当前行翻译副行静止透明度。 */
+    const val SECONDARY_ALPHA = 0.72f
+
+    /** 单段上滑时长。 */
+    const val PROMOTION_MS = 220L
 
     fun shouldUseStack(
         immersiveLyric: Boolean,
@@ -59,8 +62,8 @@ internal object ImmersiveLyricStackPolicy {
     data class LineText(val text: String, val translation: String = "")
 
     /**
-     * 自底向上几何。
-     * [expand] 0=仅当前行（落点贴底）；1=完整 prev/当前/翻译/下一句。
+     * 自底向上完整几何（始终展开当前行：主行+翻译）。
+     * 视口底边固定时：下一句贴底，当前块在其上方；当前变高只往上长。
      */
     data class BottomGeometry(
         val heightPx: Float,
@@ -68,9 +71,8 @@ internal object ImmersiveLyricStackPolicy {
         val currentTop: Float,
         val secondaryTop: Float,
         val nextTop: Float,
-        val showPrev: Boolean,
-        val showSecondary: Boolean,
-        val showNext: Boolean,
+        /** 当前主行底边（不含翻译），相对内容顶。 */
+        val currentBottom: Float,
     )
 
     fun bottomGeometry(
@@ -80,97 +82,79 @@ internal object ImmersiveLyricStackPolicy {
         currentHeightPx: Float,
         secondaryHeightPx: Float,
         nextHeightPx: Float,
-        expand: Float,
     ): BottomGeometry {
-        val e = expand.coerceIn(0f, 1f)
         val gap = gapPx.coerceAtLeast(0f)
         val curH = currentHeightPx.coerceAtLeast(1f)
         val prevH = prevHeightPx.coerceAtLeast(0f)
         val secH = secondaryHeightPx.coerceAtLeast(0f)
         val nextH = nextHeightPx.coerceAtLeast(0f)
 
-        val showNext = e > 0.001f && nextH > 0f
-        val showSecondary = e > 0.001f && secH > 0f
-        val showPrev = e > 0.001f && prevH > 0f
-
-        // 展开高度：邻行/翻译高度按 expand 插值，底边始终在内容底部
-        val nextBlock = if (nextH > 0f) (nextH + gap) * e else 0f
-        val secBlock = if (secH > 0f) (secH + gap) * e else 0f
-        val prevBlock = if (prevH > 0f) (prevH + gap) * e else 0f
+        val nextBlock = if (nextH > 0f) nextH + gap else 0f
+        val secBlock = if (secH > 0f) secH + gap else 0f
+        val prevBlock = if (prevH > 0f) prevH + gap else 0f
         val height = vPaddingPx * 2f + prevBlock + curH + secBlock + nextBlock
 
         var y = height - vPaddingPx
         val nextTop: Float
-        if (nextH > 0f && e > 0f) {
-            val drawnNext = nextH * e
-            y -= drawnNext
+        if (nextH > 0f) {
+            y -= nextH
             nextTop = y
-            y -= gap * e
+            y -= gap
         } else {
             nextTop = y
         }
         val secondaryTop: Float
-        if (secH > 0f && e > 0f) {
-            val drawnSec = secH * e
-            y -= drawnSec
+        if (secH > 0f) {
+            y -= secH
             secondaryTop = y
-            y -= gap * e
+            y -= gap
         } else {
             secondaryTop = y
         }
         y -= curH
         val currentTop = y
-        val prevTop = if (prevH > 0f && e > 0f) {
-            currentTop - gap * e - prevH * e
-        } else {
-            currentTop - gap - prevH
-        }
+        val currentBottom = currentTop + curH
+        val prevTop = if (prevH > 0f) currentTop - gap - prevH else currentTop - gap
         return BottomGeometry(
             heightPx = height.coerceAtLeast(1f),
             prevTop = prevTop,
             currentTop = currentTop,
             secondaryTop = secondaryTop,
             nextTop = nextTop,
-            showPrev = showPrev,
-            showSecondary = showSecondary,
-            showNext = showNext,
+            currentBottom = currentBottom,
         )
     }
 
-    /** 上滑段落进度 0→1（整段动画进度映射）。 */
-    fun focusProgress(animProgress: Float): Float {
-        val p = animProgress.coerceIn(0f, 1f)
-        val f = FOCUS_FRACTION.coerceIn(0.2f, 0.85f)
-        return (p / f).coerceIn(0f, 1f)
+    /**
+     * 滑入步长：按「已展开当前块」高度，整块从下方进入。
+     */
+    fun promotionStepPx(
+        currentHeightPx: Float,
+        secondaryHeightPx: Float,
+        gapPx: Float,
+    ): Float {
+        val gap = gapPx.coerceAtLeast(0f)
+        val cur = currentHeightPx.coerceAtLeast(1f)
+        val sec = secondaryHeightPx.coerceAtLeast(0f)
+        return if (sec > 0f) cur + gap + sec + gap else cur + gap
     }
 
-    /** 展开段落进度 0→1。 */
-    fun expandProgress(animProgress: Float): Float {
-        val p = animProgress.coerceIn(0f, 1f)
-        val f = FOCUS_FRACTION.coerceIn(0.2f, 0.85f)
-        if (p <= f) return 0f
-        return ((p - f) / (1f - f)).coerceIn(0f, 1f)
+    /**
+     * progress 0→1：offset 从 +step 收到 0（先换已展开新词，再上滑到位）。
+     */
+    fun scrollOffsetPx(progress: Float, stepPx: Float): Float {
+        return stepPx.coerceAtLeast(0f) * (1f - progress.coerceIn(0f, 1f))
     }
 
-    /** 当前行自下方滑入：focus=0 在落点下方一步，focus=1 在落点。 */
-    fun currentSlideOffsetPx(focusProgress: Float, stepPx: Float): Float {
-        val f = focusProgress.coerceIn(0f, 1f)
-        return stepPx.coerceAtLeast(0f) * (1f - f)
-    }
-
-    fun scrollStepPx(currentHeightPx: Float, gapPx: Float): Float {
-        return currentHeightPx.coerceAtLeast(1f) + gapPx.coerceAtLeast(0f)
+    /**
+     * 内容贴视口底：originY + 几何坐标 = 画布坐标。
+     * 视口变高时只增加上方空白，当前块相对底边位置不变。
+     */
+    fun contentOriginY(viewportHeightPx: Float, contentHeightPx: Float): Float {
+        return (viewportHeightPx - contentHeightPx).coerceAtLeast(0f)
     }
 
     fun prevTopPx(currentTop: Float, prevHeight: Float, gapPx: Float): Float {
         return currentTop - gapPx.coerceAtLeast(0f) - prevHeight.coerceAtLeast(0f)
-    }
-
-    fun neighborAlphaForExpand(expand: Float): Float {
-        return NEIGHBOR_ALPHA * expand.coerceIn(0f, 1f)
-    }
-
-    fun secondaryAlphaForExpand(expand: Float): Float {
-        return 0.72f * expand.coerceIn(0f, 1f)
     }
 }

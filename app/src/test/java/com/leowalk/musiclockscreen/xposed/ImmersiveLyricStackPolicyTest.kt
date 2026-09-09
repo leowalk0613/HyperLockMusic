@@ -26,7 +26,7 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
-    fun resolveTriplet_keepsSecondaryTranslation() {
+    fun resolveTriplet_keepsExpandedSecondary() {
         val lines = listOf(
             ImmersiveLyricStackPolicy.LineText("A", "a"),
             ImmersiveLyricStackPolicy.LineText("B", "b"),
@@ -40,63 +40,51 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
-    fun bottomGeometry_expandZero_isCurrentOnly() {
-        val g = ImmersiveLyricStackPolicy.bottomGeometry(
-            vPaddingPx = 10f,
-            gapPx = 8f,
-            prevHeightPx = 40f,
-            currentHeightPx = 50f,
-            secondaryHeightPx = 20f,
-            nextHeightPx = 40f,
-            expand = 0f,
-        )
-        assertEquals(10f * 2 + 50f, g.heightPx, 0.01f)
-        assertFalse(g.showPrev)
-        assertFalse(g.showSecondary)
-        assertFalse(g.showNext)
-        // 当前行贴底（在下内边距之上）
-        assertEquals(g.heightPx - 10f - 50f, g.currentTop, 0.01f)
-    }
-
-    @Test
-    fun bottomGeometry_expandFull_growsUpward() {
-        val g0 = ImmersiveLyricStackPolicy.bottomGeometry(
+    fun bottomGeometry_currentBottom_stableWhenCurrentGrows() {
+        val short = ImmersiveLyricStackPolicy.bottomGeometry(
             vPaddingPx = 10f, gapPx = 8f,
-            prevHeightPx = 40f, currentHeightPx = 50f,
+            prevHeightPx = 40f, currentHeightPx = 40f,
             secondaryHeightPx = 20f, nextHeightPx = 40f,
-            expand = 0f,
         )
-        val g1 = ImmersiveLyricStackPolicy.bottomGeometry(
+        val tall = ImmersiveLyricStackPolicy.bottomGeometry(
             vPaddingPx = 10f, gapPx = 8f,
-            prevHeightPx = 40f, currentHeightPx = 50f,
+            prevHeightPx = 40f, currentHeightPx = 80f,
             secondaryHeightPx = 20f, nextHeightPx = 40f,
-            expand = 1f,
         )
-        assertTrue(g1.heightPx > g0.heightPx)
-        assertTrue(g1.showPrev && g1.showSecondary && g1.showNext)
-        // 底边对齐：下一句贴在内容底之上
-        assertEquals(g1.heightPx - 10f - 40f, g1.nextTop, 0.01f)
-        assertTrue(g1.currentTop < g0.currentTop + (g1.heightPx - g0.heightPx))
+        // 贴同一视口底时：当前主行底边相对视口底的距离应不变
+        val viewH = tall.heightPx + 50f
+        val shortOrigin = ImmersiveLyricStackPolicy.contentOriginY(viewH, short.heightPx)
+        val tallOrigin = ImmersiveLyricStackPolicy.contentOriginY(viewH, tall.heightPx)
+        val shortCurrentBottomOnView = shortOrigin + short.currentBottom
+        val tallCurrentBottomOnView = tallOrigin + tall.currentBottom
+        assertEquals(shortCurrentBottomOnView, tallCurrentBottomOnView, 0.01f)
+        // 变高只往上长
+        assertTrue(tall.currentTop < short.currentTop + (tall.heightPx - short.heightPx))
     }
 
     @Test
-    fun focusThenExpand_progressSplit() {
-        assertEquals(0f, ImmersiveLyricStackPolicy.focusProgress(0f), 0.001f)
-        assertEquals(1f, ImmersiveLyricStackPolicy.focusProgress(ImmersiveLyricStackPolicy.FOCUS_FRACTION), 0.001f)
-        assertEquals(0f, ImmersiveLyricStackPolicy.expandProgress(ImmersiveLyricStackPolicy.FOCUS_FRACTION), 0.001f)
-        assertEquals(1f, ImmersiveLyricStackPolicy.expandProgress(1f), 0.001f)
-        assertTrue(ImmersiveLyricStackPolicy.expandProgress(0.8f) in 0f..1f)
+    fun scrollOffset_enterFromBelow_alreadyExpanded() {
+        assertEquals(80f, ImmersiveLyricStackPolicy.scrollOffsetPx(0f, 80f), 0.01f)
+        assertEquals(40f, ImmersiveLyricStackPolicy.scrollOffsetPx(0.5f, 80f), 0.01f)
+        assertEquals(0f, ImmersiveLyricStackPolicy.scrollOffsetPx(1f, 80f), 0.01f)
     }
 
     @Test
-    fun currentSlide_startsBelow_endsAtRest() {
-        val step = 52f
-        assertEquals(step, ImmersiveLyricStackPolicy.currentSlideOffsetPx(0f, step), 0.01f)
-        assertEquals(0f, ImmersiveLyricStackPolicy.currentSlideOffsetPx(1f, step), 0.01f)
+    fun promotionStep_includesExpandedSecondaryBlock() {
+        assertEquals(58f, ImmersiveLyricStackPolicy.promotionStepPx(50f, 0f, 8f), 0.01f)
+        assertEquals(86f, ImmersiveLyricStackPolicy.promotionStepPx(50f, 20f, 8f), 0.01f)
     }
 
     @Test
-    fun scrollStep_isMainLinePlusGap_only() {
-        assertEquals(52f, ImmersiveLyricStackPolicy.scrollStepPx(40f, 12f), 0.001f)
+    fun contentOrigin_padsTopOnly() {
+        assertEquals(30f, ImmersiveLyricStackPolicy.contentOriginY(100f, 70f), 0.01f)
+        assertEquals(0f, ImmersiveLyricStackPolicy.contentOriginY(70f, 70f), 0.01f)
+    }
+
+    @Test
+    fun promotionDuration_staysShortForLockscreen() {
+        // 锁屏 + MiBlur：长动画更容易掉帧
+        assertTrue(ImmersiveLyricStackPolicy.PROMOTION_MS <= 240L)
+        assertTrue(ImmersiveLyricStackPolicy.PROMOTION_MS >= 160L)
     }
 }

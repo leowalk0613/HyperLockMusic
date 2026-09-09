@@ -7,13 +7,9 @@ import org.junit.Test
 class LyricMotionPolicyTest {
 
     @Test
-    fun stackScroll_usesSoftUiSlide() {
-        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS >= 240L)
-        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 420L)
-        assertEquals(
-            AmllSpringMotion.settleMs(AmllSpringMotion.UI_SLIDE),
-            LyricMotionPolicy.STACK_SCROLL_MS,
-        )
+    fun stackScroll_matchesHyperLyricPromotion() {
+        assertEquals(ImmersiveLyricStackPolicy.PROMOTION_MS, LyricMotionPolicy.STACK_SCROLL_MS)
+        assertEquals(220L, LyricMotionPolicy.STACK_SCROLL_MS)
     }
 
     @Test
@@ -24,9 +20,10 @@ class LyricMotionPolicyTest {
     }
 
     @Test
-    fun slotAndSurface_shorterThanOrEqualStack() {
-        assertTrue(LyricMotionPolicy.SLOT_CROSSFADE_MS <= LyricMotionPolicy.STACK_SCROLL_MS)
-        assertTrue(LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS <= LyricMotionPolicy.STACK_SCROLL_MS)
+    fun slotAndSurface_reasonableDurations() {
+        assertTrue(LyricMotionPolicy.SLOT_CROSSFADE_MS in 150L..400L)
+        assertTrue(LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS in 150L..400L)
+        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 280L)
     }
 
     @Test

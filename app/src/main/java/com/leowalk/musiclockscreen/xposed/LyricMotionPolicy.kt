@@ -3,6 +3,7 @@ package com.leowalk.musiclockscreen.xposed
 import android.view.View
 import android.view.ViewPropertyAnimator
 import android.view.animation.Interpolator
+import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 
 /**
  * 全模块滑动 / 切行 / 槽位过渡的统一时长与插值。
@@ -14,8 +15,8 @@ internal object LyricMotionPolicy {
 
     private val settleMs: Long = AmllSpringMotion.settleMs(AmllSpringMotion.UI_SLIDE)
 
-    /** 沉浸三行上滑：与其它位移共用 soft 弹簧，避免欠阻尼过冲显得乱 */
-    val STACK_SCROLL_MS: Long = settleMs
+    /** 沉浸三行晋升：对齐 HyperLyric 220ms */
+    val STACK_SCROLL_MS: Long = ImmersiveLyricStackPolicy.PROMOTION_MS
 
     /** 普通切行：离场短、入场略长（串行总时长约 0.5s） */
     val LINE_EXIT_MS: Long = (settleMs * 0.55f).toLong().coerceIn(160L, 240L)
@@ -62,6 +63,9 @@ internal object LyricMotionPolicy {
     }
 
     fun easeInOut(): Interpolator = springSlide()
+
+    /** HyperLyric 晋升 / LayoutTransition 同款，短位移更跟手 */
+    fun fastOutSlowIn(): Interpolator = FastOutSlowInInterpolator()
 
     fun lineSlidePx(density: Float): Float {
         return LINE_SLIDE_DP * density.coerceAtLeast(0.5f)
