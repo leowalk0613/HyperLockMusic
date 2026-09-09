@@ -154,6 +154,9 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 当前壁纸区域偏亮时改用深色透色，保证浅底可读 */
     private var immersiveMiBlurOnLightBg = false
 
+    /** 供动画策略：MiBlur 生效时避免 translation 掉帧 */
+    fun hasActiveMiBlur(): Boolean = immersiveMiBlurActive
+
     // ============================================================
     // 配置
     // ============================================================
@@ -2076,6 +2079,35 @@ class LockscreenLyricView(context: Context) : View(context) {
         )
     }
 
+    /** 槽位淡入：MiBlur 生效时只做 alpha，避免 translation 掉帧。 */
+    private fun springFadeInLyric() {
+        animate().cancel()
+        alpha = 0f
+        translationY = 0f
+        val anim = if (LyricMotionPolicy.shouldTranslateSlot(this)) {
+            translationY = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
+            animate().alpha(1f).translationY(0f)
+        } else {
+            animate().alpha(1f)
+        }
+        LyricMotionPolicy.applySpring(anim).start()
+    }
+
+    /** 槽位淡出。 */
+    private fun springFadeOutLyric(onEnd: (() -> Unit)? = null) {
+        animate().cancel()
+        val anim = if (LyricMotionPolicy.shouldTranslateSlot(this)) {
+            val slide = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
+            animate().alpha(0f).translationY(slide)
+        } else {
+            animate().alpha(0f)
+        }
+        LyricMotionPolicy.applySpring(anim).withEndAction {
+            translationY = 0f
+            onEnd?.invoke()
+        }.start()
+    }
+
     private fun scheduleRevealAfterLayout() {
         handler.removeCallbacks(revealAfterLayoutRunnable)
         handler.post(revealAfterLayoutRunnable)
@@ -2096,12 +2128,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 alpha = 1f
                 translationY = 0f
             } else {
-                alpha = 0f
-                translationY = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
-                animate().cancel()
-                LyricMotionPolicy.applySpring(
-                    animate().alpha(1f).translationY(0f),
-                ).start()
+                springFadeInLyric()
             }
             invalidate()
             syncImmersiveMiBlur()
@@ -2142,11 +2169,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                         alpha = 1f
                         translationY = 0f
                     } else {
-                        alpha = 0f
-                        translationY = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
-                        LyricMotionPolicy.applySpring(
-                            animate().alpha(1f).translationY(0f),
-                        ).start()
+                        springFadeInLyric()
                     }
                     syncImmersiveMiBlur()
                     MediaFollowController.requestReflow()
@@ -2165,9 +2188,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                         alpha = 1f
                         translationY = 0f
                     } else {
-                        LyricMotionPolicy.applySpring(
-                            animate().alpha(1f).translationY(0f),
-                        ).start()
+                        springFadeInLyric()
                     }
                 } else {
                     alpha = 1f
@@ -2216,17 +2237,13 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
         if (visibility == View.VISIBLE && alpha > 0.01f) {
-            val slide = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
-            LyricMotionPolicy.applySpring(
-                animate().alpha(0f).translationY(slide),
-            ).withEndAction {
-                    if (!shouldShowLyricOverlay()) {
-                        setOverlayVisibilityQuiet(View.GONE)
-                        alpha = 0f
-                        translationY = 0f
-                    }
+            springFadeOutLyric {
+                if (!shouldShowLyricOverlay()) {
+                    setOverlayVisibilityQuiet(View.GONE)
+                    alpha = 0f
+                    translationY = 0f
                 }
-                .start()
+            }
         } else {
             alpha = 0f
             translationY = 0f

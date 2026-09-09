@@ -7,13 +7,11 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * AMLL（applemusic-like-lyrics）弹簧位移求解，用于歌词滑动。
+ * AMLL 弹簧位移求解（`utils/spring.ts` / pushkine，MIT）。
  *
- * 算法对齐 `@applemusic-like-lyrics/core` 的 `utils/spring.ts`
- *（原 spring 求解来自 github.com/pushkine，MIT）。
- *
- * 默认 [POS_Y] 与 AMLL `LyricPlayerBase.posYSpringParams` 一致：
- * mass=0.9 / damping=15 / stiffness=90（略欠阻尼，落点带一点弹性）。
+ * 锁屏上不要直接用网页端 POS_Y 的「欠阻尼 + 长 settle」：
+ * 切行是离场+入场串行，会拖到近 1s，且过冲 + MiBlur 重绘容易「卡」。
+ * 位移统一走 [UI_SLIDE]（过阻尼 soft，约 300ms 落稳）。
  */
 internal object AmllSpringMotion {
 
@@ -24,20 +22,25 @@ internal object AmllSpringMotion {
         val soft: Boolean = false,
     )
 
-    /** AMLL 歌词行纵坐标弹簧 */
-    val POS_Y = Params(mass = 0.9f, damping = 15f, stiffness = 90f)
+    /** AMLL 原文 posY（保留测试对照，勿直接用于锁屏时长） */
+    val POS_Y = Params(mass = 0.9f, damping = 15f, stiffness = 90f, soft = false)
 
-    /** 进场 / 缩放类：更沉一点，少抖 */
-    val SCALE = Params(mass = 2f, damping = 25f, stiffness = 100f)
+    /** AMLL scale（同样偏沉） */
+    val SCALE = Params(mass = 2f, damping = 25f, stiffness = 100f, soft = false)
 
-    private const val ARRIVE_POS = 0.01f
-    private const val ARRIVE_VEL = 0.01f
+    /**
+     * 锁屏滑动：soft 过阻尼，无过冲；刚度抬高，约 300ms 内视觉落稳。
+     */
+    val UI_SLIDE = Params(mass = 1f, damping = 36f, stiffness = 480f, soft = true)
+
+    private const val ARRIVE_POS = 0.02f
+    private const val ARRIVE_VEL = 0.12f
 
     fun solve(
         from: Float,
         velocity: Float,
         to: Float,
-        params: Params = POS_Y,
+        params: Params = UI_SLIDE,
     ): (Float) -> Float {
         val mass = params.mass.coerceAtLeast(1e-4f)
         val stiffness = params.stiffness.coerceAtLeast(1e-4f)
@@ -67,12 +70,9 @@ internal object AmllSpringMotion {
         }
     }
 
-    /**
-     * 估计弹簧落到目标附近所需秒数（零初速，0→1）。
-     */
     fun estimateSettleSeconds(
-        params: Params = POS_Y,
-        maxSeconds: Float = 2f,
+        params: Params = UI_SLIDE,
+        maxSeconds: Float = 1.2f,
         sampleHz: Float = 120f,
     ): Float {
         val solver = solve(0f, 0f, 1f, params)
@@ -91,12 +91,8 @@ internal object AmllSpringMotion {
         return maxSeconds
     }
 
-    /**
-     * 把 0→1 弹簧轨迹映射成 [Interpolator]。
-     * [durationSeconds] 应对齐动画时长；t=1 时强制落在 1，避免欠阻尼末端截断。
-     */
     fun interpolator(
-        params: Params = POS_Y,
+        params: Params = UI_SLIDE,
         durationSeconds: Float,
     ): Interpolator {
         val duration = durationSeconds.coerceAtLeast(0.05f)
@@ -108,7 +104,8 @@ internal object AmllSpringMotion {
         }
     }
 
-    fun settleMs(params: Params = POS_Y): Long {
-        return (estimateSettleSeconds(params) * 1000f).toLong().coerceIn(280L, 900L)
+    fun settleMs(params: Params = UI_SLIDE): Long {
+        // 锁屏动画上限压住，避免串行切行拖成「卡住」
+        return (estimateSettleSeconds(params) * 1000f).toLong().coerceIn(240L, 420L)
     }
 }
