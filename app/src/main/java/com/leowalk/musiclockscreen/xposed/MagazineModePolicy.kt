@@ -58,6 +58,26 @@ internal object MagazineModePolicy {
     ): Boolean = false
 
     /**
+     * 画报样式 + 音乐锁屏激活时，把左滑/右划进画报改到模块自己的 Activity。
+     * SystemUI 写死 emag 包名，必须靠 Hook Intent / 启动路径完成。
+     */
+    fun shouldRedirectMagazineLeftSwipe(
+        chromeMagazine: Boolean,
+        musicWallpaperShowing: Boolean,
+    ): Boolean = chromeMagazine && musicWallpaperShowing
+
+    /** 模块包名（与 applicationId 一致）。 */
+    const val MODULE_PACKAGE = "com.leowalk.musiclockscreen"
+
+    /** 画报侧自建页（完整类名）。 */
+    const val MAGAZINE_MUSIC_ACTIVITY =
+        "com.leowalk.musiclockscreen.MagazineMusicActivity"
+
+    const val EXTRA_SONG_TITLE = "hyperlockmusic_song_title"
+    const val EXTRA_SONG_ARTIST = "hyperlockmusic_song_artist"
+    const val EXTRA_LYRIC_LINE = "hyperlockmusic_lyric_line"
+
+    /**
      * 写入 LockScreenMagazineWallpaperInfo.ex 的 JSON。
      * title_customized=1 让 SystemUI 使用自定义 title。
      */

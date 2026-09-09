@@ -1,6 +1,8 @@
 package com.leowalk.musiclockscreen.xposed
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import io.github.libxposed.api.XposedModule
@@ -8,7 +10,8 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 /**
- * 画报基底宿主：在 SystemUI 杂志层注入歌名/文案，并强制 isMagazineWallpaper。
+ * 画报基底宿主：在 SystemUI 杂志层注入歌名/文案，并强制 isMagazineWallpaper；
+ * 左滑/右划入口改写到模块 [MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY]。
  */
 object MagazineHost {
 
@@ -19,6 +22,9 @@ object MagazineHost {
 
     @Volatile
     private var controller: Any? = null
+
+    @Volatile
+    private var appContext: Context? = null
 
     @Volatile
     private var wallpaperInfoField: Field? = null
@@ -62,6 +68,7 @@ object MagazineHost {
                 supportLeftField = ctrl.javaClass.getDeclaredField("mIsSupportLockScreenMagazineLeft")
                     .apply { isAccessible = true }
             }
+            resolveContext(ctrl)?.let { appContext = it.applicationContext }
         } catch (e: Throwable) {
             logE("attachController reflect failed", e)
         }
@@ -78,9 +85,30 @@ object MagazineHost {
         )
     }
 
-    fun shouldSuppressLeft(context: Context?): Boolean {
-        // 画报模式需要保留系统左滑进画报，不再压制。
-        return false
+    fun shouldSuppressLeft(context: Context?): Boolean = false
+
+    /** 是否把左滑/右划画报入口改到模块 Activity。 */
+    fun shouldRedirectLeft(context: Context? = appContext): Boolean {
+        val ctx = context ?: appContext ?: return false
+        return MagazineModePolicy.shouldRedirectMagazineLeftSwipe(
+            chromeMagazine = ConfigReader.isMagazineChrome(ctx),
+            musicWallpaperShowing = WallpaperController.isShowing(),
+        )
+    }
+
+    fun buildMusicLeftIntent(): Intent {
+        return Intent().apply {
+            component = ComponentName(
+                MagazineModePolicy.MODULE_PACKAGE,
+                MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY,
+            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("from", "keyguard")
+            putExtra("entry_source", "swipe")
+            putExtra(MagazineModePolicy.EXTRA_SONG_TITLE, title)
+            putExtra(MagazineModePolicy.EXTRA_SONG_ARTIST, artist)
+            putExtra(MagazineModePolicy.EXTRA_LYRIC_LINE, content)
+        }
     }
 
     fun onMusicWallpaperShown(
@@ -89,6 +117,7 @@ object MagazineHost {
         songArtist: String,
         lyricLine: String = "",
     ) {
+        appContext = context.applicationContext
         if (!ConfigReader.isMagazineChrome(context)) {
             clearOverride()
             return
@@ -121,7 +150,6 @@ object MagazineHost {
         val ctrl = controller ?: return
         mainHandler.post {
             try {
-                // 触发一次系统查询刷新（若仍是杂志壁纸则恢复系统数据；否则 PreView 自行隐藏）
                 updateInfoMethod?.invoke(ctrl)
             } catch (_: Throwable) {
             }
@@ -147,7 +175,7 @@ object MagazineHost {
             }
             setField(info, "title", title)
             setField(info, "content", content)
-            // 保留系统画报包名/authority，否则左滑/右划进画报会失败
+            // 锁屏皮仍用系统画报包名；真正划入由 Hook Intent 改到模块 Activity
             setField(info, "packageName", "com.mfashiongallery.emag")
             setField(
                 info,
@@ -168,7 +196,6 @@ object MagazineHost {
                 initExtra.invoke(info)
             } catch (_: Throwable) {
             }
-            // 不改 mIsSupportLockScreenMagazineLeft，保留右划/左滑进画报
         } catch (e: Throwable) {
             logE("applyOverrideToController failed", e)
         }
@@ -200,6 +227,16 @@ object MagazineHost {
         }
     }
 
+    fun resolveContext(host: Any): Context? {
+        return try {
+            val f = host.javaClass.getDeclaredField("mContext")
+            f.isAccessible = true
+            f.get(host) as? Context
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     private fun logI(msg: String) {
         module?.log(android.util.Log.INFO, TAG, msg)
     }
@@ -214,8 +251,7 @@ object MagazineHost {
 }
 
 /**
- * Hook SystemUI 杂志层：强制 gallery 判定 + 注入 WallpaperInfo。
- * 不压制左滑/右划进画报。
+ * Hook SystemUI 杂志层：强制 gallery 判定 + 注入 WallpaperInfo + 劫持左滑入口。
  */
 object MagazineHostHook {
 
@@ -225,6 +261,7 @@ object MagazineHostHook {
         MagazineHost.bindModule(module)
         hookIsMagazineWallpaper(classLoader, module)
         hookMagazineController(classLoader, module)
+        hookLeftSwipeLaunch(classLoader, module)
         module.log(android.util.Log.INFO, TAG, "MagazineHostHook installed")
     }
 
@@ -245,7 +282,7 @@ object MagazineHostHook {
             module.hook(method).intercept { chain ->
                 val original = chain.proceed() as? Boolean ?: false
                 try {
-                    val ctx = resolveContext(chain.thisObject)
+                    val ctx = MagazineHost.resolveContext(chain.thisObject)
                     if (MagazineHost.shouldForceMagazine(ctx)) {
                         true
                     } else {
@@ -285,7 +322,50 @@ object MagazineHostHook {
                 module.log(android.util.Log.ERROR, TAG, "updateLockScreenMagazineWallpaperInfo not found")
             }
 
-            // 构造后缓存 controller
+            // 左滑 Intent：绕过 emag 包名硬编码，指向模块 Activity
+            val intentMethod = ctrlClass.declaredMethods.firstOrNull {
+                it.name == "getPreLeftScreenIntent" && it.parameterTypes.isEmpty()
+            }
+            if (intentMethod != null) {
+                intentMethod.isAccessible = true
+                module.hook(intentMethod).intercept { chain ->
+                    MagazineHost.attachController(chain.thisObject)
+                    val ctx = MagazineHost.resolveContext(chain.thisObject)
+                    if (MagazineHost.shouldRedirectLeft(ctx)) {
+                        MagazineHost.buildMusicLeftIntent()
+                    } else {
+                        chain.proceed()
+                    }
+                }
+                module.log(android.util.Log.INFO, TAG, "hooked getPreLeftScreenIntent")
+            } else {
+                module.log(android.util.Log.ERROR, TAG, "getPreLeftScreenIntent not found")
+            }
+
+            // 启动入口兜底：即便系统侧 supportLeft=false，仍可直接拉起我们的页
+            val startMethod = ctrlClass.declaredMethods.firstOrNull {
+                it.name == "startMagazineLeftActivity" && it.parameterTypes.isEmpty()
+            }
+            if (startMethod != null) {
+                startMethod.isAccessible = true
+                module.hook(startMethod).intercept { chain ->
+                    MagazineHost.attachController(chain.thisObject)
+                    val ctx = MagazineHost.resolveContext(chain.thisObject)
+                    if (MagazineHost.shouldRedirectLeft(ctx) && ctx != null) {
+                        try {
+                            startActivityAsCurrentUser(ctx, MagazineHost.buildMusicLeftIntent())
+                            module.log(android.util.Log.INFO, TAG, "startMagazineLeftActivity -> module activity")
+                        } catch (e: Throwable) {
+                            module.log(android.util.Log.ERROR, TAG, "start module magazine activity failed", e)
+                        }
+                        null
+                    } else {
+                        chain.proceed()
+                    }
+                }
+                module.log(android.util.Log.INFO, TAG, "hooked startMagazineLeftActivity")
+            }
+
             ctrlClass.declaredConstructors.forEach { ctor ->
                 try {
                     ctor.isAccessible = true
@@ -305,13 +385,62 @@ object MagazineHostHook {
         }
     }
 
-    private fun resolveContext(wpManager: Any): Context? {
-        return try {
-            val f = wpManager.javaClass.getDeclaredField("mContext")
-            f.isAccessible = true
-            f.get(wpManager) as? Context
-        } catch (_: Throwable) {
-            null
+    /** SystemUI 用 @hide startActivityAsUser；编译期不可见，运行期反射。 */
+    private fun startActivityAsCurrentUser(context: Context, intent: Intent) {
+        val userHandleClass = Class.forName("android.os.UserHandle")
+        val current = userHandleClass.getField("CURRENT").get(null)
+        try {
+            val m = Context::class.java.getMethod(
+                "startActivityAsUser",
+                Intent::class.java,
+                userHandleClass,
+            )
+            m.invoke(context, intent, current)
+        } catch (_: NoSuchMethodException) {
+            context.startActivity(intent)
+        }
+    }
+
+    /**
+     * 国内机常走 Overlay 而不 startActivity；音乐画报模式下强制走 Activity 启动路径，
+     * 并放宽 isSupportSwipeToLaunchMagazine 判定。
+     */
+    private fun hookLeftSwipeLaunch(classLoader: ClassLoader, module: XposedModule) {
+        try {
+            val moveClass = Class.forName(
+                "com.android.keyguard.negative.KeyguardMoveLeftController",
+                false,
+                classLoader,
+            )
+            moveClass.declaredMethods.firstOrNull {
+                it.name == "isLeftViewLaunchActivity" && it.parameterTypes.isEmpty()
+            }?.let { method ->
+                method.isAccessible = true
+                module.hook(method).intercept { chain ->
+                    if (MagazineHost.shouldRedirectLeft()) {
+                        true
+                    } else {
+                        chain.proceed()
+                    }
+                }
+                module.log(android.util.Log.INFO, TAG, "hooked isLeftViewLaunchActivity")
+            }
+
+            moveClass.declaredMethods.firstOrNull {
+                it.name == "isSupportSwipeToLaunchMagazine" && it.parameterTypes.isEmpty()
+            }?.let { method ->
+                method.isAccessible = true
+                module.hook(method).intercept { chain ->
+                    if (MagazineHost.shouldRedirectLeft()) {
+                        true
+                    } else {
+                        chain.proceed()
+                    }
+                }
+                module.log(android.util.Log.INFO, TAG, "hooked isSupportSwipeToLaunchMagazine")
+            }
+        } catch (e: Throwable) {
+            module.log(android.util.Log.ERROR, TAG, "hookLeftSwipeLaunch failed", e)
         }
     }
 }

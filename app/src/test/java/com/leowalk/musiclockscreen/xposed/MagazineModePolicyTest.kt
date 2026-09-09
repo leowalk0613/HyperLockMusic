@@ -67,6 +67,26 @@ class MagazineModePolicyTest {
     }
 
     @Test
+    fun redirectLeftSwipe_requiresChromeAndShowing() {
+        assertTrue(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, true))
+        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(true, false))
+        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false, true))
+        assertFalse(MagazineModePolicy.shouldRedirectMagazineLeftSwipe(false, false))
+    }
+
+    @Test
+    fun magazineMusicActivity_componentStable() {
+        assertEquals(
+            "com.leowalk.musiclockscreen",
+            MagazineModePolicy.MODULE_PACKAGE,
+        )
+        assertEquals(
+            "com.leowalk.musiclockscreen.MagazineMusicActivity",
+            MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY,
+        )
+    }
+
+    @Test
     fun resolveChrome_migratesFromImmersiveFlag() {
         assertEquals(
             MagazineModePolicy.CHROME_MAGAZINE,
