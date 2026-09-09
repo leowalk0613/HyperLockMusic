@@ -88,6 +88,34 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
+    fun scrollStepFromLayouts_centersNextLine() {
+        val cur = 40f
+        val next = 40f
+        val gap = 12f
+        val step = ImmersiveLyricStackPolicy.scrollStepFromLayoutsPx(cur, 0f, next, gap)
+        assertEquals(cur + gap, step, 0.001f)
+        val withSec = ImmersiveLyricStackPolicy.scrollStepFromLayoutsPx(cur, 20f, next, gap)
+        assertEquals(cur + gap + 20f + gap, withSec, 0.001f)
+    }
+
+    @Test
+    fun stackAlphaMorph_crossfadesCurrentAndNext() {
+        assertEquals(1f, ImmersiveLyricStackPolicy.leavingCurrentAlpha(0f), 0.001f)
+        assertEquals(
+            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
+            ImmersiveLyricStackPolicy.leavingCurrentAlpha(1f),
+            0.001f,
+        )
+        assertEquals(
+            ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
+            ImmersiveLyricStackPolicy.enteringNextAlpha(0f),
+            0.001f,
+        )
+        assertEquals(1f, ImmersiveLyricStackPolicy.enteringNextAlpha(1f), 0.001f)
+        assertTrue(ImmersiveLyricStackPolicy.leavingSecondaryAlpha(1f) < 0.05f)
+    }
+
+    @Test
     fun neighborAlpha_moreTransparentThanFull() {
         assertTrue(ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA < 0.5f)
         assertTrue(ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA > 0f)

@@ -69,6 +69,46 @@ internal object ImmersiveLyricStackPolicy {
     }
 
     /**
+     * 用实测布局算上滑步长：让「下一句」中心落到当前中心附近（AMLL 连续位移）。
+     * [secondaryHeightPx] 为当前翻译行高度；无翻译传 0。
+     */
+    fun scrollStepFromLayoutsPx(
+        currentHeightPx: Float,
+        secondaryHeightPx: Float,
+        nextHeightPx: Float,
+        gapPx: Float,
+    ): Float {
+        val gap = gapPx.coerceAtLeast(0f)
+        val cur = currentHeightPx.coerceAtLeast(1f)
+        val next = nextHeightPx.coerceAtLeast(1f)
+        var block = cur
+        val sec = secondaryHeightPx.coerceAtLeast(0f)
+        if (sec > 0f) {
+            block += gap + sec
+        }
+        // 下一句顶边相对当前中心的距离 + 半行校正
+        return block + gap + (next - cur) * 0.5f
+    }
+
+    /** 上滑过程中：离开的当前行 1→邻行透明度 */
+    fun leavingCurrentAlpha(progress: Float): Float {
+        val p = progress.coerceIn(0f, 1f)
+        return 1f + (NEIGHBOR_ALPHA - 1f) * p
+    }
+
+    /** 上滑过程中：进入的下一句 邻行→1 */
+    fun enteringNextAlpha(progress: Float): Float {
+        val p = progress.coerceIn(0f, 1f)
+        return NEIGHBOR_ALPHA + (1f - NEIGHBOR_ALPHA) * p
+    }
+
+    /** 翻译副行随上滑淡出 */
+    fun leavingSecondaryAlpha(progress: Float): Float {
+        val p = progress.coerceIn(0f, 1f)
+        return 0.72f * (1f - p)
+    }
+
+    /**
      * 上一句顶边：当前行顶边上方留 [gapPx]，再减去上一句高度。
      * 保证 prev 底边 ↔ current 顶边间距恒为 gap（与翻译↔下一句一致）。
      */

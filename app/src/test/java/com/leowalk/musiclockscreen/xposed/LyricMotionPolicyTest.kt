@@ -7,11 +7,11 @@ import org.junit.Test
 class LyricMotionPolicyTest {
 
     @Test
-    fun stackScroll_usesUiSlideSettleCap() {
+    fun stackScroll_usesStackSpringSettle() {
         assertTrue(LyricMotionPolicy.STACK_SCROLL_MS >= 240L)
-        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 420L)
+        assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 480L)
         assertEquals(
-            AmllSpringMotion.settleMs(AmllSpringMotion.UI_SLIDE),
+            AmllSpringMotion.settleMs(AmllSpringMotion.STACK),
             LyricMotionPolicy.STACK_SCROLL_MS,
         )
     }
@@ -21,6 +21,14 @@ class LyricMotionPolicyTest {
         assertTrue(LyricMotionPolicy.LINE_ENTER_MS > LyricMotionPolicy.LINE_EXIT_MS)
         val sequential = LyricMotionPolicy.LINE_EXIT_MS + LyricMotionPolicy.LINE_ENTER_MS
         assertTrue("sequential=$sequential", sequential <= 560L)
+    }
+
+    @Test
+    fun stackSpring_fasterForTightIntervals() {
+        val tight = LyricMotionPolicy.stackDurationForIntervalMs(120L)
+        val loose = LyricMotionPolicy.stackDurationForIntervalMs(800L)
+        // 句间隔短 → 刚度高 → settle 不更慢
+        assertTrue(tight <= loose + 40L)
     }
 
     @Test

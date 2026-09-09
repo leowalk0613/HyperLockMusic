@@ -16,11 +16,12 @@ class AmllSpringMotionTest {
     }
 
     @Test
-    fun uiSlide_isSoftAndSnappy() {
-        val p = AmllSpringMotion.UI_SLIDE
-        assertTrue(p.soft)
-        val settle = AmllSpringMotion.settleMs(p)
-        assertTrue("settle=$settle", settle in 240L..420L)
+    fun stackParams_followAmllIntervalCurve() {
+        val tight = AmllSpringMotion.stackParamsForIntervalMs(100L)
+        val loose = AmllSpringMotion.stackParamsForIntervalMs(800L)
+        assertTrue(tight.stiffness > loose.stiffness)
+        assertTrue(tight.stiffness in 170f..220f)
+        assertTrue(loose.stiffness in 170f..220f)
     }
 
     @Test

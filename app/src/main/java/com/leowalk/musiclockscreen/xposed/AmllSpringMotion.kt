@@ -33,6 +33,33 @@ internal object AmllSpringMotion {
      */
     val UI_SLIDE = Params(mass = 1f, damping = 36f, stiffness = 480f, soft = true)
 
+    /**
+     * 三行上滑：对齐 AMLL 播放态刚度中值 + damping = √k · 2.2（略欠阻尼）。
+     */
+    val STACK = Params(
+        mass = 1f,
+        damping = sqrt(190f) * 2.2f,
+        stiffness = 190f,
+        soft = false,
+    )
+
+    /**
+     * AMLL [computeLinePosYSpringParams]：按相邻句间隔动态刚度 170–220。
+     */
+    fun stackParamsForIntervalMs(intervalMs: Long): Params {
+        val clamped = intervalMs.coerceIn(100L, 800L).toFloat()
+        val ratio = (1f - (clamped - 100f) / 700f).toDouble()
+        val shaped = ratio.toFloat().let { r ->
+            // ratio ** 0.2
+            var x = r.coerceIn(0f, 1f)
+            // cheap pow approx via exp
+            if (x <= 0f) 0f else kotlin.math.exp(0.2f * kotlin.math.ln(x))
+        }
+        val stiffness = 170f + shaped * 50f
+        val damping = sqrt(stiffness) * 2.2f
+        return Params(mass = 1f, damping = damping, stiffness = stiffness, soft = false)
+    }
+
     private const val ARRIVE_POS = 0.02f
     private const val ARRIVE_VEL = 0.12f
 
@@ -105,7 +132,11 @@ internal object AmllSpringMotion {
     }
 
     fun settleMs(params: Params = UI_SLIDE): Long {
-        // 锁屏动画上限压住，避免串行切行拖成「卡住」
-        return (estimateSettleSeconds(params) * 1000f).toLong().coerceIn(240L, 420L)
+        val maxCap = if (params === STACK || (!params.soft && params.stiffness in 160f..230f)) {
+            480L
+        } else {
+            420L
+        }
+        return (estimateSettleSeconds(params) * 1000f).toLong().coerceIn(240L, maxCap)
     }
 }
