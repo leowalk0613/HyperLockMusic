@@ -51,11 +51,11 @@ internal object MagazineModePolicy {
         showLyric: Boolean,
     ): Boolean = chromeMagazine && lyricEnabled && showLyric
 
-    /** 激活期抑制左滑进真·画报 App。 */
+    /** 激活期抑制左滑进真·画报：已改为不抑制，保留 API 供兼容。 */
     fun shouldSuppressMagazineLeftSwipe(
         chromeMagazine: Boolean,
         musicWallpaperShowing: Boolean,
-    ): Boolean = chromeMagazine && musicWallpaperShowing
+    ): Boolean = false
 
     /**
      * 写入 LockScreenMagazineWallpaperInfo.ex 的 JSON。

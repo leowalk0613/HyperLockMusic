@@ -79,11 +79,8 @@ object MagazineHost {
     }
 
     fun shouldSuppressLeft(context: Context?): Boolean {
-        if (context == null) return overrideActive
-        return MagazineModePolicy.shouldSuppressMagazineLeftSwipe(
-            chromeMagazine = ConfigReader.isMagazineChrome(context),
-            musicWallpaperShowing = WallpaperController.isShowing() || overrideActive,
-        )
+        // 画报模式需要保留系统左滑进画报，不再压制。
+        return false
     }
 
     fun onMusicWallpaperShown(
@@ -150,8 +147,13 @@ object MagazineHost {
             }
             setField(info, "title", title)
             setField(info, "content", content)
-            setField(info, "packageName", "com.leowalk.musiclockscreen")
-            setField(info, "authority", "com.leowalk.musiclockscreen.magazine")
+            // 保留系统画报包名/authority，否则左滑/右划进画报会失败
+            setField(info, "packageName", "com.mfashiongallery.emag")
+            setField(
+                info,
+                "authority",
+                "com.xiaomi.tv.gallerylockscreen.lockscreen_magazine_provider",
+            )
             setField(
                 info,
                 "ex",
@@ -166,9 +168,7 @@ object MagazineHost {
                 initExtra.invoke(info)
             } catch (_: Throwable) {
             }
-            if (MagazineModePolicy.shouldSuppressMagazineLeftSwipe(true, true)) {
-                supportLeftField?.setBoolean(c, false)
-            }
+            // 不改 mIsSupportLockScreenMagazineLeft，保留右划/左滑进画报
         } catch (e: Throwable) {
             logE("applyOverrideToController failed", e)
         }
@@ -214,7 +214,8 @@ object MagazineHost {
 }
 
 /**
- * Hook SystemUI 杂志层：强制 gallery 判定 + 注入 WallpaperInfo + 抑制左滑。
+ * Hook SystemUI 杂志层：强制 gallery 判定 + 注入 WallpaperInfo。
+ * 不压制左滑/右划进画报。
  */
 object MagazineHostHook {
 

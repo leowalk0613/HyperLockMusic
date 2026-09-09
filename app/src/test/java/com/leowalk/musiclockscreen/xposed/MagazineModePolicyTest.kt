@@ -60,9 +60,10 @@ class MagazineModePolicyTest {
     }
 
     @Test
-    fun suppressLeftSwipe_whenActiveMagazine() {
-        assertTrue(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(true, true))
+    fun suppressLeftSwipe_alwaysOff() {
+        assertFalse(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(true, true))
         assertFalse(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(true, false))
+        assertFalse(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(false, true))
     }
 
     @Test
