@@ -36,6 +36,7 @@ object ConfigReader {
     private var cachedImmersiveAlbum: Boolean = false
     private var cachedImmersiveAlbumCenterY: Float = 38f
     private var cachedImmersiveAlbumEdgeGradient: Boolean = true
+    private var cachedLockscreenChrome: String = MagazineModePolicy.CHROME_BIG_ALBUM
     private var cachedMinimalClock: Boolean = true
     private var cachedMinimalClockSize: Float = 30f
     private var cachedMinimalClockTopY: Float = 10f
@@ -202,6 +203,15 @@ object ConfigReader {
         return cachedImmersiveAlbum
     }
 
+    /** 锁屏封面基底：big_album / immersive / magazine */
+    fun lockscreenChrome(context: Context): String {
+        refreshConfigIfNeeded(context)
+        return MagazineModePolicy.resolveChrome(cachedLockscreenChrome, cachedImmersiveAlbum)
+    }
+
+    fun isMagazineChrome(context: Context): Boolean =
+        MagazineModePolicy.isMagazineChrome(lockscreenChrome(context))
+
     /** 音乐锁屏简洁时钟：隐藏系统大时钟，顶部显示一行时间日期 */
     fun minimalClock(context: Context): Boolean {
         refreshConfigIfNeeded(context)
@@ -223,18 +233,26 @@ object ConfigReader {
     /** 方形专辑 overlay 是否应显示 */
     fun shouldShowSquareAlbum(context: Context): Boolean {
         refreshConfigIfNeeded(context)
-        if (!cachedShowBigAlbum) return false
-        if (cachedImmersiveAlbum) return false
-        if (cachedShowLyric && MusicLockscreenManager.isLyricPriorityOverAlbum()) {
-            return false
-        }
-        return true
+        return MagazineModePolicy.shouldShowSquareAlbum(
+            chromeMagazine = MagazineModePolicy.isMagazineChrome(
+                MagazineModePolicy.resolveChrome(cachedLockscreenChrome, cachedImmersiveAlbum),
+            ),
+            showBigAlbum = cachedShowBigAlbum,
+            immersiveAlbum = cachedImmersiveAlbum,
+            lyricPriorityHidesAlbum = cachedShowLyric && MusicLockscreenManager.isLyricPriorityOverAlbum(),
+        )
     }
 
     /** 沉浸专辑是否应合成进壁纸（与沉浸歌词显隐无关） */
     fun shouldBakeImmersiveAlbumInWallpaper(context: Context): Boolean {
         refreshConfigIfNeeded(context)
-        return cachedShowBigAlbum && cachedImmersiveAlbum
+        return MagazineModePolicy.shouldBakeImmersiveAlbum(
+            chromeMagazine = MagazineModePolicy.isMagazineChrome(
+                MagazineModePolicy.resolveChrome(cachedLockscreenChrome, cachedImmersiveAlbum),
+            ),
+            showBigAlbum = cachedShowBigAlbum,
+            immersiveAlbum = cachedImmersiveAlbum,
+        )
     }
 
     /** @deprecated 沉浸专辑已合成进壁纸，overlay 不再使用 */
@@ -350,6 +368,7 @@ object ConfigReader {
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val immersiveAlbumCenterYIdx = cursor.getColumnIndex("immersive_album_center_y")
                 val immersiveAlbumEdgeGradientIdx = cursor.getColumnIndex("immersive_album_edge_gradient")
+                val lockscreenChromeIdx = cursor.getColumnIndex("lockscreen_chrome")
                 val minimalClockIdx = cursor.getColumnIndex("minimal_clock")
                 val minimalClockSizeIdx = cursor.getColumnIndex("minimal_clock_size")
                 val minimalClockTopYIdx = cursor.getColumnIndex("minimal_clock_top_y")
@@ -423,6 +442,16 @@ object ConfigReader {
                 }
                 if (immersiveAlbumEdgeGradientIdx >= 0) {
                     cachedImmersiveAlbumEdgeGradient = cursor.getInt(immersiveAlbumEdgeGradientIdx) == 1
+                }
+                if (lockscreenChromeIdx >= 0) {
+                    cachedLockscreenChrome = cursor.getString(lockscreenChromeIdx)
+                        ?: MagazineModePolicy.CHROME_BIG_ALBUM
+                } else {
+                    cachedLockscreenChrome = if (cachedImmersiveAlbum) {
+                        MagazineModePolicy.CHROME_IMMERSIVE
+                    } else {
+                        MagazineModePolicy.CHROME_BIG_ALBUM
+                    }
                 }
                 if (minimalClockIdx >= 0) {
                     cachedMinimalClock = cursor.getInt(minimalClockIdx) == 1

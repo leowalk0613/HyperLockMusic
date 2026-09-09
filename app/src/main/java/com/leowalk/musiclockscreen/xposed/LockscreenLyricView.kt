@@ -3177,7 +3177,24 @@ class LockscreenLyricView(context: Context) : View(context) {
             mainStaticLayout = layout
             resizeKeepingBottom(computeContentHeightPx(layout, hasSecond))
         }
+        notifyMagazineHostLyric(main)
         invalidate()
+    }
+
+    private fun notifyMagazineHostLyric(main: String) {
+        try {
+            if (!ConfigReader.isMagazineChrome(context)) return
+            if (!MagazineModePolicy.shouldUseLyricOverlay(
+                    chromeMagazine = true,
+                    lyricEnabled = ConfigReader.lyricEnabled(context),
+                    showLyric = ConfigReader.showLyric(context),
+                )
+            ) {
+                return
+            }
+            MagazineHost.updateLyricLine(main.trim())
+        } catch (_: Throwable) {
+        }
     }
 
     private fun cancelLineTransition(resetTransform: Boolean = true) {

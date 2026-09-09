@@ -38,6 +38,8 @@ object ModuleConfig {
     private const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
     /** 沉浸壁纸上下沿暗色渐变 */
     private const val KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT = "immersive_album_edge_gradient"
+    /** 锁屏封面基底：big_album / immersive / magazine */
+    private const val KEY_LOCKSCREEN_CHROME = "lockscreen_chrome"
     private const val KEY_MINIMAL_CLOCK = "minimal_clock"
     private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
@@ -62,6 +64,10 @@ object ModuleConfig {
     const val LYRIC_TRANSITION_SLIDE_RIGHT = "slide_right"
     const val LYRIC_TRANSITION_SLIDE_UP = "slide_up"
     const val LYRIC_TRANSITION_SLIDE_DOWN = "slide_down"
+
+    const val CHROME_BIG_ALBUM = "big_album"
+    const val CHROME_IMMERSIVE = "immersive"
+    const val CHROME_MAGAZINE = "magazine"
 
     /** 默认音乐应用白名单包名 */
     val DEFAULT_WHITELIST: List<String> = listOf(
@@ -100,6 +106,7 @@ object ModuleConfig {
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_IMMERSIVE_ALBUM_CENTER_Y = 38f
     private const val DEFAULT_IMMERSIVE_ALBUM_EDGE_GRADIENT = true
+    private const val DEFAULT_LOCKSCREEN_CHROME = CHROME_BIG_ALBUM
     private const val DEFAULT_MINIMAL_CLOCK = true
     private const val DEFAULT_MINIMAL_CLOCK_SIZE = 30f
     private const val DEFAULT_MINIMAL_CLOCK_TOP_Y = 10f
@@ -226,6 +233,15 @@ object ModuleConfig {
         )
         set(value) = getPrefs().edit().putBoolean(KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT, value).apply()
 
+    /** 锁屏封面基底：big_album / immersive / magazine */
+    var lockscreenChrome: String
+        get() {
+            val raw = getPrefs().getString(KEY_LOCKSCREEN_CHROME, null)
+            if (!raw.isNullOrBlank()) return raw
+            return if (immersiveAlbum) CHROME_IMMERSIVE else CHROME_BIG_ALBUM
+        }
+        set(value) = getPrefs().edit().putString(KEY_LOCKSCREEN_CHROME, value).apply()
+
     /** 音乐锁屏简洁时钟：隐藏系统大时钟，顶部显示一行时间日期 */
     var minimalClock: Boolean
         get() = getPrefs().getBoolean(KEY_MINIMAL_CLOCK, DEFAULT_MINIMAL_CLOCK)
@@ -253,6 +269,35 @@ object ModuleConfig {
         } else {
             immersiveLyric = true
             lyricHideBackground = false
+        }
+    }
+
+    /**
+     * 三选一封面基底：大专辑 / 沉浸封面 / 画报。
+     * 画报：关方形专辑与沉浸烘焙，普通歌词 + 无背景（Overlay 补动画）。
+     */
+    fun applyChromeStyle(chrome: String) {
+        when (chrome) {
+            CHROME_MAGAZINE -> {
+                lockscreenChrome = CHROME_MAGAZINE
+                showBigAlbum = false
+                immersiveAlbum = false
+                immersiveLyric = false
+                lyricHideBackground = true
+                immersiveLyricStack = false
+            }
+            CHROME_IMMERSIVE -> {
+                lockscreenChrome = CHROME_IMMERSIVE
+                showBigAlbum = true
+                immersiveAlbum = true
+                applyAlbumLyricBinding(true)
+            }
+            else -> {
+                lockscreenChrome = CHROME_BIG_ALBUM
+                showBigAlbum = true
+                immersiveAlbum = false
+                applyAlbumLyricBinding(false)
+            }
         }
     }
 
@@ -346,6 +391,7 @@ object ModuleConfig {
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("immersive_album_center_y", immersiveAlbumCenterY)
                 put("immersive_album_edge_gradient", if (immersiveAlbumEdgeGradient) 1 else 0)
+                put("lockscreen_chrome", lockscreenChrome)
                 put("minimal_clock", if (minimalClock) 1 else 0)
                 put("minimal_clock_size", minimalClockSize)
                 put("minimal_clock_top_y", minimalClockTopY)

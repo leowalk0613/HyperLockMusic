@@ -329,6 +329,7 @@ object WallpaperController {
                 MusicLockscreenManager.setShowingState(true)
                 KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
                 SystemWallpaperBlurController.sync(context)
+                notifyMagazineHostShown(context, bestMeta)
                 (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.ensureLyricsLoaded()
                 updateMusicWallpaperSilently(context, albumDrawable, bestMeta, ignoreCache = true)
                 return true
@@ -379,6 +380,7 @@ object WallpaperController {
             MusicLockscreenManager.setShowingState(true)
             KeyguardDepthEffectPolicy.syncWithMusicLockscreen()
             SystemWallpaperBlurController.sync(context)
+            notifyMagazineHostShown(context, bestMeta)
 
             val lyricView = MusicLockscreenManager.lyricView
             if (lyricView != null) {
@@ -1200,6 +1202,7 @@ object WallpaperController {
 
             stopSessionWatch()
             isMusicWallpaperSet = false
+            MagazineHost.onMusicWallpaperCleared()
             lastWallpaperAlbumBitmap = null
             lastWallpaperTrackKey = null
             lastSystemAlbumBitmap = null
@@ -1274,6 +1277,23 @@ object WallpaperController {
     fun isShowing(): Boolean = isMusicWallpaperSet
 
     fun isAnimating(): Boolean = isAnimating
+
+    private fun notifyMagazineHostShown(context: Context, metadata: MediaMetadata?) {
+        try {
+            if (!ConfigReader.isMagazineChrome(context)) {
+                MagazineHost.onMusicWallpaperCleared()
+                return
+            }
+            val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.trim().orEmpty()
+            val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)?.trim().orEmpty()
+                .ifBlank {
+                    metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)?.trim().orEmpty()
+                }
+            MagazineHost.onMusicWallpaperShown(context, title, artist)
+        } catch (e: Throwable) {
+            logE("notifyMagazineHostShown error", e)
+        }
+    }
 
     /** 当前已成功应用到锁屏壁纸的曲目 key（供 bind 重试判断是否已追上）。 */
     fun currentWallpaperTrackKey(): String? =

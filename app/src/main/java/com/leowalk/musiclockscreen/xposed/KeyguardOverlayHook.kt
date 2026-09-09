@@ -68,7 +68,14 @@ class KeyguardOverlayHook {
                         bgLayer.post {
                             // 子 View 顺序：遮罩(底) → 专辑 → 歌词(顶)；过渡时再把遮罩临时抬起
                             addTransitionMask(bgLayer)
-                            addBigAlbumOverlay(bgLayer)
+                            if (!ConfigReader.isMagazineChrome(bgLayer.context)) {
+                                addBigAlbumOverlay(bgLayer)
+                            } else {
+                                // 画报样式：隐藏已有方形专辑，避免残留
+                                bgLayer.findViewWithTag<View>("music_big_album_overlay")?.visibility =
+                                    View.GONE
+                                MusicLockscreenManager.bigAlbumView = null
+                            }
                             addMinimalClockOverlay(bgLayer)
                             addLyricOverlay(bgLayer)
                             MusicLockscreenManager.lyricView?.let { lyric ->

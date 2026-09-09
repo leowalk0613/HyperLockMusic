@@ -4,7 +4,7 @@ import android.util.TypedValue
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** 专辑封面：大专辑 / 沉浸封面互斥；按模式灰显无效项。 */
+/** 专辑封面：大专辑 / 沉浸封面 / 画报 三选一；按模式灰显无效项。 */
 class AlbumStyleActivity : BaseScrollingActivity() {
 
     private var styleSegment: LinearLayout? = null
@@ -19,21 +19,36 @@ class AlbumStyleActivity : BaseScrollingActivity() {
     override fun buildContent(list: LinearLayout) {
         val card = M3.cardContent(this)
 
-        card.addView(sectionLabel("封面样式（二选一）"))
-        val styleIndex = if (ModuleConfig.immersiveAlbum) 1 else 0
-        styleSegment = M3.segmentGroup(this, listOf("大专辑", "沉浸封面"), styleIndex, 2) { index ->
-            val immersive = index == 1
-            ModuleConfig.showBigAlbum = true
-            ModuleConfig.immersiveAlbum = immersive
-            ModuleConfig.applyAlbumLyricBinding(immersive)
+        card.addView(sectionLabel("封面样式（三选一）"))
+        val styleIndex = when (ModuleConfig.lockscreenChrome) {
+            ModuleConfig.CHROME_MAGAZINE -> 2
+            ModuleConfig.CHROME_IMMERSIVE -> 1
+            else -> 0
+        }
+        styleSegment = M3.segmentGroup(
+            this,
+            listOf("大专辑", "沉浸封面", "画报"),
+            styleIndex,
+            3,
+        ) { index ->
+            val chrome = when (index) {
+                2 -> ModuleConfig.CHROME_MAGAZINE
+                1 -> ModuleConfig.CHROME_IMMERSIVE
+                else -> ModuleConfig.CHROME_BIG_ALBUM
+            }
+            ModuleConfig.applyChromeStyle(chrome)
             ModuleConfig.push(this)
             refreshModeUi()
         }
         card.addView(styleSegment)
         stylePreview = M3.stylePreviewRow(
             this,
-            listOf("大专辑", "沉浸封面"),
-            intArrayOf(R.drawable.preview_album_big, R.drawable.preview_album_immersive),
+            listOf("大专辑", "沉浸封面", "画报"),
+            intArrayOf(
+                R.drawable.preview_album_big,
+                R.drawable.preview_album_immersive,
+                R.drawable.preview_album_immersive,
+            ),
         )
         card.addView(stylePreview)
 
@@ -109,8 +124,9 @@ class AlbumStyleActivity : BaseScrollingActivity() {
 
         list.addView(M3.card(this, card))
         list.addView(M3.card(this, M3.tipContent(this,
-            "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
+            "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）；画报 ↔ 杂志底栏 + Overlay 歌词。\n" +
                 "大专辑底边与沉浸封面位置互不共用。灰显项表示当前样式下不生效。\n\n" +
+                "「画报」走 SystemUI 杂志层承载壁纸与歌名/文案，复杂歌词动画用 Overlay 补齐。\n\n" +
                 "「官方高清封面」在网易云音乐、QQ 音乐或小米音乐（QQ 曲库）播放时生效：从媒体会话识别当前曲目后拉取官方高清图替换前景大专辑，" +
                 "无需 hook 播放器；其他播放器不会去匹配这些封面；沉浸封面取色仍用系统封面。\n" +
                 "相关数据归各平台所有，图像版权归原作者所有；仅供个人学习与本机显示，与网易云音乐、QQ 音乐、小米音乐官方无关。")))
@@ -119,15 +135,17 @@ class AlbumStyleActivity : BaseScrollingActivity() {
     }
 
     private fun refreshModeUi() {
-        val show = ModuleConfig.showBigAlbum
-        val immersive = ModuleConfig.immersiveAlbum
-        M3.setControlsEnabled(styleSegment, show)
-        M3.setControlsEnabled(stylePreview, show)
-        M3.setControlsEnabled(networkHdRow, show)
-        M3.setControlsEnabled(bigAlbumOnlyBlock, show && !immersive)
-        M3.setControlsEnabled(immersiveOnlyBlock, show && immersive)
+        val chrome = ModuleConfig.lockscreenChrome
+        val magazine = chrome == ModuleConfig.CHROME_MAGAZINE
+        val immersive = chrome == ModuleConfig.CHROME_IMMERSIVE
+        val bigAlbum = chrome == ModuleConfig.CHROME_BIG_ALBUM
+        M3.setControlsEnabled(styleSegment, true)
+        M3.setControlsEnabled(stylePreview, true)
+        M3.setControlsEnabled(networkHdRow, bigAlbum)
+        M3.setControlsEnabled(bigAlbumOnlyBlock, bigAlbum)
+        M3.setControlsEnabled(immersiveOnlyBlock, immersive)
         modeHint?.text = when {
-            !show -> "封面已关闭，样式设置暂不生效。"
+            magazine -> "当前：画报。全屏壁纸 + 系统杂志底栏；无方形专辑；歌词走 Overlay 补齐。"
             immersive -> "当前：沉浸封面。用「专辑位置」调竖直中心；大小/圆角/底边仅大专辑可用。"
             else -> "当前：大专辑。大小/圆角/底边作用于方形封面（沉浸歌词开启时也用大小与底边定歌词区块）。"
         }

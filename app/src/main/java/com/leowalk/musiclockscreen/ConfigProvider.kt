@@ -41,6 +41,7 @@ class ConfigProvider : ContentProvider() {
         const val KEY_IMMERSIVE_ALBUM = "immersive_album"
         const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
         const val KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT = "immersive_album_edge_gradient"
+        const val KEY_LOCKSCREEN_CHROME = "lockscreen_chrome"
         const val KEY_MINIMAL_CLOCK = "minimal_clock"
         const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
         const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
@@ -108,6 +109,7 @@ class ConfigProvider : ContentProvider() {
                 KEY_IMMERSIVE_ALBUM,
                 KEY_IMMERSIVE_ALBUM_CENTER_Y,
                 KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT,
+                KEY_LOCKSCREEN_CHROME,
                 KEY_MINIMAL_CLOCK,
                 KEY_MINIMAL_CLOCK_SIZE,
                 KEY_MINIMAL_CLOCK_TOP_Y,
@@ -149,6 +151,12 @@ class ConfigProvider : ContentProvider() {
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) 1 else 0,
                 prefs.getFloat(KEY_IMMERSIVE_ALBUM_CENTER_Y, 38f),
                 if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT, true)) 1 else 0,
+                prefs.getString(KEY_LOCKSCREEN_CHROME, null)
+                    ?: if (prefs.getBoolean(KEY_IMMERSIVE_ALBUM, false)) {
+                        ModuleConfig.CHROME_IMMERSIVE
+                    } else {
+                        ModuleConfig.CHROME_BIG_ALBUM
+                    },
                 if (prefs.getBoolean(KEY_MINIMAL_CLOCK, true)) 1 else 0,
                 prefs.getFloat(KEY_MINIMAL_CLOCK_SIZE, 30f),
                 prefs.getFloat(KEY_MINIMAL_CLOCK_TOP_Y, 10f),
@@ -261,6 +269,12 @@ class ConfigProvider : ContentProvider() {
                     editor.putBoolean(
                         KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT,
                         values.getAsInteger(KEY_IMMERSIVE_ALBUM_EDGE_GRADIENT) == 1,
+                    )
+                }
+                if (values.containsKey(KEY_LOCKSCREEN_CHROME)) {
+                    editor.putString(
+                        KEY_LOCKSCREEN_CHROME,
+                        values.getAsString(KEY_LOCKSCREEN_CHROME) ?: ModuleConfig.CHROME_BIG_ALBUM,
                     )
                 }
                 if (values.containsKey(KEY_MINIMAL_CLOCK)) {
