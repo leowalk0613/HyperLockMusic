@@ -111,14 +111,18 @@ class LyricDataProvider : ContentProvider() {
         private fun isEmptyLyricPush(json: String): Boolean {
             return try {
                 val jo = org.json.JSONObject(json)
+                // LyricFocus 切歌 clear：loading=true + 空 l/s + 新歌 title → 必须清全量 FD
+                if (jo.optBoolean("loading", false)) return true
                 val l = jo.optString("l", "").trim()
                 val s = jo.optString("s", "").trim()
                 val title = jo.optString("title", "").trim()
                 val ctx = jo.optJSONObject("ctx")
                 val hasCtxLines = ctx?.optJSONArray("lines")?.let { it.length() > 0 } == true
-                // 仅有歌名的切歌轻量包不是「清空」——清掉全量 FD 会导致歌词闪空
-                if (title.isNotBlank() || hasCtxLines) return false
-                l.isEmpty() && s.isEmpty()
+                if (hasCtxLines) return false
+                if (l.isNotEmpty() || s.isNotEmpty()) return false
+                // 仅有歌名、非 loading 的弱包不是「清空」——清掉全量 FD 会导致前奏闪空
+                // 旧协议全局清空：无歌名
+                title.isEmpty()
             } catch (_: Throwable) {
                 false
             }

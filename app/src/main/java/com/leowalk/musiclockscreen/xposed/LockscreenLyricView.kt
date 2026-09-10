@@ -3162,12 +3162,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                     if (j != null) {
                         try {
                             val neu = JSONObject(j)
-                            val emptyPush = !neu.has("l") && !neu.has("s") &&
-                                !neu.has("title") && !neu.has("ctx")
-                            if (emptyPush) {
-                                resolveNoLyric()
+                            if (LyricReceivePolicy.isTrackClearOrLoading(neu)) {
+                                // 切歌 loading/清空：立刻空屏，保留 title，不退出 WAITING（等新词）
+                                lastLyricJson = neu.toString()
+                                cachedCtx = null
+                                cachedLines = null
+                                hideStaleProviderLyric()
                                 lastLyricVersion = newVLyric
                                 lastLyricFdVersion = newVLyricFd
+                                dataDirty = false
                             } else if (!AodLyricDisplayPolicy.hasValidLyricLines(neu)) {
                                 val old = try {
                                     JSONObject(lastLyricJson)
@@ -4222,6 +4225,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 neu.optString("title", ""),
             ),
             waitingForNewTrack = trackGatePhase == TrackLyricGate.Phase.WAITING,
+            incomingClearOrLoading = LyricReceivePolicy.isTrackClearOrLoading(neu),
         )
     }
 

@@ -39,6 +39,55 @@ class LyricReceivePolicyTest {
                 waitingForNewTrack = false,
             ),
         )
+        assertFalse(
+            LyricReceivePolicy.shouldMergePreviousCtx(
+                incomingHasCtx = false,
+                previousHasCtx = true,
+                titlesConfirmedSame = true,
+                waitingForNewTrack = false,
+                incomingClearOrLoading = true,
+            ),
+        )
+    }
+
+    @Test
+    fun loadingPush_isTrackClearEvenWithTitle() {
+        assertTrue(
+            LyricReceivePolicy.isTrackClearOrLoading(
+                loading = true,
+                lyricLine = "",
+                secondLine = "",
+                title = "New Song",
+                hasCtxLines = false,
+            ),
+        )
+        assertFalse(
+            LyricReceivePolicy.isTrackClearOrLoading(
+                loading = false,
+                lyricLine = "",
+                secondLine = "",
+                title = "New Song",
+                hasCtxLines = false,
+            ),
+        )
+        assertTrue(
+            LyricReceivePolicy.isTrackClearOrLoading(
+                loading = false,
+                lyricLine = "",
+                secondLine = "",
+                title = "",
+                hasCtxLines = false,
+            ),
+        )
+        assertFalse(
+            LyricReceivePolicy.isTrackClearOrLoading(
+                loading = false,
+                lyricLine = "",
+                secondLine = "",
+                title = "",
+                hasCtxLines = true,
+            ),
+        )
     }
 
     @Test

@@ -15,15 +15,48 @@ internal object LyricReceivePolicy {
     }
 
     /**
+     * LyricFocus 切歌 clear / loading 占位包。
+     * - `loading=true`：立刻清空旧词（可带新歌 title）
+     * - 旧协议：无 title、无 l/s、无 ctx 的空包
+     */
+    fun isTrackClearOrLoading(json: org.json.JSONObject): Boolean {
+        val ctx = json.optJSONObject("ctx")
+        val hasCtxLines = ctx?.optJSONArray("lines")?.let { it.length() > 0 } == true
+        return isTrackClearOrLoading(
+            loading = json.optBoolean("loading", false),
+            lyricLine = json.optString("l", ""),
+            secondLine = json.optString("s", ""),
+            title = json.optString("title", ""),
+            hasCtxLines = hasCtxLines,
+        )
+    }
+
+    fun isTrackClearOrLoading(
+        loading: Boolean,
+        lyricLine: String,
+        secondLine: String,
+        title: String,
+        hasCtxLines: Boolean,
+    ): Boolean {
+        if (loading) return true
+        if (lyricLine.trim().isNotEmpty() || secondLine.trim().isNotEmpty()) return false
+        if (hasCtxLines) return false
+        // 旧协议全局清空：无歌名
+        return title.trim().isEmpty()
+    }
+
+    /**
      * 轻量包缺 ctx 时是否可并入上一包全量时间轴。
-     * 切歌等待中、标题未确认同曲：一律不合并。
+     * 切歌等待中、标题未确认同曲、loading/clear 包：一律不合并。
      */
     fun shouldMergePreviousCtx(
         incomingHasCtx: Boolean,
         previousHasCtx: Boolean,
         titlesConfirmedSame: Boolean,
         waitingForNewTrack: Boolean,
+        incomingClearOrLoading: Boolean = false,
     ): Boolean {
+        if (incomingClearOrLoading) return false
         if (waitingForNewTrack) return false
         if (incomingHasCtx || !previousHasCtx) return false
         return titlesConfirmedSame

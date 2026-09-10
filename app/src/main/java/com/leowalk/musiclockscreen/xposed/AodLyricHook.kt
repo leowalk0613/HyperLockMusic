@@ -323,14 +323,29 @@ class AodLyricHook {
                     val j = lb?.getString("n")
                     if (j != null) {
                         val neu = JSONObject(j)
-                        if (isProviderLyricStale(neu, mediaTitle)) {
+                        if (LyricReceivePolicy.isTrackClearOrLoading(neu)) {
+                            lastLyricJson = neu.toString()
+                            cachedLines = emptyList()
+                            awaitingFreshLyrics = true
+                        } else if (isProviderLyricStale(neu, mediaTitle)) {
                             lastLyricJson = "{}"
+                            cachedLines = emptyList()
                         } else if (titleChanged || lastLyricJson == "{}" || awaitingFreshLyrics) {
                             lastLyricJson = j
                         } else {
                             try {
                                 val old = JSONObject(lastLyricJson)
-                                if (!neu.has("ctx") && old.has("ctx")) {
+                                if (LyricReceivePolicy.shouldMergePreviousCtx(
+                                        incomingHasCtx = neu.has("ctx"),
+                                        previousHasCtx = old.has("ctx"),
+                                        titlesConfirmedSame = LyricReceivePolicy.titlesConfirmedSame(
+                                            old.optString("title", ""),
+                                            neu.optString("title", ""),
+                                        ),
+                                        waitingForNewTrack = awaitingFreshLyrics,
+                                        incomingClearOrLoading = false,
+                                    )
+                                ) {
                                     neu.put("ctx", old.get("ctx"))
                                 }
                                 lastLyricJson = neu.toString()
@@ -507,6 +522,11 @@ class AodLyricHook {
 
     private fun applyLyricToViews(jo: JSONObject, mediaTitle: String? = null) {
         if (!LyricDisplayPolicy.shouldShowLyric(cfgLyricEnabled, cfgShowLyric)) {
+            sLyricContainer?.visibility = View.GONE
+            return
+        }
+        // 切歌 loading/清空：立刻隐词，勿把 title 当歌词上屏
+        if (LyricReceivePolicy.isTrackClearOrLoading(jo)) {
             sLyricContainer?.visibility = View.GONE
             return
         }
