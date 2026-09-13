@@ -1,17 +1,25 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 歌词超长截断：不显示省略号，在「阅读方向的末尾可视边」做透明度渐隐。
+ * 歌词 / 歌名超长截断：不显示省略号，在「阅读方向的末尾可视边」做透明度渐隐。
  *
  * 与脚本无关：CJK / 西文 / 西里尔 / 阿语等共用同一套几何。
  * - StaticLayout 的 setMaxLines alone 不会裁掉后续行；须自行按行截字符再建 layout。
  * - 按词换行或不可断长词时，末码点常是空白或落在框外；渐隐必须贴齐布局框边缘，
  *   且宽度至少约 1.25em，否则窄字母上看起来像「渐隐失效」。
+ * - 贴边时 getDesiredWidth / getLineWidth 常有 1px 级浮点误差，须用 [OVERFLOW_SLACK_PX]
+ *   且优先相信 Layout「全文已进可视行」的结果，避免能显示完却仍画渐隐。
  */
 internal object LyricTextFadeTruncate {
 
     /** 相对字号的最小渐隐宽度（覆盖多个窄字形）。 */
     const val MIN_FADE_EM = 1.25f
+
+    /**
+     * 宽度比较松弛量（px）。
+     * StaticLayout.getLineWidth / getDesiredWidth 贴边时常略大于框宽。
+     */
+    const val OVERFLOW_SLACK_PX = 2f
 
     data class EndFadeGeometry(
         /** saveLayer / 裁剪左缘 */
@@ -25,7 +33,7 @@ internal object LyricTextFadeTruncate {
     )
 
     fun needsEndFade(textWidthPx: Float, maxWidthPx: Float): Boolean {
-        return textWidthPx > maxWidthPx + 0.5f
+        return textWidthPx > maxWidthPx + OVERFLOW_SLACK_PX
     }
 
     /**
@@ -60,12 +68,30 @@ internal object LyricTextFadeTruncate {
 
     /** 行宽超出布局框（不可断长词等）时也需要末尾渐隐。 */
     fun needsEndFadeForLineWidth(lineWidthPx: Float, layoutWidthPx: Float): Boolean {
-        return lineWidthPx > layoutWidthPx + 0.5f
+        return lineWidthPx > layoutWidthPx + OVERFLOW_SLACK_PX
+    }
+
+    /**
+     * Layout 是否已把全文放进第 1 行且行宽未出框。
+     * 为 true 时不应渐隐（即使 getDesiredWidth 略大）。
+     */
+    fun isFullyVisibleSingleLine(
+        trimmedTextEnd: Int,
+        visibleLineEnd: Int,
+        layoutLineCount: Int,
+        lineWidthPx: Float,
+        boxWidthPx: Float,
+    ): Boolean {
+        if (trimmedTextEnd <= 0 || boxWidthPx <= 1f) return false
+        if (layoutLineCount != 1) return false
+        if (visibleLineEnd < trimmedTextEnd) return false
+        if (needsEndFadeForLineWidth(lineWidthPx, boxWidthPx)) return false
+        return true
     }
 
     /**
      * 单行歌曲信息：是否需要末尾渐隐。
-     * 中文等可断行时行宽常≈框宽，须同时看期望宽与可见末下标。
+     * 优先用 Layout 是否完整可见；期望宽仅作兜底，避免贴边假阳性。
      */
     fun needsEndFadeForSingleLineInfo(
         desiredWidthPx: Float,
@@ -73,12 +99,23 @@ internal object LyricTextFadeTruncate {
         trimmedTextEnd: Int,
         visibleLineEnd: Int,
         layoutLineCount: Int,
+        lineWidthPx: Float = desiredWidthPx,
     ): Boolean {
         if (contentWidthPx <= 1f || trimmedTextEnd <= 0) return false
-        if (needsEndFade(desiredWidthPx, contentWidthPx)) return true
+        if (isFullyVisibleSingleLine(
+                trimmedTextEnd = trimmedTextEnd,
+                visibleLineEnd = visibleLineEnd,
+                layoutLineCount = layoutLineCount,
+                lineWidthPx = lineWidthPx,
+                boxWidthPx = contentWidthPx,
+            )
+        ) {
+            return false
+        }
         if (visibleLineEnd < trimmedTextEnd) return true
         if (layoutLineCount > 1) return true
-        return false
+        if (needsEndFadeForLineWidth(lineWidthPx, contentWidthPx)) return true
+        return needsEndFade(desiredWidthPx, contentWidthPx)
     }
 
     /** 去掉行尾空白 / 换行后的 exclusive end，便于落到真实字形。 */

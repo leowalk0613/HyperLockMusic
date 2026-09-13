@@ -11,15 +11,17 @@ class LyricTextFadeTruncateTest {
     fun needsEndFade_whenTextWiderThanBox() {
         assertTrue(LyricTextFadeTruncate.needsEndFade(200f, 100f))
         assertFalse(LyricTextFadeTruncate.needsEndFade(80f, 100f))
+        // 贴边 1px 级误差不算溢出
+        assertFalse(LyricTextFadeTruncate.needsEndFade(100.5f, 100f))
+        assertFalse(LyricTextFadeTruncate.needsEndFade(101.5f, 100f))
+        assertTrue(LyricTextFadeTruncate.needsEndFade(103f, 100f))
     }
 
     @Test
     fun endFadeForSongInfo_artistAndSubtitleUseSameRule() {
-        // 歌名 / 括号副标题 / 歌手共用：行宽或可视宽超限即渐隐
         assertTrue(LyricTextFadeTruncate.needsEndFadeForLineWidth(240f, 200f))
         assertTrue(LyricTextFadeTruncate.needsEndFade(240f, 200f))
         assertFalse(LyricTextFadeTruncate.needsEndFadeForLineWidth(180f, 200f))
-        // 可断行裁切：可见末下标 < 全文 → 与 EndFadeTextView 判定一致
         assertTrue(
             LyricTextFadeTruncate.needsEndFadeForClippedLayout(
                 unrestrictedLineCount = 3,
@@ -27,6 +29,63 @@ class LyricTextFadeTruncateTest {
                 maxLines = 1,
                 clippedTextEndOffset = 4,
                 fullTextLength = 12,
+            ),
+        )
+    }
+
+    @Test
+    fun isFullyVisibleSingleLine_skipsFadeWhenLayoutFits() {
+        assertTrue(
+            LyricTextFadeTruncate.isFullyVisibleSingleLine(
+                trimmedTextEnd = 10,
+                visibleLineEnd = 10,
+                layoutLineCount = 1,
+                lineWidthPx = 199f,
+                boxWidthPx = 200f,
+            ),
+        )
+        // 贴边假「超宽」仍算完整可见
+        assertTrue(
+            LyricTextFadeTruncate.isFullyVisibleSingleLine(
+                trimmedTextEnd = 10,
+                visibleLineEnd = 10,
+                layoutLineCount = 1,
+                lineWidthPx = 201.5f,
+                boxWidthPx = 200f,
+            ),
+        )
+        assertFalse(
+            LyricTextFadeTruncate.isFullyVisibleSingleLine(
+                trimmedTextEnd = 10,
+                visibleLineEnd = 8,
+                layoutLineCount = 1,
+                lineWidthPx = 200f,
+                boxWidthPx = 200f,
+            ),
+        )
+    }
+
+    @Test
+    fun needsEndFadeForSingleLineInfo_noFadeWhenFullyVisibleEvenIfDesiredSlightlyOver() {
+        // 旧逻辑：desired 略大就渐隐；现以 Layout 完整可见为准
+        assertFalse(
+            LyricTextFadeTruncate.needsEndFadeForSingleLineInfo(
+                desiredWidthPx = 205f,
+                contentWidthPx = 200f,
+                trimmedTextEnd = 12,
+                visibleLineEnd = 12,
+                layoutLineCount = 1,
+                lineWidthPx = 199f,
+            ),
+        )
+        assertTrue(
+            LyricTextFadeTruncate.needsEndFadeForSingleLineInfo(
+                desiredWidthPx = 205f,
+                contentWidthPx = 200f,
+                trimmedTextEnd = 12,
+                visibleLineEnd = 10,
+                layoutLineCount = 1,
+                lineWidthPx = 200f,
             ),
         )
     }
@@ -87,6 +146,9 @@ class LyricTextFadeTruncateTest {
     fun needsEndFadeForLineWidth_whenOverflow() {
         assertTrue(LyricTextFadeTruncate.needsEndFadeForLineWidth(320f, 300f))
         assertFalse(LyricTextFadeTruncate.needsEndFadeForLineWidth(300f, 300f))
+        // StaticLayout 贴边 1～2px 不算溢出（歌词末行同款）
+        assertFalse(LyricTextFadeTruncate.needsEndFadeForLineWidth(301.5f, 300f))
+        assertTrue(LyricTextFadeTruncate.needsEndFadeForLineWidth(303f, 300f))
     }
 
     @Test

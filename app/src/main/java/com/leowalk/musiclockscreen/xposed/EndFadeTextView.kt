@@ -18,7 +18,8 @@ import android.widget.TextView
  * 末尾用 [LyricTextFadeTruncate] 与歌词同款渐隐。
  *
  * 注意：中文等可断行文字在 maxLines=1 时，行宽常≈布局宽（多余字掉到第 2 行被裁掉），
- * 不能只靠 lineWidth>layoutWidth 判定，须用全文期望宽 / 可见末下标。
+ * 不能只靠 lineWidth>layoutWidth 判定；须结合可见末下标，且 Layout 已完整容纳时
+ * 勿被 getDesiredWidth 贴边误差误判为需要渐隐。
  */
 internal class EndFadeTextView @JvmOverloads constructor(
     context: Context,
@@ -98,30 +99,37 @@ internal class EndFadeTextView @JvmOverloads constructor(
             val trimmedEnd = LyricTextFadeTruncate.trimTrailingWhitespaceEnd(text, 0, text.length)
             if (trimmedEnd <= 0) return false
 
-            // 1) 全文单行期望宽超过可视宽（最可靠）
-            val desired = try {
-                Layout.getDesiredWidth(text, 0, trimmedEnd, paint)
-            } catch (_: Throwable) {
-                paint.measureText(text, 0, trimmedEnd)
-            }
-            if (LyricTextFadeTruncate.needsEndFade(desired, contentWidthPx)) return true
-
-            // 2) 可断行语言：第 1 行末还没到全文 → 被 maxLines 裁掉
             val visibleEnd = LyricTextFadeTruncate.trimTrailingWhitespaceEnd(
                 text,
                 0,
                 layout.getLineEnd(0).coerceIn(0, text.length),
             )
-            if (visibleEnd < trimmedEnd) return true
-
-            // 3) 布局产生了多行（仅画第 1 行）
-            if (layout.lineCount > 1) return true
-
-            // 4) 不可断长词：行宽超出布局框
             val lineW = layout.getLineWidth(0)
             val layoutW = layout.width.toFloat().coerceAtLeast(1f)
-            return LyricTextFadeTruncate.needsEndFadeForLineWidth(lineW, layoutW) ||
-                LyricTextFadeTruncate.needsEndFade(lineW, contentWidthPx)
+            val boxW = minOf(layoutW, contentWidthPx)
+
+            // Layout 已完整显示：勿用 getDesiredWidth 贴边误判（歌名/歌手/画报均同）
+            if (LyricTextFadeTruncate.isFullyVisibleSingleLine(
+                    trimmedTextEnd = trimmedEnd,
+                    visibleLineEnd = visibleEnd,
+                    layoutLineCount = layout.lineCount,
+                    lineWidthPx = lineW,
+                    boxWidthPx = boxW,
+                )
+            ) {
+                return false
+            }
+
+            if (visibleEnd < trimmedEnd) return true
+            if (layout.lineCount > 1) return true
+            if (LyricTextFadeTruncate.needsEndFadeForLineWidth(lineW, boxW)) return true
+
+            val desired = try {
+                Layout.getDesiredWidth(text, 0, trimmedEnd, paint)
+            } catch (_: Throwable) {
+                paint.measureText(text, 0, trimmedEnd)
+            }
+            return LyricTextFadeTruncate.needsEndFade(desired, contentWidthPx)
         }
     }
 }
