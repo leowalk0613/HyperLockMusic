@@ -20,6 +20,9 @@ internal object MagazineOtherSettingsPolicy {
     /** AOD 完整媒体控件：画报不改锁屏 AOD。 */
     fun showAodFullMedia(magazineMode: Boolean): Boolean = !magazineMode
 
+    /** 媒体控件专辑主色背景：画报不改系统媒体卡片。 */
+    fun showMediaBgAlbumTint(magazineMode: Boolean): Boolean = !magazineMode
+
     /** 歌名括号：画报底栏歌名也会用。 */
     fun showTitleBracket(magazineMode: Boolean): Boolean = true
 
