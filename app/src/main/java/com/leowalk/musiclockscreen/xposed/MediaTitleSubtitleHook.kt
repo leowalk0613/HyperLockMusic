@@ -3,6 +3,7 @@ package com.leowalk.musiclockscreen.xposed
 import android.graphics.Color
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
@@ -15,26 +16,18 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Field
 
 /**
- * 媒体控件标题：括号内容缩小显示在标题右侧（同一 TextView，主标题优先完整显示）。
+ * 媒体控件标题：括号缩小 / 隐藏 / 分行。
+ *
+ * 分行：主标题单行；有括号才显示副标题；无括号保持系统单行歌名。
  */
 object MediaTitleSubtitleHook {
 
     private const val TAG = "HyperLockMusic_MediaSubtitle"
     private const val TITLE_ROW_TAG = "music_lockscreen_media_title_row"
-    private const val SUBTITLE_VIEW_TAG = "music_lockscreen_media_subtitle"
     private const val LINE_SUBTITLE_VIEW_TAG = "music_lockscreen_media_line_subtitle"
 
     private const val SUBTITLE_SIZE_RATIO = 0.72f
     private const val SUBTITLE_ALPHA = 140
-    private const val LINE_SUBTITLE_ALPHA = 120
-    /** 有副标题时主标题为基准字号的 90%。 */
-    private const val LINE_MAIN_SIZE_RATIO = 0.90f
-    private const val LINE_SUB_SIZE_RATIO = 0.32f
-    private const val LINE_TITLE_OVER_ARTIST = 1.15f
-    /** 分行模式下收紧标题组与歌手间距（dp） */
-    private const val LINE_ARTIST_GAP_REDUCE_DP = 6
-    /** 主标题与副标题间距（dp） */
-    private const val LINE_SUB_TOP_MARGIN_DP = 0.2f
     private const val RAW_ARTIST_TAG = 0x7f140001
     private const val BASE_TITLE_SIZE_TAG = 0x7f140002
     private const val LINE_APPLIED_TAG = 0x7f140003
@@ -52,12 +45,12 @@ object MediaTitleSubtitleHook {
             val vcClass = Class.forName(
                 "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaViewControllerImpl",
                 false,
-                classLoader
+                classLoader,
             )
             val viewHolderClass = Class.forName(
                 "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaViewHolder",
                 false,
-                classLoader
+                classLoader,
             )
 
             mediaDataField = vcClass.getDeclaredField("mediaData").apply { isAccessible = true }
@@ -134,11 +127,8 @@ object MediaTitleSubtitleHook {
 
         titleText.text = when (mode) {
             "shrink" -> {
-                if (sub.isEmpty()) {
-                    rawTitle
-                } else {
-                    buildSpannableTitle(main, sub, titleText.currentTextColor)
-                }
+                if (sub.isEmpty()) rawTitle
+                else buildSpannableTitle(main, sub, titleText.currentTextColor)
             }
             "hide" -> {
                 if (sub.isEmpty() || main.isEmpty()) rawTitle else main
@@ -148,22 +138,19 @@ object MediaTitleSubtitleHook {
     }
 
     /**
-     * 分行：主标题在上、括号副标题在下（垂直 LinearLayout）。
-     * 超宽不走省略号：副标题用 [EndFadeTextView] 渐隐；歌手行去掉省略号。
+     * 分行：主标题固定单行；有括号才显示副标题；无括号拆掉包装恢复系统单行。
      */
     private fun applyLineSubtitle(
         titleText: TextView,
         artistText: TextView?,
         main: String,
-        sub: String
+        sub: String,
     ) {
         restoreArtistText(artistText)
 
-        if (sub.isEmpty()) {
+        if (!MediaTitleLineLayoutPolicy.shouldShowSubtitle(sub)) {
             unwrapTitleRow(titleText)
-            titleText.maxLines = 1
-            titleText.ellipsize = null
-            titleText.setHorizontallyScrolling(false)
+            configureSingleLineTitle(titleText)
             titleText.text = main.ifEmpty { titleText.text }
             artistText?.let { applyArtistEndFadeMode(it) }
             return
@@ -174,71 +161,64 @@ object MediaTitleSubtitleHook {
 
         val (_, subTv) = ensureTitleRow(titleText)
         val baseSize = rememberBaseSize(titleText)
+        val subPx = MediaTitleLineLayoutPolicy.resolveSubPx(
+            baseSize,
+            artistText?.textSize,
+            titleText.resources.displayMetrics.density,
+        )
         val titleColor = titleText.currentTextColor
-        val artistSize = artistText?.textSize?.takeIf { it > 0f } ?: (baseSize * 0.72f)
-        val mainPx = maxOf(baseSize * LINE_MAIN_SIZE_RATIO, artistSize * LINE_TITLE_OVER_ARTIST)
-        val subPx = baseSize * LINE_SUB_SIZE_RATIO
-        val subTopMargin = dp(titleText.context, LINE_SUB_TOP_MARGIN_DP)
-        val appliedKey = "$displayMain|$sub|$mainPx|$subPx|$titleColor|$subTopMargin"
+        val subTop = dp(titleText.context, MediaTitleLineLayoutPolicy.SUB_TOP_MARGIN_DP)
+        val appliedKey = "$displayMain|$sub|$baseSize|$subPx|$titleColor|$subTop"
 
-        // 仅当实际显示内容已正确时跳过，避免 setInfoText 冲掉文本后被误判为已应用
         if (titleText.getTag(LINE_APPLIED_TAG) == appliedKey &&
             titleText.text?.toString() == displayMain &&
+            subTv.visibility == View.VISIBLE &&
             subTv.text?.toString() == sub
         ) {
+            artistText?.let {
+                applyArtistEndFadeMode(it)
+                tightenArtistGap(it, subPx)
+            }
             return
         }
 
-        titleText.maxLines = 1
-        titleText.ellipsize = null
-        titleText.setHorizontallyScrolling(false)
+        configureSingleLineTitle(titleText)
+        titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, baseSize)
         titleText.includeFontPadding = false
-        titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, mainPx)
+        titleText.setPadding(0, 0, 0, 0)
+        titleText.setLineSpacing(0f, 1f)
         titleText.text = displayMain
 
         subTv.visibility = View.VISIBLE
-        subTv.maxLines = 1
-        subTv.ellipsize = null
-        subTv.setHorizontallyScrolling(false)
+        configureSingleLineTitle(subTv)
         subTv.includeFontPadding = false
-        subTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, subPx)
-        subTv.setTextColor(
-            Color.argb(
-                LINE_SUBTITLE_ALPHA,
-                Color.red(titleColor),
-                Color.green(titleColor),
-                Color.blue(titleColor)
-            )
-        )
+        subTv.setPadding(0, 0, 0, 0)
+        subTv.setLineSpacing(0f, 1f)
+        subTv.setTextSize(TypedValue.COMPLEX_UNIT_PX, subPx.toFloat())
+        subTv.setTextColor(MediaTitleLineLayoutPolicy.subtitleColor(titleColor))
         subTv.text = sub
-        (subTv.layoutParams as? LinearLayout.LayoutParams)?.let { slp ->
-            if (slp.topMargin != subTopMargin) {
-                slp.topMargin = subTopMargin
-                subTv.layoutParams = slp
-            }
-        }
+        val slp = (subTv.layoutParams as? LinearLayout.LayoutParams)
+            ?: LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+        slp.topMargin = subTop
+        subTv.layoutParams = slp
+        subTv.requestLayout()
+        (titleText.parent as? View)?.requestLayout()
+
         artistText?.let {
             applyArtistEndFadeMode(it)
-            tightenArtistGap(it)
+            tightenArtistGap(it, subPx)
         }
         titleText.setTag(LINE_APPLIED_TAG, appliedKey)
     }
 
-    /** 歌手行：去掉省略号；画报 [EndFadeTextView] 走歌词同款渐隐。 */
-    private fun applyArtistEndFadeMode(artistText: TextView) {
-        artistText.maxLines = 1
-        artistText.ellipsize = null
-        artistText.setHorizontallyScrolling(false)
-        artistText.includeFontPadding = false
-    }
-
-    private fun rememberBaseSize(titleText: TextView): Float {
-        val cached = titleText.getTag(BASE_TITLE_SIZE_TAG) as? Float
-        if (cached != null && cached > 0f) return cached
-        // 若已缩小过，不要把缩小后的字号当成基准
-        val size = titleText.textSize
-        titleText.setTag(BASE_TITLE_SIZE_TAG, size)
-        return size
+    private fun configureSingleLineTitle(tv: TextView) {
+        tv.setSingleLine(true)
+        tv.maxLines = 1
+        tv.ellipsize = TextUtils.TruncateAt.END
+        tv.setHorizontallyScrolling(false)
     }
 
     private fun ensureTitleRow(titleText: TextView): Pair<LinearLayout, TextView> {
@@ -270,19 +250,14 @@ object MediaTitleSubtitleHook {
             if (titleId != View.NO_ID) {
                 id = titleId
             }
-            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            gravity = Gravity.START or Gravity.TOP
         }
 
         outerParent.removeView(titleText)
         titleText.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+            ViewGroup.LayoutParams.WRAP_CONTENT,
         )
-        titleText.maxLines = 1
-        titleText.ellipsize = null
-        titleText.setHorizontallyScrolling(false)
-        titleText.includeFontPadding = false
-        // 交给 row 持有约束 id，title 用 NO_ID 避免重复
         titleText.id = View.NO_ID
 
         val subTv = createLineSubtitleView(titleText)
@@ -293,18 +268,61 @@ object MediaTitleSubtitleHook {
     }
 
     private fun createLineSubtitleView(titleText: TextView): TextView {
-        return EndFadeTextView(titleText.context).apply {
+        return TextView(titleText.context).apply {
             tag = LINE_SUBTITLE_VIEW_TAG
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = dp(context, LINE_SUB_TOP_MARGIN_DP)
+                topMargin = dp(context, MediaTitleLineLayoutPolicy.SUB_TOP_MARGIN_DP)
             }
             typeface = titleText.typeface
             gravity = titleText.gravity
             visibility = View.GONE
         }
+    }
+
+    private fun unwrapTitleRow(titleText: TextView) {
+        val row = titleText.parent as? LinearLayout ?: return
+        if (row.tag != TITLE_ROW_TAG) return
+
+        val outerParent = row.parent as? ViewGroup ?: return
+        val rowLp = row.layoutParams
+        val rowIndex = outerParent.indexOfChild(row)
+
+        row.findViewWithTag<View>(LINE_SUBTITLE_VIEW_TAG)?.let { row.removeView(it) }
+        row.removeView(titleText)
+
+        val titleConstraintId = row.id
+        if (titleConstraintId != View.NO_ID) {
+            titleText.id = titleConstraintId
+        }
+
+        (titleText.getTag(BASE_TITLE_SIZE_TAG) as? Float)?.let { base ->
+            titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, base)
+        }
+        titleText.setTag(BASE_TITLE_SIZE_TAG, null)
+        titleText.setTag(LINE_APPLIED_TAG, null)
+        titleText.includeFontPadding = true
+        configureSingleLineTitle(titleText)
+
+        outerParent.removeView(row)
+        outerParent.addView(titleText, rowIndex, rowLp)
+    }
+
+    private fun applyArtistEndFadeMode(artistText: TextView) {
+        artistText.maxLines = 1
+        artistText.ellipsize = null
+        artistText.setHorizontallyScrolling(false)
+        artistText.includeFontPadding = false
+    }
+
+    private fun rememberBaseSize(titleText: TextView): Float {
+        val cached = titleText.getTag(BASE_TITLE_SIZE_TAG) as? Float
+        if (cached != null && cached > 0f) return cached
+        val size = titleText.textSize
+        titleText.setTag(BASE_TITLE_SIZE_TAG, size)
+        return size
     }
 
     private fun restoreArtistText(artistText: TextView?) {
@@ -313,13 +331,13 @@ object MediaTitleSubtitleHook {
         readRawArtist(artistText)?.let { artistText.text = it }
     }
 
-    private fun tightenArtistGap(artistText: TextView) {
+    private fun tightenArtistGap(artistText: TextView, subPx: Int) {
         val lp = artistText.layoutParams as? ViewGroup.MarginLayoutParams ?: return
         if (artistText.getTag(ARTIST_TOP_MARGIN_TAG) == null) {
             artistText.setTag(ARTIST_TOP_MARGIN_TAG, lp.topMargin)
         }
         val base = artistText.getTag(ARTIST_TOP_MARGIN_TAG) as Int
-        val target = base - dp(artistText.context, LINE_ARTIST_GAP_REDUCE_DP)
+        val target = MediaTitleLineLayoutPolicy.tightenedArtistTopMargin(base, subPx)
         if (lp.topMargin != target) {
             lp.topMargin = target
             artistText.layoutParams = lp
@@ -337,11 +355,9 @@ object MediaTitleSubtitleHook {
         artistText.setTag(ARTIST_TOP_MARGIN_TAG, null)
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun readRawArtist(artistText: TextView): String? {
         val cached = artistText.getTag(RAW_ARTIST_TAG) as? String
         if (!cached.isNullOrBlank()) return cached
-
         val raw = artistText.text?.toString()?.trim()?.takeIf { it.isNotBlank() }
         if (raw != null) {
             artistText.setTag(RAW_ARTIST_TAG, raw)
@@ -353,25 +369,24 @@ object MediaTitleSubtitleHook {
         artistText.setTag(RAW_ARTIST_TAG, null)
     }
 
-    private fun dp(context: android.content.Context, v: Int): Int =
-        dp(context, v.toFloat())
-
     private fun dp(context: android.content.Context, v: Float): Int {
-        val density = context.resources.displayMetrics.density
-        return (v * density).toInt()
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            v,
+            context.resources.displayMetrics,
+        ).toInt()
     }
 
     private fun buildSpannableTitle(main: String, sub: String, titleColor: Int): CharSequence {
         val suffix = "($sub)"
         val full = if (main.isEmpty()) suffix else "$main $suffix"
         val subStart = if (main.isEmpty()) 0 else main.length + 1
-
         val ss = SpannableString(full)
         ss.setSpan(
             RelativeSizeSpan(SUBTITLE_SIZE_RATIO),
             subStart,
             full.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
         ss.setSpan(
             ForegroundColorSpan(
@@ -379,43 +394,14 @@ object MediaTitleSubtitleHook {
                     SUBTITLE_ALPHA,
                     Color.red(titleColor),
                     Color.green(titleColor),
-                    Color.blue(titleColor)
-                )
+                    Color.blue(titleColor),
+                ),
             ),
             subStart,
             full.length,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
         return ss
-    }
-
-    private fun unwrapTitleRow(titleText: TextView) {
-        val row = titleText.parent as? LinearLayout ?: return
-        if (row.tag != TITLE_ROW_TAG) return
-
-        val outerParent = row.parent as? ViewGroup ?: return
-        val rowLp = row.layoutParams
-        val rowIndex = outerParent.indexOfChild(row)
-
-        row.findViewWithTag<View>(SUBTITLE_VIEW_TAG)?.let { row.removeView(it) }
-        row.findViewWithTag<View>(LINE_SUBTITLE_VIEW_TAG)?.let { row.removeView(it) }
-        row.removeView(titleText)
-
-        val titleConstraintId = row.id
-        if (titleConstraintId != View.NO_ID) {
-            titleText.id = titleConstraintId
-        }
-
-        (titleText.getTag(BASE_TITLE_SIZE_TAG) as? Float)?.let { base ->
-            titleText.setTextSize(TypedValue.COMPLEX_UNIT_PX, base)
-        }
-        titleText.setTag(BASE_TITLE_SIZE_TAG, null)
-        titleText.setTag(LINE_APPLIED_TAG, null)
-        titleText.includeFontPadding = true
-        titleText.maxLines = 1
-
-        outerParent.removeView(row)
-        outerParent.addView(titleText, rowIndex, rowLp)
     }
 
     private fun readRawTitle(controller: Any): String? {
