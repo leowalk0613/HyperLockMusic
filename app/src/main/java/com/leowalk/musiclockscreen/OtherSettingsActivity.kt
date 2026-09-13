@@ -107,7 +107,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                 mediaCard.addView(M3.switchRow(
                     this,
                     "取专辑主色调",
-                    "媒体卡片背景跟随封面主色；可调透明度（对齐 LyricFocus 通知取色）",
+                    "只给系统玻璃混色染封面色，不拆模糊材质；可调染色强度",
                     ModuleConfig.mediaBgAlbumTint
                 ) { checked ->
                     ModuleConfig.mediaBgAlbumTint = checked
@@ -117,7 +117,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                 mediaBgOpacityBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                 mediaBgOpacityBlock!!.addView(M3.sliderRow(
                     this,
-                    "主色透明度",
+                    "染色强度",
                     MediaBgAlbumTintPolicy.MIN_OPACITY_PERCENT.toFloat(),
                     MediaBgAlbumTintPolicy.MAX_OPACITY_PERCENT.toFloat(),
                     ModuleConfig.mediaBgAlbumOpacity.toFloat()
@@ -177,7 +177,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
             } else {
                 "模糊：壁纸用金字塔降采样 + box blur 烘焙（滑杆直接控制力度），锁屏再叠 MiBlur 遮罩；解锁清遮罩不影响桌面。改完请重新开关音乐锁屏。\n\n" +
                     "禁用息屏壁纸缩放对大专辑、沉浸封面与仅歌词模式均生效。\n\n" +
-                    "取专辑主色调：改媒体卡片 mediaBg；开启通知模糊时用 SoftGlass 混色，否则纯色底。切歌后自动更新；首次需重启系统界面。\n\n" +
+                    "取专辑主色调：只改 mediaBg 玻璃混色 RGB，保留系统模糊/圆角；强度按系统原 alpha 比例缩放。切歌自动更新；首次需重启系统界面。\n\n" +
                     "AOD 完整媒体控件需重启系统界面后生效。\n\n" +
                     "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行副标题叠在标题下方。\n\n" +
                     "修改后需重启系统界面或重新开关音乐锁屏生效。"

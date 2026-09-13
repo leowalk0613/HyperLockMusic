@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -14,13 +13,10 @@ import io.github.libxposed.api.XposedModule
 import java.lang.ref.WeakReference
 
 /**
- * 锁屏媒体控件背景取专辑主色（可调透明度）。
+ * 锁屏媒体控件：只给系统玻璃混色染专辑色，不拆 MiBlur / 不铺纯色底。
  *
- * 落点：SystemUI [MiuiMediaViewHolder.mediaBg]
- * 策略（对齐 LyricFocus solidColorBitmap）：
- * 1. 清掉系统 MiBlur 混色，避免 SoftGlass「假成功」盖住纯色
- * 2. 同时写 background（圆角 GradientDrawable）+ image（纯色 Bitmap）
- * 3. 拦截 [NotificationUtil.applyElementViewBlend]，系统回写后立刻重套
+ * 拦截 [NotificationUtil.applyElementViewBlend]，把 `[color, mode, …]` 里的 color
+ * 换成专辑 RGB（[MediaBgAlbumTintPolicy.retintBlendPairs]），mode 与圆角/模糊模式不动。
  */
 class MediaBgTintHook {
 
@@ -31,18 +27,40 @@ class MediaBgTintHook {
     private var mediaBgRef: WeakReference<ImageView>? = null
     private var lastTintRgb: Int = Color.TRANSPARENT
     private var lastOpacity: Int = MediaBgAlbumTintPolicy.DEFAULT_OPACITY_PERCENT
+    /** 系统最近一次下发的原始 color/mode 对，切歌后用来重套。 */
+    private var lastSystemBlendPairs: IntArray? = null
     private var applyGen: Int = 0
+    private var reenteringBlend: Boolean = false
+
+    private var applyElementBlendMethod: java.lang.reflect.Method? = null
 
     fun install(classLoader: ClassLoader, module: XposedModule) {
         this.module = module
         try {
             logI("install start")
+            resolveApplyElementBlend(classLoader)
             hookBindMediaData(classLoader, module)
-            hookUpdateForegroundColors(classLoader, module)
             hookApplyElementViewBlend(classLoader, module)
             logI("MediaBgTintHook installed")
         } catch (e: Throwable) {
             logE("install failed", e)
+        }
+    }
+
+    private fun resolveApplyElementBlend(classLoader: ClassLoader) {
+        try {
+            val utilClass = Class.forName(
+                "com.android.systemui.statusbar.notification.utils.NotificationUtil",
+                false,
+                classLoader,
+            )
+            applyElementBlendMethod = utilClass.declaredMethods.firstOrNull { m ->
+                m.name == "applyElementViewBlend" &&
+                    m.parameterCount == 5 &&
+                    m.parameterTypes[3] == IntArray::class.java
+            }?.apply { isAccessible = true }
+        } catch (e: Throwable) {
+            logE("resolve applyElementViewBlend failed", e)
         }
     }
 
@@ -77,7 +95,7 @@ class MediaBgTintHook {
                 if (mediaBg != null) {
                     mediaBgRef = WeakReference(mediaBg)
                     mediaBg.setTag(TAG_OWNED, true)
-                    scheduleApply(mediaBg, albumIv?.drawable)
+                    scheduleTintUpdate(mediaBg, albumIv?.drawable)
                 }
             } catch (e: Throwable) {
                 logE("after bindMediaData tint error", e)
@@ -86,35 +104,6 @@ class MediaBgTintHook {
         }
     }
 
-    private fun hookUpdateForegroundColors(classLoader: ClassLoader, module: XposedModule) {
-        try {
-            val vcClass = Class.forName(
-                "com.android.systemui.statusbar.notification.mediacontrol.MiuiMediaViewControllerImpl",
-                false,
-                classLoader,
-            )
-            val method = vcClass.declaredMethods.firstOrNull { m ->
-                m.name == "updateForegroundColors" && m.parameterCount == 0
-            }?.apply { isAccessible = true }
-            if (method == null) {
-                logE("updateForegroundColors not found")
-                return
-            }
-            module.hook(method).intercept { chain ->
-                val result = chain.proceed()
-                reapplyIfNeeded("updateForegroundColors")
-                result
-            }
-            logI("hook updateForegroundColors: OK")
-        } catch (e: Throwable) {
-            logE("hook updateForegroundColors failed", e)
-        }
-    }
-
-    /**
-     * 系统 AOD / 主题会不断 [applyElementViewBlend] 覆盖 mediaBg；
-     * 我们的染色开启时，在系统写完后立刻用专辑主色重套。
-     */
     private fun hookApplyElementViewBlend(classLoader: ClassLoader, module: XposedModule) {
         try {
             val utilClass = Class.forName(
@@ -123,25 +112,41 @@ class MediaBgTintHook {
                 classLoader,
             )
             val methods = utilClass.declaredMethods.filter { m ->
-                m.name == "applyElementViewBlend" && m.parameterCount >= 4
+                (m.name == "applyElementViewBlend" || m.name == "applyElementViewBlendNoRoundRect") &&
+                    m.parameterTypes.any { it == IntArray::class.java }
             }
             if (methods.isEmpty()) {
-                logE("applyElementViewBlend not found")
+                logE("applyElementViewBlend* with IntArray not found")
                 return
             }
             for (method in methods) {
                 method.isAccessible = true
                 module.hook(method).intercept { chain ->
-                    val result = chain.proceed()
-                    try {
-                        val view = chain.args.getOrNull(1) as? View
-                        if (view != null && view.getTag(TAG_OWNED) == true) {
-                            reapplyIfNeeded("applyElementViewBlend")
-                        }
-                    } catch (e: Throwable) {
-                        logE("after applyElementViewBlend tint error", e)
+                    if (reenteringBlend) {
+                        return@intercept chain.proceed()
                     }
-                    result
+                    val args = chain.args.toTypedArray()
+                    val view = args.firstOrNull { it is View } as? View
+                    val colorIdx = args.indexOfFirst { it is IntArray }
+                    val colors = if (colorIdx >= 0) args[colorIdx] as IntArray else null
+                    if (view != null &&
+                        colors != null &&
+                        view.getTag(TAG_OWNED) == true &&
+                        shouldTintNow(view)
+                    ) {
+                        lastSystemBlendPairs = colors.copyOf()
+                        args[colorIdx] = MediaBgAlbumTintPolicy.retintBlendPairs(
+                            colors,
+                            lastTintRgb,
+                            lastOpacity,
+                        )
+                        logI(
+                            "retint glass pairs=${colors.size / 2} " +
+                                "tint=#${Integer.toHexString(lastTintRgb)} opacity=$lastOpacity",
+                        )
+                        return@intercept chain.proceed(args)
+                    }
+                    chain.proceed()
                 }
             }
             logI("hook applyElementViewBlend: OK count=${methods.size}")
@@ -150,17 +155,14 @@ class MediaBgTintHook {
         }
     }
 
-    private fun reapplyIfNeeded(reason: String) {
-        val mediaBg = mediaBgRef?.get() ?: return
-        if (lastTintRgb == Color.TRANSPARENT) return
-        val ctx = mediaBg.context ?: return
+    private fun shouldTintNow(view: View): Boolean {
+        if (lastTintRgb == Color.TRANSPARENT) return false
+        val ctx = view.context ?: return false
         ConfigReader.invalidate()
-        if (!MediaBgAlbumTintPolicy.shouldApply(ConfigReader.mediaBgAlbumTint(ctx))) return
-        applyResolved(mediaBg, lastTintRgb, lastOpacity)
-        logI("reapply ($reason) tint=#${Integer.toHexString(lastTintRgb)} opacity=$lastOpacity")
+        return MediaBgAlbumTintPolicy.shouldApply(ConfigReader.mediaBgAlbumTint(ctx))
     }
 
-    private fun scheduleApply(mediaBg: ImageView, albumDrawable: Drawable?) {
+    private fun scheduleTintUpdate(mediaBg: ImageView, albumDrawable: Drawable?) {
         val ctx = mediaBg.context ?: return
         ConfigReader.invalidate()
         if (!MediaBgAlbumTintPolicy.shouldApply(ConfigReader.mediaBgAlbumTint(ctx))) {
@@ -182,49 +184,34 @@ class MediaBgTintHook {
         lastTintRgb = MediaBgAlbumTintPolicy.tintRgb(rgb)
         lastOpacity = MediaBgAlbumTintPolicy.coerceOpacity(opacity)
         val gen = ++applyGen
-        // 系统 bind 后还会写 blur，多段重试确保盖住
+        // 等系统写完玻璃混色后再用原 pairs 重入 applyElementViewBlend（hook 会染色）
         for (delay in RETRY_DELAYS_MS) {
             mainHandler.postDelayed({
                 if (gen != applyGen) return@postDelayed
                 val v = mediaBgRef?.get() ?: return@postDelayed
-                val c = v.context ?: return@postDelayed
-                if (!MediaBgAlbumTintPolicy.shouldApply(ConfigReader.mediaBgAlbumTint(c))) return@postDelayed
-                applyResolved(v, lastTintRgb, lastOpacity)
+                if (!shouldTintNow(v)) return@postDelayed
+                reapplyGlassTint(v)
             }, delay)
         }
         logI(
-            "schedule tint=#${Integer.toHexString(lastTintRgb)} " +
-                "opacity=$lastOpacity retries=${RETRY_DELAYS_MS.size}",
+            "schedule glass tint=#${Integer.toHexString(lastTintRgb)} " +
+                "opacity=$lastOpacity",
         )
     }
 
-    private fun applyResolved(mediaBg: ImageView, tintRgb: Int, opacityPercent: Int) {
-        val color = MediaBgAlbumTintPolicy.colorWithOpacity(tintRgb, opacityPercent)
-        // 必须清掉系统 MiBlur，否则纯色不可见
+    private fun reapplyGlassTint(mediaBg: View) {
+        val pairs = lastSystemBlendPairs ?: return
+        val method = applyElementBlendMethod ?: return
+        if (reenteringBlend) return
+        reenteringBlend = true
         try {
-            HyperMiBlurHelper.clearSoftGlassBackdrop(mediaBg)
-        } catch (_: Throwable) {
+            // 传入系统原始 pairs，hook 内再 retint，保留 setRoundRect / blurMode
+            method.invoke(null, mediaBg.context, mediaBg, false, pairs, false)
+        } catch (e: Throwable) {
+            logE("reapplyGlassTint failed", e)
+        } finally {
+            reenteringBlend = false
         }
-        val density = mediaBg.resources?.displayMetrics?.density ?: 3f
-        val corner = CORNER_DP * density
-        val gd = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = corner
-            setColor(color)
-        }
-        mediaBg.background = gd
-        // LyricFocus：ImageView 再铺一层纯色 bitmap，防止系统只画 image 层
-        mediaBg.scaleType = ImageView.ScaleType.FIT_XY
-        mediaBg.setImageBitmap(solidColorBitmap(color))
-        mediaBg.imageAlpha = 255
-        mediaBg.visibility = View.VISIBLE
-        mediaBg.alpha = 1f
-    }
-
-    private fun solidColorBitmap(color: Int): Bitmap {
-        val bmp = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
-        bmp.eraseColor(color)
-        return bmp
     }
 
     private fun drawableToBitmap(drawable: Drawable?): Bitmap? {
@@ -262,7 +249,6 @@ class MediaBgTintHook {
 
     companion object {
         private const val TAG_OWNED = 0x7f1400B1
-        private const val CORNER_DP = 28f
-        private val RETRY_DELAYS_MS = longArrayOf(0L, 48L, 160L, 400L)
+        private val RETRY_DELAYS_MS = longArrayOf(0L, 80L, 220L, 480L)
     }
 }
