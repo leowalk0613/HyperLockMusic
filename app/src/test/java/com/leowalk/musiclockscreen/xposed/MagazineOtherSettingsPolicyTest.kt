@@ -14,7 +14,6 @@ class MagazineOtherSettingsPolicyTest {
         assertFalse(MagazineOtherSettingsPolicy.showMinimalClock(true))
         assertFalse(MagazineOtherSettingsPolicy.showDisableWallpaperScale(true))
         assertFalse(MagazineOtherSettingsPolicy.showAodFullMedia(true))
-        assertFalse(MagazineOtherSettingsPolicy.showMediaBgAlbumTint(true))
         assertTrue(MagazineOtherSettingsPolicy.showLockscreenAssistSection(true))
     }
 
@@ -25,7 +24,6 @@ class MagazineOtherSettingsPolicyTest {
         assertTrue(MagazineOtherSettingsPolicy.showDisableWallpaperScale(false))
         assertTrue(MagazineOtherSettingsPolicy.showKeepLockScreenOn(false))
         assertTrue(MagazineOtherSettingsPolicy.showAodFullMedia(false))
-        assertTrue(MagazineOtherSettingsPolicy.showMediaBgAlbumTint(false))
         assertTrue(MagazineOtherSettingsPolicy.showTitleBracket(false))
         assertTrue(MagazineOtherSettingsPolicy.showLockscreenAssistSection(false))
     }

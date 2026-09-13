@@ -46,8 +46,6 @@ class ConfigProvider : ContentProvider() {
         const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
         const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
         const val KEY_AOD_FULL_MEDIA = "aod_full_media"
-        const val KEY_MEDIA_BG_ALBUM_TINT = "media_bg_album_tint"
-        const val KEY_MEDIA_BG_ALBUM_OPACITY = "media_bg_album_opacity"
         const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
         const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
@@ -116,8 +114,6 @@ class ConfigProvider : ContentProvider() {
                 KEY_MINIMAL_CLOCK_SIZE,
                 KEY_MINIMAL_CLOCK_TOP_Y,
                 KEY_AOD_FULL_MEDIA,
-                KEY_MEDIA_BG_ALBUM_TINT,
-                KEY_MEDIA_BG_ALBUM_OPACITY,
                 KEY_DISABLE_WALLPAPER_SCALE,
                 KEY_KEEP_LOCKSCREEN_ON,
                 KEY_TITLE_BRACKET_MODE,
@@ -165,8 +161,6 @@ class ConfigProvider : ContentProvider() {
                 prefs.getFloat(KEY_MINIMAL_CLOCK_SIZE, 30f),
                 prefs.getFloat(KEY_MINIMAL_CLOCK_TOP_Y, 10f),
                 if (prefs.getBoolean(KEY_AOD_FULL_MEDIA, false)) 1 else 0,
-                if (prefs.getBoolean(KEY_MEDIA_BG_ALBUM_TINT, false)) 1 else 0,
-                prefs.getInt(KEY_MEDIA_BG_ALBUM_OPACITY, 70),
                 if (prefs.getBoolean(KEY_DISABLE_WALLPAPER_SCALE, true)) 1 else 0,
                 if (prefs.getBoolean(KEY_KEEP_LOCKSCREEN_ON, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
@@ -294,18 +288,6 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_AOD_FULL_MEDIA)) {
                     editor.putBoolean(KEY_AOD_FULL_MEDIA, values.getAsInteger(KEY_AOD_FULL_MEDIA) == 1)
-                }
-                if (values.containsKey(KEY_MEDIA_BG_ALBUM_TINT)) {
-                    editor.putBoolean(
-                        KEY_MEDIA_BG_ALBUM_TINT,
-                        values.getAsInteger(KEY_MEDIA_BG_ALBUM_TINT) == 1,
-                    )
-                }
-                if (values.containsKey(KEY_MEDIA_BG_ALBUM_OPACITY)) {
-                    editor.putInt(
-                        KEY_MEDIA_BG_ALBUM_OPACITY,
-                        values.getAsInteger(KEY_MEDIA_BG_ALBUM_OPACITY)?.coerceIn(5, 100) ?: 70,
-                    )
                 }
                 if (values.containsKey(KEY_DISABLE_WALLPAPER_SCALE)) {
                     editor.putBoolean(

@@ -42,9 +42,6 @@ class MainHook : XposedModule() {
                             log(p, t, m, tr)
                         }
                     }
-                    installSafe(param.classLoader, this, "MediaBgTintHook") {
-                        MediaBgTintHook().install(param.classLoader, this)
-                    }
                     installSafe(param.classLoader, this, "StatusBarStateHook") {
                         StatusBarStateHook.install(param.classLoader, this) { p, t, m, tr ->
                             log(p, t, m, tr)

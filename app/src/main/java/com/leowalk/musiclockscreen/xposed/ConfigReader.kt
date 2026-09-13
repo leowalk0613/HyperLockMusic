@@ -42,8 +42,6 @@ object ConfigReader {
     private var cachedMinimalClockTopY: Float = 10f
     private var cachedTitleBracketMode: String = "default"
     private var cachedAodFullMedia: Boolean = true
-    private var cachedMediaBgAlbumTint: Boolean = false
-    private var cachedMediaBgAlbumOpacity: Int = 70
     private var cachedDisableWallpaperScale: Boolean = true
     private var cachedWhitelistEnabled: Boolean = false
     private var cachedWhitelist: String = ""
@@ -277,18 +275,6 @@ object ConfigReader {
         return cachedAodFullMedia
     }
 
-    /** 媒体控件背景取专辑主色 */
-    fun mediaBgAlbumTint(context: Context): Boolean {
-        refreshConfigIfNeeded(context)
-        return cachedMediaBgAlbumTint
-    }
-
-    /** 媒体控件专辑主色透明度 5–100 */
-    fun mediaBgAlbumOpacity(context: Context): Int {
-        refreshConfigIfNeeded(context)
-        return cachedMediaBgAlbumOpacity
-    }
-
     /** 音乐锁屏息屏时禁用壁纸缩放动画 */
     fun disableWallpaperScale(context: Context): Boolean {
         refreshConfigIfNeeded(context)
@@ -388,8 +374,6 @@ object ConfigReader {
                 val minimalClockTopYIdx = cursor.getColumnIndex("minimal_clock_top_y")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
                 val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
-                val mediaBgAlbumTintIdx = cursor.getColumnIndex("media_bg_album_tint")
-                val mediaBgAlbumOpacityIdx = cursor.getColumnIndex("media_bg_album_opacity")
                 val disableWallpaperScaleIdx = cursor.getColumnIndex("disable_wallpaper_scale")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
                 val whitelistIdx = cursor.getColumnIndex("music_whitelist")
@@ -483,13 +467,6 @@ object ConfigReader {
                 }
                 if (aodFullMediaIdx >= 0) {
                     cachedAodFullMedia = cursor.getInt(aodFullMediaIdx) == 1
-                }
-                if (mediaBgAlbumTintIdx >= 0) {
-                    cachedMediaBgAlbumTint = cursor.getInt(mediaBgAlbumTintIdx) == 1
-                }
-                if (mediaBgAlbumOpacityIdx >= 0) {
-                    cachedMediaBgAlbumOpacity =
-                        cursor.getInt(mediaBgAlbumOpacityIdx).coerceIn(5, 100)
                 }
                 if (disableWallpaperScaleIdx >= 0) {
                     cachedDisableWallpaperScale = cursor.getInt(disableWallpaperScaleIdx) == 1

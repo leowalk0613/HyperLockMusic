@@ -2,13 +2,11 @@ package com.leowalk.musiclockscreen
 
 import android.widget.LinearLayout
 import com.leowalk.musiclockscreen.xposed.MagazineOtherSettingsPolicy
-import com.leowalk.musiclockscreen.xposed.MediaBgAlbumTintPolicy
 
 /** 其他设置：壁纸模糊、媒体控件、简洁时钟、息屏缩放、锁屏常亮等。 */
 class OtherSettingsActivity : BaseScrollingActivity() {
 
     private var clockOptionsBlock: LinearLayout? = null
-    private var mediaBgOpacityBlock: LinearLayout? = null
 
     override fun titleText() = "其他设置"
 
@@ -97,57 +95,19 @@ class OtherSettingsActivity : BaseScrollingActivity() {
             list.addView(M3.card(this, miscCard))
         }
 
-        if (MagazineOtherSettingsPolicy.showAodFullMedia(mag) ||
-            MagazineOtherSettingsPolicy.showMediaBgAlbumTint(mag)
-        ) {
+        if (MagazineOtherSettingsPolicy.showAodFullMedia(mag)) {
             val mediaCard = M3.cardContent(this)
             mediaCard.addView(M3.title(this, "媒体控件"))
-
-            if (MagazineOtherSettingsPolicy.showMediaBgAlbumTint(mag)) {
-                mediaCard.addView(M3.switchRow(
-                    this,
-                    "取专辑主色调",
-                    "只给系统玻璃混色染封面色，不拆模糊材质；可调染色强度",
-                    ModuleConfig.mediaBgAlbumTint
-                ) { checked ->
-                    ModuleConfig.mediaBgAlbumTint = checked
-                    ModuleConfig.push(this)
-                    refreshMediaBgOpacity()
-                })
-                mediaBgOpacityBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                mediaBgOpacityBlock!!.addView(M3.sliderRow(
-                    this,
-                    "染色强度",
-                    MediaBgAlbumTintPolicy.MIN_OPACITY_PERCENT.toFloat(),
-                    MediaBgAlbumTintPolicy.MAX_OPACITY_PERCENT.toFloat(),
-                    ModuleConfig.mediaBgAlbumOpacity.toFloat()
-                        .coerceIn(
-                            MediaBgAlbumTintPolicy.MIN_OPACITY_PERCENT.toFloat(),
-                            MediaBgAlbumTintPolicy.MAX_OPACITY_PERCENT.toFloat(),
-                        ),
-                    { "${it.toInt()}%" }
-                ) { v ->
-                    ModuleConfig.mediaBgAlbumOpacity = v.toInt()
-                    ModuleConfig.push(this)
-                })
-                mediaCard.addView(mediaBgOpacityBlock)
-            }
-
-            if (MagazineOtherSettingsPolicy.showAodFullMedia(mag)) {
-                mediaCard.addView(M3.switchRow(
-                    this,
-                    "AOD 完整媒体控件",
-                    "息屏显示时保持媒体卡片展开，并实时更新进度条与时间",
-                    ModuleConfig.aodFullMedia
-                ) { checked ->
-                    ModuleConfig.aodFullMedia = checked
-                    ModuleConfig.push(this)
-                })
-            }
+            mediaCard.addView(M3.switchRow(
+                this,
+                "AOD 完整媒体控件",
+                "息屏显示时保持媒体卡片展开，并实时更新进度条与时间",
+                ModuleConfig.aodFullMedia
+            ) { checked ->
+                ModuleConfig.aodFullMedia = checked
+                ModuleConfig.push(this)
+            })
             list.addView(M3.card(this, mediaCard))
-            if (MagazineOtherSettingsPolicy.showMediaBgAlbumTint(mag)) {
-                refreshMediaBgOpacity()
-            }
         }
 
         if (MagazineOtherSettingsPolicy.showTitleBracket(mag)) {
@@ -177,9 +137,8 @@ class OtherSettingsActivity : BaseScrollingActivity() {
             } else {
                 "模糊：壁纸用金字塔降采样 + box blur 烘焙（滑杆直接控制力度），锁屏再叠 MiBlur 遮罩；解锁清遮罩不影响桌面。改完请重新开关音乐锁屏。\n\n" +
                     "禁用息屏壁纸缩放对大专辑、沉浸封面与仅歌词模式均生效。\n\n" +
-                    "取专辑主色调：只改 mediaBg 玻璃混色 RGB，保留系统模糊/圆角；强度按系统原 alpha 比例缩放。切歌自动更新；首次需重启系统界面。\n\n" +
                     "AOD 完整媒体控件需重启系统界面后生效。\n\n" +
-                    "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行副标题叠在标题下方。\n\n" +
+                    "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行时主标题单行，有括号才显示副标题，并上拉歌手间距。\n\n" +
                     "修改后需重启系统界面或重新开关音乐锁屏生效。"
             })))
 
@@ -190,9 +149,5 @@ class OtherSettingsActivity : BaseScrollingActivity() {
 
     private fun refreshClockOptions() {
         M3.setControlsEnabled(clockOptionsBlock, ModuleConfig.minimalClock)
-    }
-
-    private fun refreshMediaBgOpacity() {
-        M3.setControlsEnabled(mediaBgOpacityBlock, ModuleConfig.mediaBgAlbumTint)
     }
 }
