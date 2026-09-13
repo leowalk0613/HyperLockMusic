@@ -45,6 +45,14 @@ class MediaBgAlbumTintPolicyTest {
     }
 
     @Test
+    fun colorWithOpacity_lowStillVisibleAlpha() {
+        val rgb = 0xFFAA5533.toInt()
+        val out = MediaBgAlbumTintPolicy.colorWithOpacity(rgb, 5)
+        assertEquals(12, (out ushr 24) and 0xFF) // 5% of 255 ≈ 12
+        assertTrue(((out ushr 24) and 0xFF) >= 1)
+    }
+
+    @Test
     fun tintRgb_forcesOpaque() {
         val translucent = 0x803366AA.toInt()
         val out = MediaBgAlbumTintPolicy.tintRgb(translucent)
