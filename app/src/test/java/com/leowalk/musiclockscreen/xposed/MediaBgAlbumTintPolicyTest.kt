@@ -27,10 +27,11 @@ class MediaBgAlbumTintPolicyTest {
     }
 
     @Test
-    fun colorWithOpacity_setsAlphaKeepsRgb() {
-        val rgb = 0xFF3366AA.toInt()
-        val out = MediaBgAlbumTintPolicy.colorWithOpacity(rgb, 50)
-        assertEquals(127, (out ushr 24) and 0xFF)
+    fun retintBlendColor_scalesAlphaKeepsModesSeparate() {
+        val orig = 0x80FFFFFF.toInt()
+        val tint = 0xFF3366AA.toInt()
+        val out = MediaBgAlbumTintPolicy.retintBlendColor(orig, tint, 50)
+        assertEquals(0x40, (out ushr 24) and 0xFF)
         assertEquals(0x33, (out shr 16) and 0xFF)
         assertEquals(0x66, (out shr 8) and 0xFF)
         assertEquals(0xAA, out and 0xFF)
@@ -49,24 +50,19 @@ class MediaBgAlbumTintPolicyTest {
 
         assertEquals(mode1, out[1])
         assertEquals(mode2, out[3])
-        // alpha 0x80 * 50% = 0x40
         assertEquals(0x40, (out[0] ushr 24) and 0xFF)
         assertEquals(0x33, (out[0] shr 16) and 0xFF)
-        assertEquals(0x66, (out[0] shr 8) and 0xFF)
-        assertEquals(0xAA, out[0] and 0xFF)
-        // alpha 0x40 * 50% = 0x20
         assertEquals(0x20, (out[2] ushr 24) and 0xFF)
-        assertEquals(0x33, (out[2] shr 16) and 0xFF)
     }
 
     @Test
-    fun retintBlendPairs_fullOpacityKeepsSystemAlpha() {
-        val src = intArrayOf(0xAA112233.toInt(), 101)
-        val out = MediaBgAlbumTintPolicy.retintBlendPairs(src, 0xFF445566.toInt(), 100)
-        assertEquals(0xAA, (out[0] ushr 24) and 0xFF)
+    fun buildFallbackBlendPairs_usesAlbumRgbAndMode() {
+        val tint = 0xFF445566.toInt()
+        val out = MediaBgAlbumTintPolicy.buildFallbackBlendPairs(tint, 70)
+        assertEquals(MediaBgAlbumTintPolicy.FALLBACK_BLEND_MODE, out[1])
         assertEquals(0x44, (out[0] shr 16) and 0xFF)
         assertEquals(0x55, (out[0] shr 8) and 0xFF)
         assertEquals(0x66, out[0] and 0xFF)
-        assertEquals(101, out[1])
+        assertEquals((255 * 70 / 100f).toInt(), (out[0] ushr 24) and 0xFF)
     }
 }
