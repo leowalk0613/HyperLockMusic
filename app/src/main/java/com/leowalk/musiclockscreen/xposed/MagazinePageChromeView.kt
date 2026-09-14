@@ -134,8 +134,8 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
 
         songRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            // 封面+文字列整块在行内水平居中
-            gravity = Gravity.CENTER
+            // 封面+文字列整块靠左，与关闭钮左缘对齐
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
             clipChildren = false
             clipToPadding = false
         }
@@ -212,8 +212,8 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             includeFontPadding = false
             maxLines = 1
             ellipsize = null
-            // INVISIBLE 占位：无副标题时仍占槽，保证三行总高=封面
-            visibility = INVISIBLE
+            // 无副标题时 GONE，歌名/歌手靠紧并在封面高度内垂直居中
+            visibility = GONE
         }
         infoCol.addView(
             subtitleView,
@@ -326,7 +326,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         if (MagazinePageChromePolicy.shouldApplyInlineShrink(titleBracketMode, sub)) {
             titleView.text = buildShrinkSpannable(main, sub)
             subtitleView.text = ""
-            subtitleView.visibility = INVISIBLE
+            subtitleView.visibility = GONE
         } else {
             titleView.text = main
             if (showLine && sub.isNotEmpty()) {
@@ -334,7 +334,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 subtitleView.visibility = VISIBLE
             } else {
                 subtitleView.text = ""
-                subtitleView.visibility = INVISIBLE
+                subtitleView.visibility = GONE
             }
         }
         val key = "$main\u0000${artistView.text}\u0000$titleBracketMode"
@@ -348,7 +348,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         }
     }
 
-    /** 歌名左侧小封面：圆角 + elevation 阴影；无图时隐藏，文字整块仍居中。 */
+    /** 歌名左侧小封面：圆角 + elevation 阴影；无图时隐藏，文字整块仍靠左。 */
     fun setAlbumArt(bitmap: Bitmap?) {
         val art = bitmap?.takeIf { !it.isRecycled }
         if (art == null) {
@@ -397,20 +397,20 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 .coerceAtLeast(1)
         }
         val infoMax = MagazinePageChromePolicy.infoRowMaxWidthPx(areaW)
-        // 行宽封顶 infoMax，gravity=CENTER → 封面+左对齐文字整块水平居中
+        // 与按钮行同宽并居中；行内 START → 专辑左缘对齐关闭钮
         val songLp = songRow.layoutParams as? LinearLayout.LayoutParams
         if (songLp != null &&
             (songLp.width != infoMax || songLp.gravity != Gravity.CENTER_HORIZONTAL)
         ) {
             songLp.width = infoMax
             songLp.gravity = Gravity.CENTER_HORIZONTAL
-            songRow.gravity = Gravity.CENTER
+            songRow.gravity = Gravity.START or Gravity.CENTER_VERTICAL
             songRow.post {
                 if (songRow.layoutParams !== songLp) return@post
                 songRow.layoutParams = songLp
             }
         } else {
-            songRow.gravity = Gravity.CENTER
+            songRow.gravity = Gravity.START or Gravity.CENTER_VERTICAL
         }
         val controlsMax = MagazinePageChromePolicy.controlsRowMaxWidthPx(areaW)
         val controlsLp = controlsRow.layoutParams as? LinearLayout.LayoutParams
@@ -430,7 +430,8 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             albumGapPx = gap,
             minTextPx = dp(80),
         )
-        // 信息列高度锁死=封面边长；三行槽位固定，副标题 INVISIBLE 仍占位
+        val hasSubtitle = subtitleView.visibility == VISIBLE
+        // 信息列高度锁死=封面边长；无副标题时两行靠紧并垂直居中
         val infoLp = infoCol.layoutParams as? LinearLayout.LayoutParams
         if (infoLp != null &&
             (infoLp.width != LinearLayout.LayoutParams.WRAP_CONTENT ||
@@ -444,13 +445,27 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             infoCol.layoutParams = infoLp
         }
         infoCol.gravity = Gravity.START
-        applyInfoLineSlot(titleView, maxText, metrics.titleHeightPx, topMarginPx = 0)
-        applyInfoLineSlot(
-            subtitleView,
-            maxText,
-            metrics.subtitleHeightPx,
-            topMarginPx = metrics.subtitleGapPx,
-        )
+        val titleTop = metrics.titleTopInsetPx(hasSubtitle)
+        applyInfoLineSlot(titleView, maxText, metrics.titleHeightPx, topMarginPx = titleTop)
+        if (hasSubtitle) {
+            applyInfoLineSlot(
+                subtitleView,
+                maxText,
+                metrics.subtitleHeightPx,
+                topMarginPx = metrics.subtitleGapPx,
+            )
+        } else {
+            // GONE 时清掉槽高，避免残留 margin 撑开
+            val subLp = subtitleView.layoutParams as? LinearLayout.LayoutParams
+            if (subLp != null &&
+                (subLp.height != 0 || subLp.topMargin != 0 || subLp.width != 0)
+            ) {
+                subLp.width = 0
+                subLp.height = 0
+                subLp.topMargin = 0
+                subtitleView.layoutParams = subLp
+            }
+        }
         applyInfoLineSlot(
             artistView,
             maxText,

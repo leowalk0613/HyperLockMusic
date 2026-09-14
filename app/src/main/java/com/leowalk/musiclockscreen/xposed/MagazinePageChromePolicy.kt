@@ -45,15 +45,15 @@ internal object MagazinePageChromePolicy {
     /** 歌曲信息行 → 按钮行间距（dp）。 */
     const val INFO_TO_CONTROLS_GAP_DP = 18
 
-    /**
-     * 歌曲信息行最大宽度占「整带可用宽」比例，居中。
-     */
-    const val INFO_ROW_MAX_WIDTH_FRACTION = 0.80f
-
     /** 按钮行最大宽度占「整带可用宽」比例，居中。 */
     const val CONTROLS_ROW_MAX_WIDTH_FRACTION = 0.85f
 
-    /** 歌名旁小封面：左封面、右三行文案；封面边长=三行槽位总高。 */
+    /**
+     * 歌曲信息行最大宽度：与按钮行同宽，行内 START 后专辑左缘与关闭钮对齐。
+     */
+    const val INFO_ROW_MAX_WIDTH_FRACTION = CONTROLS_ROW_MAX_WIDTH_FRACTION
+
+    /** 歌名旁小封面：左封面、右文案；封面边长按三行槽位固定。 */
     const val INFO_TITLE_SP = 16f
     const val INFO_ARTIST_SP = 11f
     const val INFO_SUBTITLE_SP = 10f
@@ -69,8 +69,8 @@ internal object MagazinePageChromePolicy {
     const val INFO_LINE_HEIGHT_FACTOR = 1.28f
 
     /**
-     * 歌曲信息竖直度量：三行（含间距）总高 == 小封面边长，文字不得超过封面。
-     * 副标题显隐时仍预留副标题槽，保证封面尺寸稳定。
+     * 歌曲信息竖直度量：三行（含间距）总高 == 小封面边长。
+     * 无副标题时不占副标题槽，歌名+歌手靠紧并在封面高度内垂直居中。
      */
     data class InfoTextMetrics(
         val albumSizePx: Int,
@@ -80,11 +80,20 @@ internal object MagazinePageChromePolicy {
         val titleArtistGapPx: Int,
         val artistHeightPx: Int,
     ) {
-        /** 副标题行槽（间距+行高），GONE 时也占位。 */
+        /** 副标题行槽（间距+行高）。 */
         val subtitleSlotPx: Int get() = subtitleGapPx + subtitleHeightPx
 
-        fun textBlockHeightPx(): Int =
-            titleHeightPx + subtitleSlotPx + titleArtistGapPx + artistHeightPx
+        fun textBlockHeightPx(hasSubtitle: Boolean = true): Int {
+            val mid = if (hasSubtitle) subtitleSlotPx else 0
+            return titleHeightPx + mid + titleArtistGapPx + artistHeightPx
+        }
+
+        /** 无副标题时，歌名顶部 inset，使两行在封面高度内垂直居中。 */
+        fun titleTopInsetPx(hasSubtitle: Boolean): Int {
+            if (hasSubtitle) return 0
+            val block = textBlockHeightPx(hasSubtitle = false)
+            return ((albumSizePx - block) / 2).coerceAtLeast(0)
+        }
     }
 
     /** 单行槽高：字号 × 倍率，保证字形完整落在槽内。 */
@@ -170,7 +179,7 @@ internal object MagazinePageChromePolicy {
             .coerceAtLeast(1)
     }
 
-    /** 歌曲信息行最大宽度（像素），相对整带可用宽居中截断。 */
+    /** 歌曲信息行最大宽度（像素），与按钮行同宽以便左缘对齐关闭钮。 */
     fun infoRowMaxWidthPx(areaWidthPx: Int): Int {
         if (areaWidthPx <= 0) return 0
         return (areaWidthPx * INFO_ROW_MAX_WIDTH_FRACTION).toInt().coerceAtLeast(1)
@@ -178,7 +187,7 @@ internal object MagazinePageChromePolicy {
 
     /**
      * 歌名/副标题/歌手可用最大宽：信息行上限减去左侧小封面与间距。
-     * 文字本身 wrap，整块（封面+文字）在行内水平居中。
+     * 文字本身 wrap；整块（封面+文字）在与控件同行宽内靠左。
      */
     fun infoTextMaxWidthPx(
         infoRowMaxPx: Int,

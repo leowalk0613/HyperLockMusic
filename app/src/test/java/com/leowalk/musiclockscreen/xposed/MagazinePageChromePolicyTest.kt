@@ -20,9 +20,18 @@ class MagazinePageChromePolicyTest {
     }
 
     @Test
-    fun infoRow_maxWidthEightyPercentCentered() {
-        assertEquals(0.80f, MagazinePageChromePolicy.INFO_ROW_MAX_WIDTH_FRACTION, 0.001f)
-        assertEquals(800, MagazinePageChromePolicy.infoRowMaxWidthPx(1000))
+    fun infoRow_sameWidthAsControlsForCloseAlign() {
+        assertEquals(
+            MagazinePageChromePolicy.CONTROLS_ROW_MAX_WIDTH_FRACTION,
+            MagazinePageChromePolicy.INFO_ROW_MAX_WIDTH_FRACTION,
+            0.001f,
+        )
+        assertEquals(0.85f, MagazinePageChromePolicy.INFO_ROW_MAX_WIDTH_FRACTION, 0.001f)
+        assertEquals(850, MagazinePageChromePolicy.infoRowMaxWidthPx(1000))
+        assertEquals(
+            MagazinePageChromePolicy.controlsRowMaxWidthPx(1000),
+            MagazinePageChromePolicy.infoRowMaxWidthPx(1000),
+        )
         assertEquals(0, MagazinePageChromePolicy.infoRowMaxWidthPx(0))
     }
 
@@ -146,7 +155,7 @@ class MagazinePageChromePolicyTest {
     @Test
     fun infoAlbumArt_equalsThreeLineTextBlockHeight() {
         val m = MagazinePageChromePolicy.infoTextMetrics(3f, 3f)
-        assertEquals(m.albumSizePx, m.textBlockHeightPx())
+        assertEquals(m.albumSizePx, m.textBlockHeightPx(hasSubtitle = true))
         assertEquals(m.albumSizePx, MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f))
         assertEquals(
             MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = false),
@@ -154,6 +163,15 @@ class MagazinePageChromePolicyTest {
         )
         assertTrue(m.albumSizePx > m.titleHeightPx)
         assertTrue(m.subtitleSlotPx > 0)
+        // 无副标题：两行更矮，顶部 inset 使块在封面高度内居中
+        val twoLine = m.textBlockHeightPx(hasSubtitle = false)
+        assertTrue(twoLine < m.albumSizePx)
+        assertEquals(0, m.titleTopInsetPx(hasSubtitle = true))
+        val inset = m.titleTopInsetPx(hasSubtitle = false)
+        assertTrue(inset > 0)
+        assertEquals(inset, (m.albumSizePx - twoLine) / 2)
+        // 顶部 inset ≈ 底部剩余（偶像素差 0/1）
+        assertTrue(kotlin.math.abs((m.albumSizePx - twoLine) - inset * 2) <= 1)
     }
 
     @Test
