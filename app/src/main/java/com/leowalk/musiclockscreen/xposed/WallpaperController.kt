@@ -504,9 +504,17 @@ object WallpaperController {
         }
         val jobId = submit.job!!.jobId
         try {
+            // 作废在飞高清拉取；仅真切歌才清掉已铺好的官方高清，避免同曲反复低清↔高清闪
             networkAlbumGeneration++
-            lastNetworkAlbumTrackKey = null
-            lastNetworkAlbumBitmap = null
+            val prevKey = appliedWallpaperTrackKey() ?: lastWallpaperTrackKey ?: lastNetworkAlbumTrackKey
+            val realSwitch = targetKey == null ||
+                AlbumArtResolver.isRealTrackSwitch(prevKey, targetKey)
+            if (realSwitch) {
+                lastNetworkAlbumTrackKey = null
+                lastNetworkAlbumBitmap = null
+            } else {
+                logI("silent update same track: keep network HD track=$targetKey")
+            }
             clearDualWallpaperCache()
             (MusicLockscreenManager.lyricView as? LockscreenLyricView)?.onWallpaperAlbumPending()
             val appCtx = context.applicationContext
@@ -599,10 +607,11 @@ object WallpaperController {
         }
     }
 
-    /** 同曲 coalesce / 补刷：用缓存封面刷新 overlay 与取色，不重做壁纸。 */
+    /** 同曲 coalesce / 补刷：优先官方高清前景，避免系统低清盖回去。 */
     private fun recoverAlbumVisualsIfNeeded() {
         val lyric = MusicLockscreenManager.lyricView as? LockscreenLyricView
-        val art = AlbumArtResolver.getCached()?.takeIf { !it.isRecycled }
+        val art = foregroundAlbumForOverlay()
+            ?: AlbumArtResolver.getCached()?.takeIf { !it.isRecycled }
             ?: lastSystemAlbumBitmap?.takeIf { !it.isRecycled }
             ?: lastWallpaperAlbumBitmap?.takeIf { !it.isRecycled }
         val hasArt = art != null
@@ -611,12 +620,22 @@ object WallpaperController {
         if (!AlbumVisualRefreshPolicy.shouldRecoverVisualsOnCoalesce(hasArt, fogReady, overlayEmpty)) {
             return
         }
-        logI("coalesce recover visuals fogReady=$fogReady overlayEmpty=$overlayEmpty")
+        logI("coalesce recover visuals fogReady=$fogReady overlayEmpty=$overlayEmpty hd=${hasNetworkHdForCurrentTrack()}")
         if (art != null) {
             MusicLockscreenManager.updateAlbumBitmap(art)
         }
         ensureLyricFogReady()
     }
+
+    /** 当前曲目已成功铺上的官方高清前景（仅 overlay / sharpAlbum，非模糊底）。 */
+    fun foregroundAlbumForOverlay(): Bitmap? {
+        val key = AlbumArtResolver.getCachedTrackKey() ?: lastWallpaperTrackKey
+        return lastNetworkAlbumBitmap?.takeIf {
+            !it.isRecycled && key != null && key == lastNetworkAlbumTrackKey
+        }
+    }
+
+    fun hasNetworkHdForCurrentTrack(): Boolean = foregroundAlbumForOverlay() != null
 
     private data class BlurredWallpaperResult(
         val wallpaper: Bitmap,
@@ -1158,16 +1177,21 @@ object WallpaperController {
      * 否则 setBitmap 失败或被取消时轮询会误判「已刷新」而永久卡住，直到重新进入音乐锁屏。
      */
     private fun notifyAlbumVisualsImmediate(result: BlurredWallpaperResult) {
+        lastSystemAlbumBitmap = result.systemAlbum
+        lastWallpaperAlbumBitmap = result.systemAlbum
+        val overlaySrc = lastNetworkAlbumBitmap?.takeIf {
+            !it.isRecycled &&
+                result.trackKey != null &&
+                result.trackKey == lastNetworkAlbumTrackKey
+        } ?: result.systemAlbum
         val albumCopy = try {
-            result.systemAlbum.copy(
-                result.systemAlbum.config ?: Bitmap.Config.ARGB_8888,
+            overlaySrc.copy(
+                overlaySrc.config ?: Bitmap.Config.ARGB_8888,
                 false
             )
         } catch (_: Throwable) {
             null
         } ?: return
-        lastSystemAlbumBitmap = result.systemAlbum
-        lastWallpaperAlbumBitmap = result.systemAlbum
         MusicLockscreenManager.notifyWallpaperAppliedToLockScreen(albumCopy, result.trackKey)
     }
 

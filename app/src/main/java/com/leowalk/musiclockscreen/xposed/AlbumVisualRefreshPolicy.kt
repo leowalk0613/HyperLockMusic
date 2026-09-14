@@ -30,6 +30,7 @@ internal object AlbumVisualRefreshPolicy {
      * @param fogReady 歌词取色是否已就绪
      * @param appliedArtFingerprint 已写入锁屏壁纸所用封面指纹
      * @param currentArtFingerprint 当前缓存封面指纹
+     * @param hasNetworkHdForTrack 当前曲目已铺上官方高清前景（勿再用系统低清盖回去）
      */
     fun decideArtRetry(
         trackKey: String?,
@@ -38,21 +39,25 @@ internal object AlbumVisualRefreshPolicy {
         fogReady: Boolean,
         appliedArtFingerprint: Long = 0L,
         currentArtFingerprint: Long = 0L,
+        hasNetworkHdForTrack: Boolean = false,
     ): ArtRetryAction {
-        val artLagging = isArtFingerprintLagging(appliedArtFingerprint, currentArtFingerprint)
+        // 官方高清已就绪时，会话里系统 bitmap 指纹抖动不再触发整段重建
+        val artLagging = isArtFingerprintLagging(appliedArtFingerprint, currentArtFingerprint) &&
+            !hasNetworkHdForTrack
         val wallpaperCaughtUp = !trackKey.isNullOrBlank() &&
             trackKey == wallpaperTrackKey &&
             !artLagging
+        val pushSystemOverlay = hasCachedArt && !hasNetworkHdForTrack
         if (!wallpaperCaughtUp) {
             return ArtRetryAction(
                 skipWallpaperRebuild = false,
-                refreshAlbumOverlay = hasCachedArt,
+                refreshAlbumOverlay = pushSystemOverlay,
                 refreshFogTint = hasCachedArt && !fogReady,
             )
         }
         return ArtRetryAction(
             skipWallpaperRebuild = true,
-            refreshAlbumOverlay = hasCachedArt,
+            refreshAlbumOverlay = pushSystemOverlay,
             refreshFogTint = hasCachedArt && !fogReady,
         )
     }
@@ -68,4 +73,8 @@ internal object AlbumVisualRefreshPolicy {
         if (albumOverlayEmpty) return true
         return false
     }
+
+    /** 已有官方高清时，禁止用系统缓存封面把 overlay 盖回低清。 */
+    fun shouldReplaceOverlayWithSystemArt(hasNetworkHdForTrack: Boolean): Boolean =
+        !hasNetworkHdForTrack
 }

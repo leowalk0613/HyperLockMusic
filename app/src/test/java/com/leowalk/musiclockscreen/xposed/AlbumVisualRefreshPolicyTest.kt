@@ -34,7 +34,7 @@ class AlbumVisualRefreshPolicyTest {
     }
 
     @Test
-    fun artRetry_whenSameTrackButArtFingerprintChanged_rebuildsWallpaper() {
+    fun artRetry_whenNetworkHdReady_skipsSystemOverlayAndFingerprintRebuild() {
         val action = AlbumVisualRefreshPolicy.decideArtRetry(
             trackKey = "netease:2",
             wallpaperTrackKey = "netease:2",
@@ -42,9 +42,17 @@ class AlbumVisualRefreshPolicyTest {
             fogReady = true,
             appliedArtFingerprint = 111L,
             currentArtFingerprint = 222L,
+            hasNetworkHdForTrack = true,
         )
-        assertFalse(action.skipWallpaperRebuild)
-        assertTrue(action.refreshAlbumOverlay)
+        assertTrue(action.skipWallpaperRebuild)
+        assertFalse(action.refreshAlbumOverlay)
+        assertFalse(action.refreshFogTint)
+    }
+
+    @Test
+    fun shouldReplaceOverlayWithSystemArt_falseWhenHdReady() {
+        assertFalse(AlbumVisualRefreshPolicy.shouldReplaceOverlayWithSystemArt(true))
+        assertTrue(AlbumVisualRefreshPolicy.shouldReplaceOverlayWithSystemArt(false))
     }
 
     @Test

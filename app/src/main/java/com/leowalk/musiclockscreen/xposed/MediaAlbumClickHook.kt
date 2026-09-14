@@ -204,8 +204,9 @@ class MediaAlbumClickHook {
         val drawable = albumImageView?.drawable
         val bindMeta = mediaMetadataField?.get(controller) as? android.media.MediaMetadata
 
-        // 优先用已解析封面；切歌空窗期勿推 ImageView（常仍是上一首），并清掉上一首 overlay
-        val cached = AlbumArtResolver.getCached()
+        // 优先官方高清前景；切歌空窗期勿推 ImageView（常仍是上一首），并清掉上一首 overlay
+        val cached = WallpaperController.foregroundAlbumForOverlay()
+            ?: AlbumArtResolver.getCached()
         when {
             cached != null -> MusicLockscreenManager.updateAlbumBitmap(cached)
             !trackChanged && drawable != null -> MusicLockscreenManager.updateAlbumArt(drawable)
@@ -257,9 +258,13 @@ class MediaAlbumClickHook {
                         fogReady = lyric?.isFogBackgroundReady() == true,
                         appliedArtFingerprint = WallpaperController.currentWallpaperArtFingerprint(),
                         currentArtFingerprint = AlbumArtResolver.getCachedArtFingerprint(),
+                        hasNetworkHdForTrack = WallpaperController.hasNetworkHdForCurrentTrack(),
                     )
-                    if (action.refreshAlbumOverlay && art != null) {
-                        MusicLockscreenManager.updateAlbumBitmap(art)
+                    if (action.refreshAlbumOverlay) {
+                        val overlay = WallpaperController.foregroundAlbumForOverlay() ?: art
+                        if (overlay != null) {
+                            MusicLockscreenManager.updateAlbumBitmap(overlay)
+                        }
                     }
                     if (action.refreshFogTint && art != null) {
                         val copy = try {
