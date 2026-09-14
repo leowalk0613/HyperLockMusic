@@ -37,6 +37,19 @@ class TitleBracketHelperTest {
     }
 
     @Test
+    fun nestedBrackets_leaveNoStrayClose() {
+        // 旧正则会把「名（副」整段抠走，主标题残留孤立「）」
+        assertEquals(
+            "歌" to "副 名",
+            TitleBracketHelper.splitBrackets("歌（名（副））"),
+        )
+        assertEquals(
+            "A" to "C B",
+            TitleBracketHelper.splitBrackets("A (B (C))"),
+        )
+    }
+
+    @Test
     fun emptyTitle() {
         assertEquals("" to "", TitleBracketHelper.splitBrackets(null))
         assertEquals("" to "", TitleBracketHelper.splitBrackets(""))

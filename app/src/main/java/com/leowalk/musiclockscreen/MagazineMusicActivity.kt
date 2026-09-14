@@ -521,10 +521,20 @@ class MagazineMusicActivity : AppCompatActivity() {
             ModuleConfig.magazineTitleBracketMode,
         )
         chromeView?.setSourceAppPackage(ctrl.packageName)
+        val trackKey = try {
+            AlbumArtResolver.computeTrackKeyForPackage(this, meta, ctrl.packageName)
+        } catch (_: Throwable) {
+            listOf(
+                meta?.getString(MediaMetadata.METADATA_KEY_TITLE),
+                meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                ctrl.packageName,
+            ).joinToString("|")
+        }
         chromeView?.setAlbumArt(
             meta?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: meta?.getBitmap(MediaMetadata.METADATA_KEY_ART)
                 ?: meta?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON),
+            trackKey = trackKey,
         )
         chromeView?.setPlaying(MagazinePageChromePolicy.isPlaying(ctrl.playbackState?.state))
         chromeView?.setLyricVisible(

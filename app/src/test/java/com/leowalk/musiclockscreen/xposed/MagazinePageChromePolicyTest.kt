@@ -9,18 +9,39 @@ import android.media.session.PlaybackState
 class MagazinePageChromePolicyTest {
 
     @Test
-    fun trackSwitch_crossfadeOnlyWhenReplacingVisibleArt() {
+    fun trackSwitch_crossfadeOnlyWhenTrackChangesWithVisibleArt() {
         assertEquals(280L, MagazinePageChromePolicy.TRACK_ART_CROSSFADE_MS)
-        assertTrue(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, true))
-        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(false, true))
-        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, false))
-        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(false, false))
+        assertTrue(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, true, true))
+        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, false, true))
+        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(false, true, true))
+        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, true, false))
     }
 
     @Test
-    fun trackSwitch_keepMiBlurWhenAlreadyActive() {
-        assertFalse(MagazinePageChromePolicy.shouldClearMiBlurOnTrackTextChange(true))
-        assertTrue(MagazinePageChromePolicy.shouldClearMiBlurOnTrackTextChange(false))
+    fun trackSwitch_keepPreviousArtOnNullAndSkipSameTrack() {
+        assertTrue(MagazinePageChromePolicy.shouldKeepPreviousAlbumArtOnNull(true, false))
+        assertFalse(MagazinePageChromePolicy.shouldKeepPreviousAlbumArtOnNull(true, true))
+        assertFalse(MagazinePageChromePolicy.shouldKeepPreviousAlbumArtOnNull(false, false))
+        assertTrue(
+            MagazinePageChromePolicy.shouldSkipAlbumArtUpdate(
+                incomingTrackKey = "a|b",
+                lastTrackKey = "a|b",
+                artVisible = true,
+            ),
+        )
+        assertFalse(
+            MagazinePageChromePolicy.shouldSkipAlbumArtUpdate(
+                incomingTrackKey = "a|b",
+                lastTrackKey = "c|d",
+                artVisible = true,
+            ),
+        )
+    }
+
+    @Test
+    fun trackSwitch_skipMiBlurRefreshWhenAlreadyActive() {
+        assertFalse(MagazinePageChromePolicy.shouldRefreshMiBlurOnTrackTextChange(true))
+        assertTrue(MagazinePageChromePolicy.shouldRefreshMiBlurOnTrackTextChange(false))
     }
 
     @Test

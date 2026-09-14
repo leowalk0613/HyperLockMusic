@@ -76,15 +76,41 @@ internal object MagazinePageChromePolicy {
     const val TRACK_ART_CROSSFADE_MS = 280L
 
     /**
-     * 已有可见封面 → 新封面：交叉淡入；首张出现 / 清空时不做交叉。
+     * 已有可见封面 → 新曲封面：交叉淡入。
+     * 同曲换图 / 首张出现：直接换，不交叉（避免 2s 轮询闪）。
      */
-    fun shouldCrossfadeAlbumArt(hadVisibleArt: Boolean, hasNewArt: Boolean): Boolean =
-        hadVisibleArt && hasNewArt
+    fun shouldCrossfadeAlbumArt(
+        hadVisibleArt: Boolean,
+        trackChanged: Boolean,
+        hasNewArt: Boolean,
+    ): Boolean = hadVisibleArt && trackChanged && hasNewArt
 
     /**
-     * 切歌换字：MiBlur 已生效则原地改字、不清模糊层（避免整栏闪白）。
+     * 会话短暂丢封面时是否保留上一张（切歌空窗）。
      */
-    fun shouldClearMiBlurOnTrackTextChange(infoMiBlurActive: Boolean): Boolean =
+    fun shouldKeepPreviousAlbumArtOnNull(
+        hadVisibleArt: Boolean,
+        clearIfNull: Boolean,
+    ): Boolean = hadVisibleArt && !clearIfNull
+
+    /**
+     * 同曲已在显示时：忽略新的 bitmap 身份变化（防轮询闪）。
+     */
+    fun shouldSkipAlbumArtUpdate(
+        incomingTrackKey: String?,
+        lastTrackKey: String?,
+        artVisible: Boolean,
+    ): Boolean {
+        if (!artVisible) return false
+        val incoming = incomingTrackKey?.takeIf { it.isNotBlank() } ?: return false
+        val last = lastTrackKey?.takeIf { it.isNotBlank() } ?: return false
+        return incoming == last
+    }
+
+    /**
+     * 切歌换字：MiBlur 已生效则原地改字、不清模糊、不重套（避免整栏闪）。
+     */
+    fun shouldRefreshMiBlurOnTrackTextChange(infoMiBlurActive: Boolean): Boolean =
         !infoMiBlurActive
 
     /**
