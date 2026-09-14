@@ -6,8 +6,9 @@ import kotlin.math.min
 
 /**
  * 专辑/壁纸取色策略：
- * - 深底：accent 洗成近白浅彩，混进白字
- * - 浅/过白底：少量突出色掺进偏白浅灰字；没有对比色才回退浅灰
+ * - 默认：近白字 + MiBlur；accent 只洗成极淡近白供 blend
+ * - 仅「过白底 + 稀疏单色点缀」（如白底金线）才用浅底突出色字
+ * - 复杂多色封面：不抽突出色，避免字被脏彩染色
  *
  * 不依赖 [android.graphics.Color] 的 HSV API，便于 JVM 单测。
  */
@@ -16,18 +17,18 @@ internal object AlbumTintExtractPolicy {
     data class TintPair(val contrast: Int, val accent: Int)
 
     /** 深底歌词/时钟混入 accent 的权重（越小越白）。 */
-    const val GLYPH_TINT_WEIGHT_ON_DARK = 0.10f
+    const val GLYPH_TINT_WEIGHT_ON_DARK = 0.06f
 
-    /** 浅底用突出色时，混入权重（突出色已可读，轻混即可）。 */
-    const val GLYPH_TINT_WEIGHT_ON_LIGHT = 0.08f
+    /** 浅底无突出色时混入 soft tint 的权重。 */
+    const val GLYPH_TINT_WEIGHT_ON_LIGHT = 0.05f
 
     /** MiBlur blend 在深底上的 accent 权重。 */
-    const val MIBLUR_BLEND_WEIGHT_ON_DARK = 0.14f
+    const val MIBLUR_BLEND_WEIGHT_ON_DARK = 0.10f
 
     /** MiBlur blend 在浅底上的 accent 权重。 */
-    const val MIBLUR_BLEND_WEIGHT_ON_LIGHT = 0.12f
+    const val MIBLUR_BLEND_WEIGHT_ON_LIGHT = 0.08f
 
-    /** 相对采样像素，chroma 加权总和超过此比例视为「有突出色」。 */
+    /** 相对采样像素，chroma 加权总和超过此比例视为「有彩度信号」。 */
     const val PROMINENT_ACCENT_RATIO = 0.008f
 
     /** 过白图上：至少这么多带彩度像素才认作线稿/色点突出色。 */
@@ -36,8 +37,17 @@ internal object AlbumTintExtractPolicy {
     /** 过白图上：单像素最大 chroma 权重下限。 */
     const val OVERWHITE_MIN_MAX_CHROMA = 0.035f
 
+    /** 彩度像素占比 ≥ 此值视为复杂多色（走近白 + MiBlur）。 */
+    const val COMPLEX_CHROMA_FRACTION = 0.12f
+
+    /** 命中色相桶数 ≥ 此值视为复杂多色。 */
+    const val COMPLEX_HUE_BINS = 3
+
     /** 浅底无突出色时的回退浅灰（偏白一点，靠阴影保对比）。 */
     val LIGHT_BG_GRAY_FALLBACK: Int = rgb(158, 158, 162)
+
+    /** 复杂多色 / 默认 MiBlur 用的近白中性色。 */
+    val NEUTRAL_SOFT_ACCENT: Int = rgb(245, 245, 248)
 
     /** 近灰/近白/近黑：彩度权重为 0；过白图上的淡金/线稿仍给一点权重。 */
     fun chromaWeight(r: Int, g: Int, b: Int): Float {
@@ -64,7 +74,39 @@ internal object AlbumTintExtractPolicy {
         val chromaticCount: Int,
         val accentWeightSum: Double,
         val maxChromaWeight: Float,
-    )
+        /** 60° 色相桶位图（bit0=0–60° … bit5=300–360°）。 */
+        val hueBinMask: Int = 0,
+    ) {
+        val hueBinCount: Int
+            get() {
+                var m = hueBinMask and 0x3F
+                var n = 0
+                while (m != 0) {
+                    n += m and 1
+                    m = m ushr 1
+                }
+                return n
+            }
+
+        val chromaFraction: Float
+            get() = if (opaqueCount <= 0) 0f else chromaticCount.toFloat() / opaqueCount
+    }
+
+    fun hueBinBit(r: Int, g: Int, b: Int): Int {
+        val hsv = rgbToHsv(r, g, b)
+        if (hsv[1] < 0.08f) return 0
+        val bin = ((hsv[0] / 60f).toInt() % 6).coerceIn(0, 5)
+        return 1 shl bin
+    }
+
+    /** 复杂多色：大量彩度像素或多种色相 → 不抽突出色字，走近白 + MiBlur。 */
+    fun isComplexMultiColor(stats: ChromaStats): Boolean {
+        if (stats.opaqueCount <= 0) return false
+        if (stats.hueBinCount >= COMPLEX_HUE_BINS) return true
+        if (stats.chromaFraction >= COMPLEX_CHROMA_FRACTION) return true
+        // 加权彩度很满也视为复杂（非稀疏线稿）
+        return stats.accentWeightSum / stats.opaqueCount.toDouble() >= 0.045
+    }
 
     fun hasProminentAccent(accentWeightSum: Double, opaquePixelCount: Int): Boolean {
         if (opaquePixelCount <= 0) return false
@@ -72,12 +114,14 @@ internal object AlbumTintExtractPolicy {
     }
 
     /**
-     * 过白封面常见细线稿：缩放后占比极低，需用「彩度像素数 + 峰值」兜底。
+     * 过白封面细线稿：稀疏彩度才算突出色；复杂多色一律 false。
      */
     fun hasProminentAccent(stats: ChromaStats, overWhiteContrast: Boolean): Boolean {
         if (stats.opaqueCount <= 0) return false
-        if (hasProminentAccent(stats.accentWeightSum, stats.opaqueCount)) return true
         if (!overWhiteContrast) return false
+        if (isComplexMultiColor(stats)) return false
+        // 稀疏：彩度像素不能铺满
+        if (stats.chromaFraction > 0.08f) return false
         if (stats.chromaticCount >= OVERWHITE_MIN_CHROMA_PIXELS &&
             stats.maxChromaWeight >= OVERWHITE_MIN_MAX_CHROMA
         ) {
@@ -86,6 +130,12 @@ internal object AlbumTintExtractPolicy {
         return stats.chromaticCount >= 2 &&
             stats.maxChromaWeight >= 0.10f &&
             stats.accentWeightSum >= 0.35
+    }
+
+    /** 供 softAccent：复杂多色用中性近白，否则洗原 accent。 */
+    fun softAccentForMiBlur(rawOrContrast: Int, complexMultiColor: Boolean): Int {
+        if (complexMultiColor) return NEUTRAL_SOFT_ACCENT
+        return normalizeAccentTint(rawOrContrast)
     }
 
     fun isProminentRawAccent(color: Int): Boolean {
@@ -106,8 +156,8 @@ internal object AlbumTintExtractPolicy {
                 hsv[2] = 0.94f
             }
             else -> {
-                hsv[1] = (sat * 0.28f).coerceIn(0.04f, 0.16f)
-                hsv[2] = 0.93f
+                hsv[1] = (sat * 0.22f).coerceIn(0.03f, 0.12f)
+                hsv[2] = 0.94f
             }
         }
         return hsvToColor(hsv)
@@ -129,11 +179,11 @@ internal object AlbumTintExtractPolicy {
     /** 字形混色前再洗一遍（深底路径）。 */
     fun washAccentTowardWhite(color: Int): Int {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
-        hsv[1] = (hsv[1] * 0.55f).coerceIn(0f, 0.12f)
-        hsv[2] = max(hsv[2], 0.90f).coerceIn(0.90f, 0.98f)
-        if (hsv[1] < 0.03f) {
-            hsv[1] = 0.015f
-            hsv[2] = 0.95f
+        hsv[1] = (hsv[1] * 0.40f).coerceIn(0f, 0.08f)
+        hsv[2] = max(hsv[2], 0.92f).coerceIn(0.92f, 0.98f)
+        if (hsv[1] < 0.02f) {
+            hsv[1] = 0.012f
+            hsv[2] = 0.96f
         }
         return hsvToColor(hsv)
     }

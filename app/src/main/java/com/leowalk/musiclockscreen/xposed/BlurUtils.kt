@@ -60,7 +60,7 @@ object BlurUtils {
         if (w <= 0 || h <= 0) {
             return LowerHalfTint(
                 Color.rgb(40, 40, 44),
-                AlbumTintExtractPolicy.normalizeAccentTint(Color.GRAY),
+                AlbumTintExtractPolicy.NEUTRAL_SOFT_ACCENT,
             )
         }
 
@@ -80,6 +80,7 @@ object BlurUtils {
             var accentW = 0.0
             var chromaticCount = 0
             var maxChroma = 0f
+            var hueBinMask = 0
             var y = startRow
             while (y < endRow) {
                 var x = 0
@@ -104,6 +105,7 @@ object BlurUtils {
                         accentW += wChroma
                         chromaticCount++
                         if (wChroma > maxChroma) maxChroma = wChroma
+                        hueBinMask = hueBinMask or AlbumTintExtractPolicy.hueBinBit(r, g, b)
                     }
                     x += stepX
                 }
@@ -112,7 +114,7 @@ object BlurUtils {
             return Acc(
                 rSum, gSum, bSum, count,
                 accentR, accentG, accentB, accentW,
-                chromaticCount, maxChroma,
+                chromaticCount, maxChroma, hueBinMask,
             )
         }
 
@@ -121,7 +123,7 @@ object BlurUtils {
         if (acc.count == 0) {
             return LowerHalfTint(
                 Color.rgb(40, 40, 44),
-                AlbumTintExtractPolicy.normalizeAccentTint(Color.GRAY),
+                AlbumTintExtractPolicy.NEUTRAL_SOFT_ACCENT,
             )
         }
         val contrast = Color.rgb(
@@ -130,18 +132,26 @@ object BlurUtils {
             (acc.bSum / acc.count).toInt().coerceIn(0, 255),
         )
         val overWhite = AlbumTintExtractPolicy.isOverWhiteContrast(contrast)
-        var prominent = AlbumTintExtractPolicy.hasProminentAccent(acc.toChromaStats(), overWhite)
+        var stats = acc.toChromaStats()
+        var complex = AlbumTintExtractPolicy.isComplexMultiColor(stats)
+        // 仅过白 + 稀疏单色才认突出色；复杂多色走近白 + MiBlur
+        var prominent = AlbumTintExtractPolicy.hasProminentAccent(stats, overWhite)
 
-        // 过白封面下半常无色：全图再扫突出色（线稿金/彩点）
-        if (!prominent && overWhite) {
+        // 过白封面下半常无色：全图再扫稀疏突出色（线稿金/彩点）
+        if (!prominent && overWhite && !complex) {
             val full = accumulate(0, h)
-            if (full.count > 0 &&
-                AlbumTintExtractPolicy.hasProminentAccent(full.toChromaStats(), overWhiteContrast = true)
-            ) {
-                acc = full
-                prominent = true
+            if (full.count > 0) {
+                val fullStats = full.toChromaStats()
+                if (!AlbumTintExtractPolicy.isComplexMultiColor(fullStats) &&
+                    AlbumTintExtractPolicy.hasProminentAccent(fullStats, overWhiteContrast = true)
+                ) {
+                    acc = full
+                    stats = fullStats
+                    prominent = true
+                }
             }
         }
+        complex = AlbumTintExtractPolicy.isComplexMultiColor(stats)
 
         val rawAccent = if (prominent && acc.accentW > 1e-3) {
             Color.rgb(
@@ -152,8 +162,8 @@ object BlurUtils {
         } else {
             contrast
         }
-        val softAccent = AlbumTintExtractPolicy.normalizeAccentTint(rawAccent)
-        val lightGlyph = if (prominent) {
+        val softAccent = AlbumTintExtractPolicy.softAccentForMiBlur(rawAccent, complex)
+        val lightGlyph = if (prominent && overWhite && !complex) {
             AlbumTintExtractPolicy.accentForLightGlyph(rawAccent)
         } else {
             null
@@ -177,6 +187,7 @@ object BlurUtils {
         val accentW: Double,
         val chromaticCount: Int,
         val maxChromaWeight: Float,
+        val hueBinMask: Int,
     ) {
         fun toChromaStats(): AlbumTintExtractPolicy.ChromaStats =
             AlbumTintExtractPolicy.ChromaStats(
@@ -184,6 +195,7 @@ object BlurUtils {
                 chromaticCount = chromaticCount,
                 accentWeightSum = accentW,
                 maxChromaWeight = maxChromaWeight,
+                hueBinMask = hueBinMask,
             )
     }
 

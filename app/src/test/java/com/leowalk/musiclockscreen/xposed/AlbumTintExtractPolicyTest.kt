@@ -71,9 +71,36 @@ class AlbumTintExtractPolicyTest {
             chromaticCount = 6,
             accentWeightSum = 1.2,
             maxChromaWeight = 0.08f,
+            hueBinMask = 0b000001, // 单色相
         )
         assertFalse(AlbumTintExtractPolicy.hasProminentAccent(sparse, overWhiteContrast = false))
         assertTrue(AlbumTintExtractPolicy.hasProminentAccent(sparse, overWhiteContrast = true))
+    }
+
+    @Test
+    fun hasProminentAccent_complexMultiColor_neverOnNonWhiteOrDense() {
+        val dense = AlbumTintExtractPolicy.ChromaStats(
+            opaqueCount = 1000,
+            chromaticCount = 200, // 20% 彩度
+            accentWeightSum = 80.0,
+            maxChromaWeight = 0.5f,
+            hueBinMask = 0b010101, // 3 色相
+        )
+        assertTrue(AlbumTintExtractPolicy.isComplexMultiColor(dense))
+        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(dense, overWhiteContrast = true))
+        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(dense, overWhiteContrast = false))
+    }
+
+    @Test
+    fun softAccentForMiBlur_complexUsesNeutral() {
+        val crimson = AlbumTintExtractPolicy.rgb(180, 40, 60)
+        val complex = AlbumTintExtractPolicy.softAccentForMiBlur(crimson, complexMultiColor = true)
+        assertEquals(
+            AlbumTintExtractPolicy.NEUTRAL_SOFT_ACCENT and 0xFFFFFF,
+            complex and 0xFFFFFF,
+        )
+        val simple = AlbumTintExtractPolicy.softAccentForMiBlur(crimson, complexMultiColor = false)
+        assertTrue(AlbumTintExtractPolicy.isWashedNearWhite(simple))
     }
 
     @Test
