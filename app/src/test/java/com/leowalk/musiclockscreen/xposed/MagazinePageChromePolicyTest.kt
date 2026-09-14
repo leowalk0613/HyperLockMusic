@@ -63,6 +63,27 @@ class MagazinePageChromePolicyTest {
                 minTextPx = 80,
             ),
         )
+        // 右侧来源图标也扣宽
+        assertEquals(
+            600,
+            MagazinePageChromePolicy.infoTextMaxWidthPx(
+                infoRowMaxPx = 800,
+                albumArtWidthPx = 120,
+                albumGapPx = 30,
+                sourceIconWidthPx = 40,
+                sourceIconGapPx = 10,
+            ),
+        )
+        assertEquals(
+            800,
+            MagazinePageChromePolicy.infoTextMaxWidthPx(
+                infoRowMaxPx = 800,
+                albumArtWidthPx = 0,
+                albumGapPx = 0,
+                sourceIconWidthPx = 0,
+                sourceIconGapPx = 20,
+            ),
+        )
     }
 
     @Test
@@ -192,5 +213,12 @@ class MagazinePageChromePolicyTest {
         assertEquals(0f, (snapped - 10f) % 1f, 0.001f)
         assertTrue(snapped >= 11f)
         assertTrue(snapped <= 95f)
+    }
+
+    @Test
+    fun sourceAppIcon_sizesAreCompact() {
+        assertTrue(MagazinePageChromePolicy.SOURCE_APP_ICON_DP in 18..28)
+        assertTrue(MagazinePageChromePolicy.SOURCE_APP_ICON_GAP_DP in 6..16)
+        assertTrue(MagazinePageChromePolicy.SOURCE_APP_ICON_CORNER_DP in 3f..8f)
     }
 }

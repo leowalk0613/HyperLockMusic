@@ -47,6 +47,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     private val titleView: EndFadeTextView
     private val subtitleView: EndFadeTextView
     private val artistView: EndFadeTextView
+    private val sourceAppView: ImageView
     private val prevBtn: ImageButton
     private val playPauseBtn: ImageButton
     private val nextBtn: ImageButton
@@ -67,6 +68,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     private var softGlassRetryGen = 0
     private var lastTitleKey: String = ""
     private var lastAlbumArtKey: String = ""
+    private var lastSourcePackage: String = ""
 
     private val softGlassRetryDelaysMs = longArrayOf(0L, 16L, 48L, 120L, 280L, 600L, 1200L)
 
@@ -248,12 +250,30 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         songRow.addView(
             infoCol,
             LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                0,
                 metrics.albumSizePx,
             ).apply {
+                weight = 1f
                 gravity = Gravity.CENTER_VERTICAL
             },
         )
+
+        sourceAppView = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+            isClickable = false
+            isFocusable = false
+            visibility = GONE
+            clipToOutline = true
+            val radius = MagazinePageChromePolicy.SOURCE_APP_ICON_CORNER_DP * density
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, radius)
+                }
+            }
+        }
+        songRow.addView(sourceAppView, sourceAppLayoutParams(visible = false))
+
         contentColumn.addView(
             songRow,
             LinearLayout.LayoutParams(
@@ -310,6 +330,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             glassLayer.visibility = GONE
         }
         setTrackInfo(null, null, "default")
+        setSourceAppPackage(null)
         setPlaying(false)
         setLyricVisible(true, featureEnabled = true)
     }
@@ -348,7 +369,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         }
     }
 
-    /** 歌名左侧小封面：圆角 + elevation 阴影；无图时隐藏，文字整块仍靠左。 */
+    /** 歌名左侧小封面：圆角 + elevation 阴影；无图时隐藏，文字列仍占满中间。 */
     fun setAlbumArt(bitmap: Bitmap?) {
         val art = bitmap?.takeIf { !it.isRecycled }
         if (art == null) {
@@ -366,6 +387,50 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             albumArtWrap.invalidateOutline()
         }
         albumArtWrap.visibility = VISIBLE
+        relayoutAlbumArt()
+    }
+
+    /**
+     * 信息行右侧来源 App 图标（MediaSession 包名）；加载失败则隐藏。
+     */
+    fun setSourceAppPackage(packageName: String?) {
+        val pkg = packageName?.trim().orEmpty()
+        if (pkg.isEmpty()) {
+            lastSourcePackage = ""
+            sourceAppView.setImageDrawable(null)
+            sourceAppView.contentDescription = null
+            sourceAppView.visibility = GONE
+            relayoutAlbumArt()
+            return
+        }
+        if (pkg == lastSourcePackage && sourceAppView.visibility == VISIBLE) {
+            return
+        }
+        val icon = try {
+            context.packageManager.getApplicationIcon(pkg)
+        } catch (_: Throwable) {
+            null
+        }
+        if (icon == null) {
+            lastSourcePackage = ""
+            sourceAppView.setImageDrawable(null)
+            sourceAppView.contentDescription = null
+            sourceAppView.visibility = GONE
+            relayoutAlbumArt()
+            return
+        }
+        lastSourcePackage = pkg
+        sourceAppView.setImageDrawable(icon)
+        sourceAppView.invalidateOutline()
+        val label = try {
+            val pm = context.packageManager
+            val ai = pm.getApplicationInfo(pkg, 0)
+            pm.getApplicationLabel(ai).toString()
+        } catch (_: Throwable) {
+            null
+        }
+        sourceAppView.contentDescription = label?.takeIf { it.isNotBlank() } ?: pkg
+        sourceAppView.visibility = VISIBLE
         relayoutAlbumArt()
     }
 
@@ -388,6 +453,13 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         } else {
             0
         }
+        val sourceVisible = sourceAppView.visibility == VISIBLE
+        val sourceSize = if (sourceVisible) dp(MagazinePageChromePolicy.SOURCE_APP_ICON_DP) else 0
+        val sourceGap = if (sourceVisible) {
+            dp(MagazinePageChromePolicy.SOURCE_APP_ICON_GAP_DP)
+        } else {
+            0
+        }
         val areaW = if (contentColumn.width > 0) {
             (contentColumn.width - contentColumn.paddingLeft - contentColumn.paddingRight)
                 .coerceAtLeast(1)
@@ -397,7 +469,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 .coerceAtLeast(1)
         }
         val infoMax = MagazinePageChromePolicy.infoRowMaxWidthPx(areaW)
-        // 与按钮行同宽并居中；行内 START → 专辑左缘对齐关闭钮
+        // 与按钮行同宽并居中；行内 album | 文字(weight) | 来源图标
         val songLp = songRow.layoutParams as? LinearLayout.LayoutParams
         if (songLp != null &&
             (songLp.width != infoMax || songLp.gravity != Gravity.CENTER_HORIZONTAL)
@@ -429,20 +501,31 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             albumArtWidthPx = albumW,
             albumGapPx = gap,
             minTextPx = dp(80),
+            sourceIconWidthPx = sourceSize,
+            sourceIconGapPx = sourceGap,
         )
         val hasSubtitle = subtitleView.visibility == VISIBLE
-        // 信息列高度锁死=封面边长；无副标题时两行靠紧并垂直居中
+        // 信息列吃满中间剩余宽；高度锁死=封面边长
         val infoLp = infoCol.layoutParams as? LinearLayout.LayoutParams
         if (infoLp != null &&
-            (infoLp.width != LinearLayout.LayoutParams.WRAP_CONTENT ||
+            (infoLp.width != 0 ||
                 infoLp.height != metrics.albumSizePx ||
-                infoLp.weight != 0f)
+                infoLp.weight != 1f)
         ) {
-            infoLp.width = LinearLayout.LayoutParams.WRAP_CONTENT
+            infoLp.width = 0
             infoLp.height = metrics.albumSizePx
-            infoLp.weight = 0f
+            infoLp.weight = 1f
             infoLp.gravity = Gravity.CENTER_VERTICAL
             infoCol.layoutParams = infoLp
+        }
+        val sourceLp = sourceAppLayoutParams(visible = sourceVisible)
+        val curSourceLp = sourceAppView.layoutParams as? LinearLayout.LayoutParams
+        if (curSourceLp == null ||
+            curSourceLp.width != sourceLp.width ||
+            curSourceLp.height != sourceLp.height ||
+            curSourceLp.marginStart != sourceLp.marginStart
+        ) {
+            sourceAppView.layoutParams = sourceLp
         }
         infoCol.gravity = Gravity.START
         val titleTop = metrics.titleTopInsetPx(hasSubtitle)
@@ -507,6 +590,20 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         return LinearLayout.LayoutParams(sizePx, sizePx).apply {
             gravity = Gravity.CENTER_VERTICAL
             marginEnd = dp(MagazinePageChromePolicy.INFO_ALBUM_GAP_DP)
+        }
+    }
+
+    private fun sourceAppLayoutParams(visible: Boolean): LinearLayout.LayoutParams {
+        if (!visible) {
+            return LinearLayout.LayoutParams(0, 0).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                marginStart = 0
+            }
+        }
+        val size = dp(MagazinePageChromePolicy.SOURCE_APP_ICON_DP)
+        return LinearLayout.LayoutParams(size, size).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            marginStart = dp(MagazinePageChromePolicy.SOURCE_APP_ICON_GAP_DP)
         }
     }
 

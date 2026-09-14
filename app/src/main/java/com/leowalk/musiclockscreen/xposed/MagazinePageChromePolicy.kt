@@ -63,6 +63,15 @@ internal object MagazinePageChromePolicy {
     const val INFO_ALBUM_GAP_DP = 10
     const val INFO_ALBUM_ELEVATION_DP = 8f
 
+    /** 信息行右侧来源 App 图标边长（dp）。 */
+    const val SOURCE_APP_ICON_DP = 22
+
+    /** 文字列与来源图标间距（dp）。 */
+    const val SOURCE_APP_ICON_GAP_DP = 10
+
+    /** 来源图标圆角（dp）。 */
+    const val SOURCE_APP_ICON_CORNER_DP = 5f
+
     /**
      * 行槽相对字号的倍率：MiSans 实际字形常高于 sp，槽位略高避免裁切。
      */
@@ -186,19 +195,22 @@ internal object MagazinePageChromePolicy {
     }
 
     /**
-     * 歌名/副标题/歌手可用最大宽：信息行上限减去左侧小封面与间距。
-     * 文字本身 wrap；整块（封面+文字）在与控件同行宽内靠左。
+     * 歌名/副标题/歌手可用最大宽：信息行上限减去左侧小封面、右侧来源图标与间距。
      */
     fun infoTextMaxWidthPx(
         infoRowMaxPx: Int,
         albumArtWidthPx: Int,
         albumGapPx: Int,
         minTextPx: Int = 1,
+        sourceIconWidthPx: Int = 0,
+        sourceIconGapPx: Int = 0,
     ): Int {
         if (infoRowMaxPx <= 0) return 0
         val album = albumArtWidthPx.coerceAtLeast(0)
         val gap = if (album > 0) albumGapPx.coerceAtLeast(0) else 0
-        return (infoRowMaxPx - album - gap).coerceAtLeast(minTextPx.coerceAtLeast(1))
+        val icon = sourceIconWidthPx.coerceAtLeast(0)
+        val iconGap = if (icon > 0) sourceIconGapPx.coerceAtLeast(0) else 0
+        return (infoRowMaxPx - album - gap - icon - iconGap).coerceAtLeast(minTextPx.coerceAtLeast(1))
     }
 
     /** 按钮行最大宽度（像素）。 */

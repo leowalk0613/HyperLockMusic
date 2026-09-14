@@ -520,6 +520,7 @@ class MagazineMusicActivity : AppCompatActivity() {
             meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
             ModuleConfig.magazineTitleBracketMode,
         )
+        chromeView?.setSourceAppPackage(ctrl.packageName)
         chromeView?.setAlbumArt(
             meta?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: meta?.getBitmap(MediaMetadata.METADATA_KEY_ART)
