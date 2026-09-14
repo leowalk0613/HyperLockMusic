@@ -1,7 +1,7 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 简洁时钟文字样式：比歌词更实（更不透明），取色优先可读性。
+ * 简洁时钟文字样式：一律近白字，不取深黑墨色；浅底靠更深阴影保对比。
  */
 internal object MinimalClockTextStylePolicy {
 
@@ -15,9 +15,8 @@ internal object MinimalClockTextStylePolicy {
     /** 简洁时钟：paint 与 MiBlur 均不低于歌词，视觉上更实 */
     const val CLOCK_TEXT_ALPHA = 255
 
-    /** 专辑色混入权重（近白浅彩，优先白调） */
+    /** 专辑色混入权重（近白浅彩） */
     const val TINT_WEIGHT = AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK
-
 
     /** 简洁时钟字重：优先 Bold / Semibold，比歌词主行 Medium 更醒目 */
     val CLOCK_TYPEFACE_PATHS: Array<String> = arrayOf(
@@ -32,42 +31,27 @@ internal object MinimalClockTextStylePolicy {
 
     fun clockTypefaceFallbackBold(): Boolean = true
 
-    fun miBlurAlphas(onLightBackground: Boolean): MiBlurAlphaPair {
-        return if (onLightBackground) {
-            MiBlurAlphaPair(
-                blendAlpha = LYRIC_MI_BLUR_BLEND_LIGHT + 24,
-                labAlpha = LYRIC_MI_BLUR_LAB_LIGHT + 20,
-            )
-        } else {
-            MiBlurAlphaPair(
-                blendAlpha = LYRIC_MI_BLUR_BLEND_DARK + 22,
-                labAlpha = LYRIC_MI_BLUR_LAB_DARK + 24,
-            )
-        }
+    fun miBlurAlphas(@Suppress("UNUSED_PARAMETER") onLightBackground: Boolean): MiBlurAlphaPair {
+        return MiBlurAlphaPair(
+            blendAlpha = LYRIC_MI_BLUR_BLEND_DARK + 22,
+            labAlpha = LYRIC_MI_BLUR_LAB_DARK + 24,
+        )
     }
 
-    /** 按背景亮度选高对比底色，再 lightly 混近白浅彩。 */
-    fun readableTextRgb(onLightBackground: Boolean, tintRgb: Int): Int {
-        val base = if (onLightBackground) rgb(16, 16, 18) else rgb(255, 255, 255)
-        val weight = if (onLightBackground) {
-            AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT
-        } else {
-            AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK
-        }
-        return blendRgb(base, tintRgb, weight)
-    }
+    /** 始终近白字 + 浅彩混色。 */
+    fun readableTextRgb(
+        @Suppress("UNUSED_PARAMETER") onLightBackground: Boolean,
+        tintRgb: Int,
+    ): Int = blendRgb(rgb(255, 255, 255), tintRgb, TINT_WEIGHT)
 
-    fun miBlurBlendRgb(onLightBackground: Boolean, tintRgb: Int): Int {
-        return if (onLightBackground) {
-            blendRgb(rgb(20, 20, 22), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT)
-        } else {
-            blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
-        }
-    }
+    fun miBlurBlendRgb(
+        @Suppress("UNUSED_PARAMETER") onLightBackground: Boolean,
+        tintRgb: Int,
+    ): Int = blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
 
     fun shadowLayer(onLightBackground: Boolean): ShadowSpec {
         return if (onLightBackground) {
-            ShadowSpec(radius = 11f, dy = 2f, colorArgb = argb(140, 255, 255, 255))
+            ShadowSpec(radius = 16f, dy = 4f, colorArgb = argb(245, 0, 0, 0))
         } else {
             ShadowSpec(radius = 14f, dy = 5f, colorArgb = argb(250, 0, 0, 0))
         }

@@ -21,17 +21,33 @@ class MagazinePageTextStylePolicyTest {
     }
 
     @Test
-    fun lightGlyph_isDarkerThanMidGray() {
-        val ink = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = true)
-        assertTrue(MagazinePageTextStylePolicy.luminance(ink) < 0.12f)
-        assertEquals(0xFF, MagazinePageTextStylePolicy.red(MagazinePageTextStylePolicy.glyphPrimaryRgb(false)))
+    fun glyphs_alwaysNearWhiteNeverDeepBlack() {
+        val light = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = true)
+        val dark = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = false)
+        assertEquals(0xFF, MagazinePageTextStylePolicy.red(light))
+        assertEquals(0xFF, MagazinePageTextStylePolicy.red(dark))
+        assertTrue(MagazinePageTextStylePolicy.luminance(light) > 0.9f)
+        assertTrue(MagazinePageTextStylePolicy.luminance(dark) > 0.9f)
+
+        val fallback = MagazinePageTextStylePolicy.fallbackReadableRgb(
+            onLight = true,
+            tintRgb = MagazinePageTextStylePolicy.rgb(40, 40, 40),
+        )
+        assertTrue(MagazinePageTextStylePolicy.luminance(fallback) > 0.85f)
     }
 
     @Test
-    fun miBlurAlphas_strongerOnLight() {
+    fun lightShadow_isDarkHaloNotWhiteGlow() {
+        val sh = MagazinePageTextStylePolicy.glyphShadow(onLight = true)
+        assertEquals(0, MagazinePageTextStylePolicy.red(sh.colorArgb))
+        assertTrue((sh.colorArgb ushr 24) and 0xFF >= 200)
+    }
+
+    @Test
+    fun miBlurAlphas_stableWhitePath() {
         val light = MagazinePageTextStylePolicy.miBlurAlphas(true)
         val dark = MagazinePageTextStylePolicy.miBlurAlphas(false)
-        assertTrue(light.blendAlpha > dark.blendAlpha)
-        assertTrue(light.labAlpha > dark.labAlpha)
+        assertEquals(light.blendAlpha, dark.blendAlpha)
+        assertEquals(light.labAlpha, dark.labAlpha)
     }
 }

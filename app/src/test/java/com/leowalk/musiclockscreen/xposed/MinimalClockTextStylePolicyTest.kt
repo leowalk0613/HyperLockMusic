@@ -14,31 +14,34 @@ class MinimalClockTextStylePolicyTest {
     }
 
     @Test
-    fun miBlurAlphas_strongerThanLyricReference() {
+    fun miBlurAlphas_notWeakerThanLyricDarkReference() {
         val light = MinimalClockTextStylePolicy.miBlurAlphas(onLightBackground = true)
-        assertTrue(light.blendAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_BLEND_LIGHT)
-        assertTrue(light.labAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_LAB_LIGHT)
+        assertTrue(light.blendAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_BLEND_DARK)
+        assertTrue(light.labAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_LAB_DARK)
         val dark = MinimalClockTextStylePolicy.miBlurAlphas(onLightBackground = false)
         assertTrue(dark.blendAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_BLEND_DARK)
         assertTrue(dark.labAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_LAB_DARK)
     }
 
     @Test
-    fun readableText_onLightBackground_isDarkEnough() {
-        val color = MinimalClockTextStylePolicy.readableTextRgb(
+    fun readableText_alwaysStaysBright() {
+        val onLight = MinimalClockTextStylePolicy.readableTextRgb(
             onLightBackground = true,
-            tintRgb = MinimalClockTextStylePolicy.rgb(255, 255, 255),
+            tintRgb = MinimalClockTextStylePolicy.rgb(40, 40, 40),
         )
-        assertTrue(MinimalClockTextStylePolicy.luminance(color) < 80f)
-    }
-
-    @Test
-    fun readableText_onDarkBackground_staysBright() {
-        val color = MinimalClockTextStylePolicy.readableTextRgb(
+        val onDark = MinimalClockTextStylePolicy.readableTextRgb(
             onLightBackground = false,
             tintRgb = MinimalClockTextStylePolicy.rgb(40, 40, 40),
         )
-        assertTrue(MinimalClockTextStylePolicy.luminance(color) > 180f)
+        assertTrue(MinimalClockTextStylePolicy.luminance(onLight) > 180f)
+        assertTrue(MinimalClockTextStylePolicy.luminance(onDark) > 180f)
+    }
+
+    @Test
+    fun lightShadow_usesDarkHalo() {
+        val sh = MinimalClockTextStylePolicy.shadowLayer(onLightBackground = true)
+        assertTrue((sh.colorArgb ushr 24) and 0xFF >= 200)
+        assertTrue(MinimalClockTextStylePolicy.red(sh.colorArgb) == 0)
     }
 
     @Test

@@ -17,7 +17,7 @@ internal object AlbumTintExtractPolicy {
     /** 深底歌词/时钟混入 accent 的权重（越小越白）。 */
     const val GLYPH_TINT_WEIGHT_ON_DARK = 0.10f
 
-    /** 浅底深色字混入 accent 的权重。 */
+    /** 浅底深色字路径已废弃；保留常量兼容旧调用。 */
     const val GLYPH_TINT_WEIGHT_ON_LIGHT = 0.08f
 
     /** MiBlur blend 在深底上的 accent 权重。 */

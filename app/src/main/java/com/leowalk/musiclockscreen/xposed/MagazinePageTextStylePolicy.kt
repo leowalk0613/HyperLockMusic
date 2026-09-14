@@ -1,12 +1,12 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 画报页歌词 + 歌曲信息共用的文字样式（真·MiBlur / 浅色底对比度）。
- * 浅彩底也走深色字，避免白字发虚。
+ * 画报页歌词 + 歌曲信息共用文字样式。
+ * 一律近白字（可带极淡专辑色相）；浅底用更深阴影保可读，不取深黑墨色。
  */
 internal object MagazinePageTextStylePolicy {
 
-    /** 亮度 ≥ 此值视为浅底（含浅彩，不限近白）。 */
+    /** 亮度 ≥ 此值视为浅底（用于阴影强弱，不再切深色字）。 */
     const val LIGHT_LUM_THRESHOLD = 0.55f
 
     data class MiBlurAlphas(val blendAlpha: Int, val labAlpha: Int)
@@ -16,59 +16,48 @@ internal object MagazinePageTextStylePolicy {
     fun isLightBackground(color: Int): Boolean =
         luminance(color) >= LIGHT_LUM_THRESHOLD
 
-    fun miBlurPrimaryRgb(onLight: Boolean): Int =
-        if (onLight) rgb(12, 12, 14) else rgb(255, 255, 255)
+    /** 始终白/近白 primary，忽略 onLight。 */
+    fun miBlurPrimaryRgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean): Int =
+        rgb(255, 255, 255)
 
-    fun miBlurOverArgb(onLight: Boolean): Int =
-        if (onLight) argb(210, 0, 0, 0) else argb(140, 255, 255, 255)
+    fun miBlurOverArgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean): Int =
+        argb(140, 255, 255, 255)
 
-    fun miBlurBlendRgb(onLight: Boolean, tintRgb: Int): Int =
-        if (onLight) {
-            blendRgb(rgb(14, 14, 16), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT)
-        } else {
-            blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
-        }
+    fun miBlurBlendRgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean, tintRgb: Int): Int =
+        blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
 
-    fun miBlurAlphas(onLight: Boolean): MiBlurAlphas =
-        if (onLight) {
-            MiBlurAlphas(blendAlpha = 230, labAlpha = 245)
-        } else {
-            MiBlurAlphas(blendAlpha = 180, labAlpha = 170)
-        }
+    fun miBlurAlphas(@Suppress("UNUSED_PARAMETER") onLight: Boolean): MiBlurAlphas =
+        MiBlurAlphas(blendAlpha = 180, labAlpha = 170)
 
-    /** MiBlur 生效后的字形底色（与 primary 一致）。 */
     fun glyphPrimaryRgb(onLight: Boolean): Int = miBlurPrimaryRgb(onLight)
 
-    fun glyphSecondaryArgb(onLight: Boolean): Int {
-        val p = glyphPrimaryRgb(onLight)
-        val a = if (onLight) 220 else 170
-        return argb(a, red(p), green(p), blue(p))
+    fun glyphSecondaryArgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean): Int {
+        val p = glyphPrimaryRgb(false)
+        return argb(170, red(p), green(p), blue(p))
     }
 
     fun glyphShadow(onLight: Boolean): ShadowSpec =
         if (onLight) {
-            // 浅底：白边晕提高对比
-            ShadowSpec(radius = 12f, dy = 1f, colorArgb = argb(200, 255, 255, 255))
+            // 浅底白字：更深黑晕抬对比
+            ShadowSpec(radius = 16f, dy = 4f, colorArgb = argb(245, 0, 0, 0))
         } else {
             ShadowSpec(radius = 14f, dy = 5f, colorArgb = argb(230, 0, 0, 0))
         }
 
-    /** MiBlur 未套上时的可读混色。 */
-    fun fallbackReadableRgb(onLight: Boolean, tintRgb: Int): Int =
-        if (onLight) {
-            blendRgb(rgb(10, 10, 12), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT)
-        } else {
-            blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
-        }
+    /** MiBlur 未套上：白底混近白浅彩。 */
+    fun fallbackReadableRgb(
+        @Suppress("UNUSED_PARAMETER") onLight: Boolean,
+        tintRgb: Int,
+    ): Int = blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
 
-    fun fallbackSecondaryArgb(onLight: Boolean, mainRgb: Int): Int {
-        val a = if (onLight) 210 else 160
-        return argb(a, red(mainRgb), green(mainRgb), blue(mainRgb))
-    }
+    fun fallbackSecondaryArgb(
+        @Suppress("UNUSED_PARAMETER") onLight: Boolean,
+        mainRgb: Int,
+    ): Int = argb(160, red(mainRgb), green(mainRgb), blue(mainRgb))
 
     fun fallbackShadow(onLight: Boolean): ShadowSpec =
         if (onLight) {
-            ShadowSpec(radius = 11f, dy = 1f, colorArgb = argb(180, 255, 255, 255))
+            ShadowSpec(radius = 14f, dy = 3f, colorArgb = argb(240, 0, 0, 0))
         } else {
             ShadowSpec(radius = 10f, dy = 3f, colorArgb = argb(230, 0, 0, 0))
         }

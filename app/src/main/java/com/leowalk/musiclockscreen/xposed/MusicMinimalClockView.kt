@@ -22,7 +22,7 @@ import java.util.Locale
 
 /**
  * 音乐锁屏用小时钟：屏顶约 10% 处，时间与日期同一行、同字号。
- * 文字样式 / MiBlur 透色 / 近白底深色字，对齐 [LockscreenLyricView]。
+ * 文字样式 / MiBlur 透色 / 一律近白字，对齐 [LockscreenLyricView]。
  */
 class MusicMinimalClockView @JvmOverloads constructor(
     context: Context,
@@ -272,16 +272,8 @@ class MusicMinimalClockView @JvmOverloads constructor(
         val onLight = isNearWhiteBackground(bgRef)
         val blurAlphas = MinimalClockTextStylePolicy.miBlurAlphas(onLight)
         val blend = MinimalClockTextStylePolicy.miBlurBlendRgb(onLight, tint)
-        val primary = if (onLight) {
-            MinimalClockTextStylePolicy.rgb(22, 22, 24)
-        } else {
-            MinimalClockTextStylePolicy.rgb(255, 255, 255)
-        }
-        val over = if (onLight) {
-            MinimalClockTextStylePolicy.argb(140, 0, 0, 0)
-        } else {
-            MinimalClockTextStylePolicy.argb(110, 255, 255, 255)
-        }
+        val primary = MinimalClockTextStylePolicy.rgb(255, 255, 255)
+        val over = MinimalClockTextStylePolicy.argb(110, 255, 255, 255)
         val blendKey = blend xor bgRef xor (if (onLight) 0xA1 else 0xA2)
         if (miBlurActive && blendKey == miBlurBlendKey && onLight == miBlurOnLight) {
             applyTextColors()
@@ -291,7 +283,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
             view = this,
             blendColor = blend,
             primaryColor = primary,
-            colorDark = onLight,
+            colorDark = false,
             enablePassBlurOnSelf = true,
             passBlurRadius = (40f * resources.displayMetrics.density).toInt().coerceIn(24, 80),
             blendAlpha = blurAlphas.blendAlpha,

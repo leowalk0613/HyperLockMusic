@@ -711,7 +711,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 view = v,
                 blendColor = blend,
                 primaryColor = primary,
-                colorDark = onLight,
+                colorDark = false,
                 enablePassBlurOnSelf = passOnSelf,
                 sampleSiblingContent = MagazinePageMiBlurPolicy.sampleSiblingContent(),
                 passBlurRadius = radius,
@@ -833,12 +833,9 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 Color.argb(255, Color.red(c), Color.green(c), Color.blue(c))
             }
             v.setTextColor(solid)
-            // 轻阴影；浅底不用大白光晕（易被看成「只有阴影」）
-            if (onLight) {
-                v.setShadowLayer(1.5f * density, 0f, 0.8f * density, Color.argb(36, 255, 255, 255))
-            } else {
-                v.setShadowLayer(2.5f * density, 0f, 1.2f * density, Color.argb(110, 0, 0, 0))
-            }
+            // 白字：浅底加深黑晕，深底用常规阴影
+            val sh = MagazinePageTextStylePolicy.fallbackShadow(onLight)
+            v.setShadowLayer(sh.radius, 0f, sh.dy, sh.colorArgb)
         } else if (v is ImageButton) {
             v.clearColorFilter()
         }

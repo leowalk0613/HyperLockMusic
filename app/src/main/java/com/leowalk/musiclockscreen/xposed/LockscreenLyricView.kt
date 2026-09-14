@@ -309,7 +309,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 沉浸歌词是否已接上系统 MiBlur 透壁纸染色 */
     private var immersiveMiBlurActive = false
     private var immersiveMiBlurBlendKey: Int = 0
-    /** 当前壁纸区域偏亮时改用深色透色，保证浅底可读 */
+    /** 当前壁纸区域偏亮：加深阴影，不切深色字 */
     private var immersiveMiBlurOnLightBg = false
 
     /** 供动画策略：MiBlur 生效时避免 translation 掉帧 */
@@ -2053,7 +2053,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 歌词文字染色：锁屏 / 画报优先真·MiBlur；画报浅色底用共用高对比样式。
+     * 歌词文字染色：锁屏 / 画报优先真·MiBlur；一律近白字，浅底靠阴影保可读。
      */
     private fun applyImmersiveTextColors() {
         val bgRef = contrastBackgroundColor()
@@ -2070,19 +2070,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                 secondPaint.setShadowLayer(sh.radius * 0.75f, 0f, sh.dy, sh.colorArgb)
                 return
             }
-            if (immersiveMiBlurOnLightBg) {
-                val ink = Color.rgb(28, 28, 30)
-                mainPaint.color = ink
-                secondPaint.color = ink
-                mainPaint.alpha = 255
-                secondPaint.alpha = 255
-                mainPaint.setShadowLayer(10f, 0f, 2f, Color.argb(90, 255, 255, 255))
-                secondPaint.setShadowLayer(8f, 0f, 2f, Color.argb(70, 255, 255, 255))
+            val onLight = immersiveMiBlurOnLightBg
+            mainPaint.color = Color.WHITE
+            secondPaint.color = Color.WHITE
+            mainPaint.alpha = 255
+            secondPaint.alpha = 255
+            if (onLight) {
+                mainPaint.setShadowLayer(16f, 0f, 4f, Color.argb(245, 0, 0, 0))
+                secondPaint.setShadowLayer(12f, 0f, 3f, Color.argb(220, 0, 0, 0))
             } else {
-                mainPaint.color = Color.WHITE
-                secondPaint.color = Color.WHITE
-                mainPaint.alpha = 255
-                secondPaint.alpha = 255
                 mainPaint.setShadowLayer(14f, 0f, 5f, Color.argb(220, 0, 0, 0))
                 secondPaint.setShadowLayer(10f, 0f, 3f, Color.argb(190, 0, 0, 0))
             }
@@ -2104,25 +2100,17 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
         val onLight = isNearWhiteBackground(bgRef)
-        val mainColor = if (onLight) {
-            blendTextColor(
-                Color.rgb(32, 32, 34),
-                tint,
-                AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT,
-            )
-        } else {
-            blendTextColor(Color.WHITE, tint, immersiveTintWeight)
-        }
+        val mainColor = blendTextColor(Color.WHITE, tint, immersiveTintWeight)
         mainPaint.color = mainColor
         secondPaint.color = Color.argb(
-            if (onLight) 200 else 160,
+            160,
             Color.red(mainColor),
             Color.green(mainColor),
-            Color.blue(mainColor)
+            Color.blue(mainColor),
         )
         if (onLight) {
-            mainPaint.setShadowLayer(10f, 0f, 2f, Color.argb(100, 255, 255, 255))
-            secondPaint.setShadowLayer(8f, 0f, 2f, Color.argb(80, 255, 255, 255))
+            mainPaint.setShadowLayer(14f, 0f, 3f, Color.argb(240, 0, 0, 0))
+            secondPaint.setShadowLayer(10f, 0f, 2f, Color.argb(220, 0, 0, 0))
         } else {
             mainPaint.setShadowLayer(10f, 0f, 3f, Color.argb(230, 0, 0, 0))
             secondPaint.setShadowLayer(7f, 1f, 3f, Color.argb(210, 0, 0, 0))
@@ -2140,7 +2128,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             applyImmersiveTextColors()
             return
         }
-        // 对比度看「歌词背后的壁纸」，透色仍可用专辑色
+        // 对比度看「歌词背后的壁纸」，透色仍可用专辑色；字形始终近白
         val bgRef = contrastBackgroundColor()
         val tint = boostAlbumTint(fogTintColor ?: bgRef)
         val bgLum = colorLuminance(bgRef)
@@ -2151,7 +2139,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         val blendAlpha: Int
         val labAlpha: Int
         if (isMagazinePageHost()) {
-            // 画报：与歌曲信息共用浅色底判定与 MiBlur 参数
             onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
             blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, tint)
             primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight)
@@ -2160,29 +2147,16 @@ class LockscreenLyricView(context: Context) : View(context) {
             blendAlpha = alphas.blendAlpha
             labAlpha = alphas.labAlpha
         } else {
-            // 锁屏：仅近白转深色
             onLight = isNearWhiteBackground(bgRef)
-            if (onLight) {
-                blend = blendTextColor(
-                    Color.rgb(24, 24, 26),
-                    tint,
-                    AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT,
-                )
-                primary = Color.rgb(22, 22, 24)
-                over = Color.argb(160, 0, 0, 0)
-                blendAlpha = 200
-                labAlpha = 230
-            } else {
-                blend = blendTextColor(
-                    Color.WHITE,
-                    tint,
-                    AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
-                )
-                primary = Color.WHITE
-                over = Color.argb(130, 255, 255, 255)
-                blendAlpha = 180
-                labAlpha = 170
-            }
+            blend = blendTextColor(
+                Color.WHITE,
+                tint,
+                AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
+            )
+            primary = Color.WHITE
+            over = Color.argb(130, 255, 255, 255)
+            blendAlpha = 180
+            labAlpha = 170
         }
         val modeBit = if (cfgImmersiveLyric) 0x10 else 0x20
         val magazineBit = if (isMagazinePageHost()) 0x40 else 0
@@ -2199,7 +2173,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             view = this,
             blendColor = blend,
             primaryColor = primary,
-            colorDark = onLight,
+            colorDark = false,
             enablePassBlurOnSelf = if (isMagazinePageHost()) {
                 MagazinePageMiBlurPolicy.enablePassWindowBlur()
             } else {
@@ -2253,7 +2227,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             0.0722f * Color.blue(color)) / 255f
     }
 
-    /** 仅接近纯白/浅灰白才切深色字；浅彩底不算。 */
+    /** 近白/浅灰底：加深阴影，不切深色字。 */
     private fun isNearWhiteBackground(color: Int): Boolean {
         val lum = colorLuminance(color)
         if (lum < 0.88f) return false
