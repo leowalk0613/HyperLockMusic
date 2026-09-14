@@ -3484,10 +3484,11 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (AodLyricDisplayPolicy.hasValidLyricLines(neu)) {
                 if (ingestProviderPayload(neu, j, lastLyricVersion, lastLyricFdVersion)) {
                     applyLyricFromJson()
-                    if (newL.trim().isNotEmpty()) {
-                        applyLightFocusLineNow(newL, newS)
+                    // 仅当 l/s 真变了才用焦点盖进度；否则交给 refreshCurrentLineFromCache 切行
+                    if (changed && newL.trim().isNotEmpty()) {
+                        return applyLightFocusLineNow(newL, newS)
                     }
-                    return true
+                    return false
                 }
                 // ingest 拒绝（旧曲 / 未就绪）：不要再走 applyLightFocusLineNow
                 return false
@@ -3528,14 +3529,18 @@ class LockscreenLyricView(context: Context) : View(context) {
                 it.text.trim() == focus || it.translation.trim() == focus
             }
             if (byFocus >= 0) {
-                magazineHeldLineIndex = byFocus
+                val pos = getCurrentPosition()
+                val found = if (pos >= 0) findCurrentLineIndex(lines, pos) else -1
+                val rawIdx = AodLyricDisplayPolicy.clampLyricLineIndex(found, lines.size)
+                val idx = LyricReceivePolicy.preferDisplayLineIndex(byFocus, rawIdx)
+                magazineHeldLineIndex = idx
                 if (isImmersiveStackActive()) {
-                    applyImmersiveStackFromLines(lines, byFocus)
+                    applyImmersiveStackFromLines(lines, idx)
                     return true
                 }
-                val currentText = lines[byFocus].text
-                val currentTrans = lines[byFocus].translation.takeIf { it.isNotBlank() } ?: ""
-                val nextText = if (byFocus + 1 < lines.size) lines[byFocus + 1].text else ""
+                val currentText = lines[idx].text
+                val currentTrans = lines[idx].translation.takeIf { it.isNotBlank() } ?: ""
+                val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
                 val songHasTrans = lines.any { it.translation.isNotBlank() }
                 val resolved = AodLyricDisplayPolicy.resolveCachedLineDisplay(
                     currentText = currentText,
@@ -3557,7 +3562,11 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
         }
         if (focus.isNotEmpty()) {
-            // 无 timeline 时也要用焦点行填栈/主行，否则画报沉浸栈只画空格「完全没歌词」
+            // 已有 timeline 但焦点未命中：交还进度刷新，勿 return true 挡住切行
+            if (lines != null && lines.isNotEmpty()) {
+                return false
+            }
+            // 无 timeline：用焦点行填栈/主行，避免画报沉浸栈只画空格
             val hasSecond = lightSecond.trim().isNotEmpty()
             setLyricLines(
                 focus,
@@ -3604,7 +3613,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             } catch (_: Throwable) {
                 -1
             }
-            val preferred = if (focusIdx >= 0) focusIdx else rawIdx
+            val preferred = LyricReceivePolicy.preferDisplayLineIndex(focusIdx, rawIdx)
             if (LyricReceivePolicy.shouldDropCachedTimeline(
                     lightMain = try {
                         AodLyricDisplayPolicy.parseLyricSnapshotFields(
@@ -3961,6 +3970,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (cfgImmersiveLyric) {
             if (isImmersiveStackActive()) {
                 // 轻量 l/s 无 timeline 时也必须填栈，否则 drawImmersiveStack 只剩空格
+                // 勿把 lastStackLineIndex 钉成 0，否则 0→1 动画条件/切行会坏
                 commitStackTriplet(
                     ImmersiveLyricStackPolicy.lightFocusTriplet(
                         current = main.ifBlank { " " },
@@ -3968,7 +3978,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                         prev = stackPrevText,
                         next = stackNextText,
                     ),
-                    index = lastStackLineIndex.coerceAtLeast(0),
+                    index = lastStackLineIndex,
                     prepareSlideIn = false,
                 )
             } else {

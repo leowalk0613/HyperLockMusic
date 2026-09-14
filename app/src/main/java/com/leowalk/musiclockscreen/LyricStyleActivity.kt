@@ -99,7 +99,7 @@ class LyricStyleActivity : BaseScrollingActivity() {
                 screenHeightPx = dm.heightPixels,
                 density = dm.density,
                 scaledDensity = dm.scaledDensity,
-            )
+            ).toInt().coerceIn(11, 95).toFloat()
         } else {
             95f
         }

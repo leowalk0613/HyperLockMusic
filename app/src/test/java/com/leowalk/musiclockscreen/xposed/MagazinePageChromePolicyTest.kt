@@ -152,4 +152,14 @@ class MagazinePageChromePolicyTest {
             (12f * 3f).toInt() + (2 * 3)
         assertEquals(expected, withFlag)
     }
+
+    @Test
+    fun lyricBottomMax_snapsToIntForMaterialSlider() {
+        val max = MagazinePageChromePolicy.lyricBottomAnchorMaxPercent(2670, 3f, 3f)
+        val snapped = max.toInt().coerceIn(11, 95).toFloat()
+        // stepSize=1 时 (valueTo-10) 必须整除
+        assertEquals(0f, (snapped - 10f) % 1f, 0.001f)
+        assertTrue(snapped >= 11f)
+        assertTrue(snapped <= 95f)
+    }
 }

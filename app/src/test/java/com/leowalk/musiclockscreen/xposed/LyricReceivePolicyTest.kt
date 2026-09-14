@@ -1,5 +1,6 @@
 package com.leowalk.musiclockscreen.xposed
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -131,5 +132,13 @@ class LyricReceivePolicyTest {
         assertTrue(LyricReceivePolicy.shouldResetForMediaTitleChange("Old Song", "New Song"))
         assertFalse(LyricReceivePolicy.shouldResetForMediaTitleChange("Song", "Song"))
         assertFalse(LyricReceivePolicy.shouldResetForMediaTitleChange("", "New Song"))
+    }
+
+    @Test
+    fun preferDisplayLineIndex_allowsPositionToLeadStuckFocus() {
+        assertEquals(5, LyricReceivePolicy.preferDisplayLineIndex(focusIdx = 0, positionIdx = 5))
+        assertEquals(3, LyricReceivePolicy.preferDisplayLineIndex(focusIdx = 3, positionIdx = 2))
+        assertEquals(4, LyricReceivePolicy.preferDisplayLineIndex(focusIdx = -1, positionIdx = 4))
+        assertEquals(1, LyricReceivePolicy.preferDisplayLineIndex(focusIdx = 1, positionIdx = -1))
     }
 }

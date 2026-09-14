@@ -63,6 +63,15 @@ internal object LyricReceivePolicy {
     }
 
     /**
+     * 显示行索引：焦点及时切行，但进度领先时跟进度（避免 LyricFocus 钉死第一句）。
+     */
+    fun preferDisplayLineIndex(focusIdx: Int, positionIdx: Int): Int {
+        if (focusIdx < 0) return positionIdx
+        if (positionIdx < 0) return focusIdx
+        return maxOf(focusIdx, positionIdx)
+    }
+
+    /**
      * 轻量焦点行对不上缓存时间轴：时间轴属于上一首，应丢掉改用轻量行。
      * 焦点能对上则保留（已是本曲全量）。
      */

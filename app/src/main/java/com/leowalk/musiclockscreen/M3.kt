@@ -170,10 +170,15 @@ object M3 {
         col.addView(head)
 
         val slider = Slider(ctx)
-        slider.valueFrom = valueFrom
-        slider.valueTo = valueTo
-        slider.value = value
-        slider.stepSize = 1f
+        val step = 1f
+        val from = valueFrom
+        // Material Slider：valueTo-valueFrom 必须是 stepSize 整数倍，否则闪退
+        val spanSteps = ((valueTo - from) / step).toInt().coerceAtLeast(1)
+        val to = from + spanSteps * step
+        slider.valueFrom = from
+        slider.valueTo = to
+        slider.stepSize = step
+        slider.value = value.coerceIn(from, to)
         slider.addOnChangeListener { _, v, fromUser ->
             valueTv.text = formatter(v)
             if (fromUser) onChanged(v)
