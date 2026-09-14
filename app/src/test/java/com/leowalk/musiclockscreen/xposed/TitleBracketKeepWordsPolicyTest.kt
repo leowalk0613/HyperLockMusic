@@ -8,15 +8,11 @@ import org.junit.Test
 class TitleBracketKeepWordsPolicyTest {
 
     @Test
-    fun foldHeader_showsCountWhenCollapsed() {
+    fun entryPageSummary_showsEnabledCount() {
         val entries = TitleBracketKeepWordsPolicy.resolveEntries("LIVE=1,inst=0,Instrumental=1")
         assertEquals(
-            "免处理词汇 ▼（已开 2/3）",
-            TitleBracketKeepWordsPolicy.foldHeaderLabel(entries, expanded = false),
-        )
-        assertEquals(
-            "免处理词汇 ▲",
-            TitleBracketKeepWordsPolicy.foldHeaderLabel(entries, expanded = true),
+            "已开 2/3 · 普通与画报共用",
+            TitleBracketKeepWordsPolicy.entryPageSummary(entries),
         )
     }
 

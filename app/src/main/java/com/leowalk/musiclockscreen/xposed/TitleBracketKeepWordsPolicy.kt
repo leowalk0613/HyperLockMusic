@@ -23,15 +23,10 @@ object TitleBracketKeepWordsPolicy {
 
     fun isSharedAcrossModes(): Boolean = true
 
-    /** 折叠标题摘要：收起时展示开启数。 */
-    fun foldHeaderLabel(entries: List<Entry>, expanded: Boolean): String {
+    /** 设置页入口摘要。 */
+    fun entryPageSummary(entries: List<Entry>): String {
         val on = entries.count { it.enabled }
-        val total = entries.size
-        return if (expanded) {
-            "免处理词汇 ▲"
-        } else {
-            "免处理词汇 ▼（已开 $on/$total）"
-        }
+        return "已开 $on/${entries.size} · 普通与画报共用"
     }
 
     fun normalizeKey(word: String): String = word.trim().lowercase()

@@ -45,6 +45,11 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
+            android:name=".TitleBracketKeepWordsActivity"
+            android:exported="false"
+            android:parentActivityName=".OtherSettingsActivity" />
+
+        <activity
             android:name=".LyricStyleActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
