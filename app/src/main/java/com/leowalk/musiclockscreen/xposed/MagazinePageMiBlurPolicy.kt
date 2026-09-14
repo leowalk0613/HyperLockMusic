@@ -1,14 +1,15 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 画报页坚持真·MiBlur（透壁纸 member blend）。
- * 歌词可短时隐藏等合成器；底栏歌曲信息必须始终可见（失败用可读 fallback）。
+ * 画报页坚持真·MiBlur（透壁纸 member blend）——仅底栏 TextView。
+ * 歌词是自定义 Canvas View：Pass/Member blend 会吞掉字形，故歌词走实色。
  */
 internal object MagazinePageMiBlurPolicy {
 
     /** 不再用专辑混色顶替；要锁屏同款白字透色。 */
     fun useImmediateAlbumTintPaint(): Boolean = false
 
+    /** 底栏可开；歌词侧 [LockscreenLyricView] 自行禁用 Pass blur。 */
     fun enablePassWindowBlur(): Boolean = true
 
     fun sampleSiblingContent(): Boolean = true

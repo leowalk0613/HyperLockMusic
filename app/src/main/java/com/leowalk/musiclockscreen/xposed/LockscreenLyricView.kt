@@ -103,8 +103,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (isMagazinePageHost()) {
             immersiveMiBlurBlendKey = 0
             magazineMiBlurRevealed = true
-            requestMagazineMiBlurRefresh()
-            updateVisibilityState()
+            // 只刷新字色，勿再走可见性门闩（避免无词时 fadeOut 清屏）
+            applyImmersiveTextColors()
             invalidate()
         }
     }
@@ -128,8 +128,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         showFogBackground = !cfgImmersiveLyric
         immersiveMiBlurBlendKey = 0
         magazineMiBlurRevealed = true
-        requestMagazineMiBlurRefresh()
-        updateVisibilityState()
+        applyImmersiveTextColors()
+        invalidate()
         try {
             magazineChromeStyleSync?.invoke()
         } catch (_: Throwable) {
@@ -2125,6 +2125,14 @@ class LockscreenLyricView(context: Context) : View(context) {
             applyImmersiveTextColors()
             return
         }
+        // 画报 Activity：自定义 Canvas View 套 PassWindowBlur/Member blend 会把字形吃掉
+        //（底栏 TextView 仍可走 MiBlur）。歌词只画实色黑/白 + 阴影。
+        if (isMagazinePageHost()) {
+            clearImmersiveMiBlur()
+            applyImmersiveTextColors()
+            magazineMiBlurRevealed = true
+            return
+        }
         if (!HyperMiBlurHelper.isSupported(context)) {
             clearImmersiveMiBlur()
             applyImmersiveTextColors()
@@ -2446,7 +2454,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun isPlaybackOkForLyric(): Boolean {
-        return AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
+        val ok = AodLyricDisplayPolicy.isPlaybackOkForLyricDisplay(
             isPlaying = isPlaying,
             screenInteractive = HookUtils.isScreenInteractive(context),
             musicLockscreenActive = isMusicLockscreenActive(),
@@ -2460,6 +2468,17 @@ class LockscreenLyricView(context: Context) : View(context) {
             inScreenPowerTransition = KeyguardSleepTransition.isInLinkageAnimWindow() ||
                 isAodVisibilityPinActive(),
         )
+        if (ok) return true
+        // 画报 Activity 偶发拿不到 Session 控制器：回退 ConfigProvider 播放态，避免有词却永不测量
+        if (isMagazinePageHost() &&
+            hasLyric &&
+            hasDisplayableText() &&
+            !confirmedPaused &&
+            ConfigReader.mediaPlaybackActive(context)
+        ) {
+            return true
+        }
+        return false
     }
 
     private fun isAodLyricRefreshMode(): Boolean {
@@ -2815,18 +2834,11 @@ class LockscreenLyricView(context: Context) : View(context) {
         scaleY = 1f
         startPolling()
         if (!hasDisplayableText()) {
-            fadeOutLyricOverlay()
-            return
-        }
-        // 真·MiBlur 未套上前保持透明，避免错色首帧
-        if (MagazinePageMiBlurPolicy.hideUntilBlurReady() && !magazineMiBlurRevealed) {
-            setOverlayVisibilityQuiet(View.VISIBLE)
+            // 无词：保持轮询，勿清 hasLyric 快照；仅藏表面
             animate().cancel()
             alpha = 0f
             translationY = 0f
-            if (!magazineMiBlurRefreshInFlight) {
-                requestMagazineMiBlurRefresh()
-            }
+            setOverlayVisibilityQuiet(View.GONE)
             return
         }
         val snap = MagazinePageLyricHostPolicy.shouldSnapKeepVisible(
@@ -2851,12 +2863,9 @@ class LockscreenLyricView(context: Context) : View(context) {
             bringToFront()
         } catch (_: Throwable) {
         }
-        // 保证露出时字色已按壁纸对比算过（避免黑字叠深底）
-        immersiveMiBlurBlendKey = 0
-        syncImmersiveMiBlur()
-        if (!immersiveMiBlurActive) {
-            applyImmersiveTextColors()
-        }
+        // 实色字色；勿每帧重置 MiBlur key
+        applyImmersiveTextColors()
+        requestLayout()
         invalidate()
     }
 
