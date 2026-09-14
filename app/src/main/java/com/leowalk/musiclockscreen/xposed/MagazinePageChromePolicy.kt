@@ -53,7 +53,7 @@ internal object MagazinePageChromePolicy {
     /** 按钮行最大宽度占「整带可用宽」比例，居中。 */
     const val CONTROLS_ROW_MAX_WIDTH_FRACTION = 0.85f
 
-    /** 歌名旁小封面（对标 aodchange：左封面、右歌名/歌手，高度跨两行）。 */
+    /** 歌名旁小封面：左封面、右三行文案（歌名/副标题/歌手），边长=三行合计高度。 */
     const val INFO_TITLE_SP = 20f
     const val INFO_ARTIST_SP = 13f
     const val INFO_SUBTITLE_SP = 12f
@@ -64,7 +64,8 @@ internal object MagazinePageChromePolicy {
     const val INFO_ALBUM_ELEVATION_DP = 8f
 
     /**
-     * 小封面边长：固定按歌名 + 副标题 + 歌手三行合计，不随副标题显隐伸缩。
+     * 小封面边长：固定按歌名 + 副标题 + 歌手三行合计（正方形「占三行」），
+     * 不随副标题显隐伸缩。
      */
     fun infoAlbumArtSizePx(
         density: Float,
