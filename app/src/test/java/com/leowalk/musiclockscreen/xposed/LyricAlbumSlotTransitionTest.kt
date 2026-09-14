@@ -201,6 +201,55 @@ class LyricAlbumSlotTransitionTest {
     }
 
     @Test
+    fun preferAlphaOnlySlotMotion_enabledForCrossfade() {
+        assertTrue(LyricAlbumSlotTransition.preferAlphaOnlySlotMotion())
+    }
+
+    @Test
+    fun deferAlbumHide_untilLyricVisibleEnough() {
+        assertTrue(
+            LyricAlbumSlotTransition.shouldDeferAlbumHide(
+                hideAlbum = true,
+                lyricOverlayVisibleEnough = false,
+            ),
+        )
+        assertFalse(
+            LyricAlbumSlotTransition.shouldDeferAlbumHide(
+                hideAlbum = true,
+                lyricOverlayVisibleEnough = true,
+            ),
+        )
+        assertFalse(
+            LyricAlbumSlotTransition.shouldDeferAlbumHide(
+                hideAlbum = false,
+                lyricOverlayVisibleEnough = false,
+            ),
+        )
+    }
+
+    @Test
+    fun lyricOverlayVisibleEnough_requiresVisibleAndAlpha() {
+        assertFalse(
+            LyricAlbumSlotTransition.lyricOverlayVisibleEnough(
+                android.view.View.INVISIBLE,
+                1f,
+            ),
+        )
+        assertFalse(
+            LyricAlbumSlotTransition.lyricOverlayVisibleEnough(
+                android.view.View.VISIBLE,
+                0.1f,
+            ),
+        )
+        assertTrue(
+            LyricAlbumSlotTransition.lyricOverlayVisibleEnough(
+                android.view.View.VISIBLE,
+                0.2f,
+            ),
+        )
+    }
+
+    @Test
     fun preferWaitTimeout_exitsWaitingToIdleForAlbumRestore() {
         assertEquals(
             TrackLyricGate.Phase.IDLE,

@@ -21,6 +21,23 @@ internal object LyricAlbumSlotTransition {
     const val PREFER_LYRIC_WAIT_MS = 2500L
 
     /**
+     * 同槽切换只用 alpha：歌词常开 MiBlur，位移易掉帧；专辑跟歌词同曲线才像交叉淡入。
+     */
+    fun preferAlphaOnlySlotMotion(): Boolean = true
+
+    /**
+     * 歌词尚未上屏时先别藏专辑，否则会出现「专辑没了、歌词还没来」的空窗。
+     * 等歌词开始淡入（可见且有一点 alpha）再藏。
+     */
+    fun shouldDeferAlbumHide(
+        hideAlbum: Boolean,
+        lyricOverlayVisibleEnough: Boolean,
+    ): Boolean = hideAlbum && !lyricOverlayVisibleEnough
+
+    fun lyricOverlayVisibleEnough(visibility: Int, alpha: Float): Boolean =
+        visibility == android.view.View.VISIBLE && alpha > 0.18f
+
+    /**
      * 等词超时：退出 WAITING → IDLE，保留切歌快照供迟到 lyric_fd。
      * 若只清 [preferLyricUntilResolved] 而留在 WAITING，[LyricAlbumPriorityPolicy] 会一直藏专辑。
      */

@@ -20,9 +20,18 @@ class LyricMotionPolicyTest {
 
     @Test
     fun slotAndSurface_reasonableDurations() {
-        assertTrue(LyricMotionPolicy.SLOT_CROSSFADE_MS in 150L..400L)
+        assertTrue(LyricMotionPolicy.SLOT_CROSSFADE_MS in 260L..360L)
         assertTrue(LyricMotionPolicy.LYRIC_SURFACE_EXIT_MS in 150L..400L)
         assertTrue(LyricMotionPolicy.STACK_SCROLL_MS <= 280L)
+    }
+
+    @Test
+    fun slotSlide_isLightAndAlphaOnlyPreferred() {
+        assertEquals(6f, LyricMotionPolicy.SLOT_SLIDE_DP, 0.01f)
+        assertEquals(6f, LyricMotionPolicy.slotSlidePx(1f), 0.01f)
+        assertEquals(18f, LyricMotionPolicy.slotSlidePx(3f), 0.01f)
+        // 同槽默认只做 alpha，避免 MiBlur 位移掉帧
+        assertTrue(LyricAlbumSlotTransition.preferAlphaOnlySlotMotion())
     }
 
     @Test

@@ -58,10 +58,17 @@ object MusicLockscreenManager {
                     MediaFollowController.requestReflow()
                     return
                 }
-                val slide = LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
-                LyricMotionPolicy.applySpring(
-                    album.animate().alpha(0f).translationY(slide),
-                ).withEndAction {
+                val slide = if (LyricAlbumSlotTransition.preferAlphaOnlySlotMotion()) {
+                    0f
+                } else {
+                    LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
+                }
+                val anim = if (slide > 0f) {
+                    album.animate().alpha(0f).translationY(slide)
+                } else {
+                    album.animate().alpha(0f)
+                }
+                LyricMotionPolicy.applySpring(anim).withEndAction {
                         try {
                             album.visibility = View.GONE
                             album.alpha = 1f

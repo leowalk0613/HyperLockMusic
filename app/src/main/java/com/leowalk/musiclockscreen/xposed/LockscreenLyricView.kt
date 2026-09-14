@@ -2456,7 +2456,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         )
     }
 
-    /** 槽位淡入：MiBlur 生效时只做 alpha，避免 translation 掉帧。 */
+    /** 槽位淡入：同槽交叉默认只做 alpha；MiBlur 时禁止 translation。 */
     private fun springFadeInLyric() {
         if (isMagazinePageHost() &&
             !MagazinePageLyricHostPolicy.shouldRestartSurfaceFadeIn(
@@ -2466,11 +2466,19 @@ class LockscreenLyricView(context: Context) : View(context) {
         ) {
             alpha = 1f
             translationY = 0f
+            // 画报稳定显示时也要同步藏专辑，避免空窗
+            if (isLyricPriorityOverAlbum()) {
+                applyAlbumSlotVisibility(hideAlbum = true, animate = true)
+            }
             return
         }
         animate().cancel()
         alpha = 0f
         translationY = 0f
+        // 歌词开始淡入时再藏专辑，形成真正交叉
+        if (isLyricPriorityOverAlbum()) {
+            applyAlbumSlotVisibility(hideAlbum = true, animate = true)
+        }
         val anim = if (LyricMotionPolicy.shouldTranslateSlot(this)) {
             translationY = LyricMotionPolicy.slotSlidePx(resources.displayMetrics.density)
             animate().alpha(1f).translationY(0f)
@@ -2597,7 +2605,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                 bringToFront()
             } catch (_: Throwable) {
             }
-            applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = !pinActive)
+            val lyricReady = LyricAlbumSlotTransition.lyricOverlayVisibleEnough(visibility, alpha)
+            val deferAlbumHide = LyricAlbumSlotTransition.shouldDeferAlbumHide(
+                hideAlbum = hideAlbum,
+                lyricOverlayVisibleEnough = lyricReady || snapKeep || pinActive,
+            )
+            if (!deferAlbumHide) {
+                applyAlbumSlotVisibility(hideAlbum = hideAlbum, animate = !pinActive)
+            }
+            // defer 时由 springFadeInLyric / 钉住路径再触发藏专辑
         } else {
             if (isMagazinePageHost()) {
                 fadeOutLyricOverlay()
@@ -2705,13 +2721,18 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun applyAlbumSlotVisibility(hideAlbum: Boolean, animate: Boolean) {
         val album = MusicLockscreenManager.bigAlbumView ?: return
+        val density = album.resources.displayMetrics.density
+        val useTy = !LyricAlbumSlotTransition.preferAlphaOnlySlotMotion()
+        val slide = if (useTy) LyricMotionPolicy.slotSlidePx(density) else 0f
         if (hideAlbum) {
             album.animate().cancel()
             if (animate && album.visibility == View.VISIBLE && album.alpha > 0.01f) {
-                val slide = LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
-                LyricMotionPolicy.applySpring(
-                    album.animate().alpha(0f).translationY(slide),
-                ).withEndAction {
+                val anim = if (useTy) {
+                    album.animate().alpha(0f).translationY(slide)
+                } else {
+                    album.animate().alpha(0f)
+                }
+                LyricMotionPolicy.applySpring(anim).withEndAction {
                         try {
                             if (isLyricPriorityOverAlbum()) {
                                 album.visibility = View.GONE
@@ -2742,10 +2763,13 @@ class LockscreenLyricView(context: Context) : View(context) {
                 if (album.visibility == View.VISIBLE) {
                     album.animate().cancel()
                     album.alpha = 0f
-                    album.translationY = LyricMotionPolicy.slotSlidePx(album.resources.displayMetrics.density)
-                    LyricMotionPolicy.applySpring(
-                        album.animate().alpha(1f).translationY(0f),
-                    ).start()
+                    album.translationY = slide
+                    val anim = if (useTy) {
+                        album.animate().alpha(1f).translationY(0f)
+                    } else {
+                        album.animate().alpha(1f)
+                    }
+                    LyricMotionPolicy.applySpring(anim).start()
                 }
             } else {
                 MusicLockscreenManager.showAlbumOverlay()

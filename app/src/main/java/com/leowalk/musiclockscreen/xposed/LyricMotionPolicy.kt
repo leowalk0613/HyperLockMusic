@@ -27,11 +27,13 @@ internal object LyricMotionPolicy {
     val LYRIC_SURFACE_EXIT_MS: Long = (settleMs * 0.7f).toLong().coerceIn(200L, 300L)
 
     val NOTIFICATION_SLIDE_MS: Long = settleMs
-    val SLOT_CROSSFADE_MS: Long = (settleMs * 0.7f).toLong().coerceIn(200L, 300L)
+    /** 专辑↔歌词同槽交叉：略长于切行，避免闪切 */
+    val SLOT_CROSSFADE_MS: Long = (settleMs * 0.85f).toLong().coerceIn(260L, 360L)
 
     const val LINE_SLIDE_DP = 24f
     const val SURFACE_SLIDE_DP = 24f
-    const val SLOT_SLIDE_DP = 12f
+    /** 同槽轻位移（仅非 MiBlur / 非 alpha-only 时） */
+    const val SLOT_SLIDE_DP = 6f
     const val NOTIFICATION_SLIDE_DP = 8f
 
     private val cachedSpringByDurationMs = HashMap<Long, Interpolator>()
@@ -97,6 +99,7 @@ internal object LyricMotionPolicy {
     }
 
     fun shouldTranslateSlot(view: View): Boolean {
+        if (LyricAlbumSlotTransition.preferAlphaOnlySlotMotion()) return false
         // 带系统 MiBlur 的歌词 view 做 translation 极易掉帧
         return (view as? LockscreenLyricView)?.hasActiveMiBlur() != true
     }
