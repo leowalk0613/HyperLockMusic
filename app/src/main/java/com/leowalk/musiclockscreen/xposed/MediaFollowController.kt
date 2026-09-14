@@ -242,7 +242,7 @@ object MediaFollowController {
 
         val h = when {
             immersiveLyric -> {
-                // 三行栈按内容高；禁止用宽度当正方形高，否则底边被顶飞
+                // 沉浸歌词按内容高；禁止用宽度当正方形高，否则底边被顶飞
                 val lpH = lyric.layoutParams?.height ?: 0
                 when {
                     lpH > 0 -> lpH

@@ -31,8 +31,6 @@ object ModuleConfig {
     private const val KEY_LYRIC_HIDE_BACKGROUND = "lyric_hide_background"
     private const val KEY_LYRIC_ALIGN = "lyric_align" // left / center / right
     private const val KEY_LYRIC_TRANSITION = "lyric_transition" // fade / slide_*
-    /** 沉浸歌词三行上滑（上一句/当前/下一句）；AOD 无效 */
-    private const val KEY_IMMERSIVE_LYRIC_STACK = "immersive_lyric_stack"
     private const val KEY_IMMERSIVE_ALBUM = "immersive_album"
     /** 沉浸封面竖直中心占屏高百分比（与大专辑底边 [KEY_ALBUM_OFFSET_Y] 互不共用） */
     private const val KEY_IMMERSIVE_ALBUM_CENTER_Y = "immersive_album_center_y"
@@ -63,7 +61,6 @@ object ModuleConfig {
     private const val KEY_MAGAZINE_LYRIC_HIDE_BACKGROUND = "magazine_lyric_hide_background"
     private const val KEY_MAGAZINE_LYRIC_ALIGN = "magazine_lyric_align"
     private const val KEY_MAGAZINE_LYRIC_TRANSITION = "magazine_lyric_transition"
-    private const val KEY_MAGAZINE_IMMERSIVE_LYRIC_STACK = "magazine_immersive_lyric_stack"
     private const val KEY_MAGAZINE_KEEP_LOCKSCREEN_ON = "magazine_keep_lockscreen_on"
     private const val KEY_MAGAZINE_TITLE_BRACKET_MODE = "magazine_title_bracket_mode"
 
@@ -129,7 +126,6 @@ object ModuleConfig {
     private const val DEFAULT_LYRIC_HIDE_BACKGROUND = false
     private const val DEFAULT_LYRIC_ALIGN = LYRIC_ALIGN_LEFT
     private const val DEFAULT_LYRIC_TRANSITION = LYRIC_TRANSITION_FADE
-    private const val DEFAULT_IMMERSIVE_LYRIC_STACK = false
     private const val DEFAULT_IMMERSIVE_ALBUM = false
     private const val DEFAULT_IMMERSIVE_ALBUM_CENTER_Y = 38f
     private const val DEFAULT_IMMERSIVE_ALBUM_EDGE_GRADIENT = true
@@ -236,11 +232,6 @@ object ModuleConfig {
         get() = getPrefs().getString(KEY_LYRIC_TRANSITION, DEFAULT_LYRIC_TRANSITION)
             ?: DEFAULT_LYRIC_TRANSITION
         set(value) = getPrefs().edit().putString(KEY_LYRIC_TRANSITION, value).apply()
-
-    /** 沉浸歌词三行上滑：显示上一句/当前/下一句（仅亮屏；AOD 退回单行） */
-    var immersiveLyricStack: Boolean
-        get() = getPrefs().getBoolean(KEY_IMMERSIVE_LYRIC_STACK, DEFAULT_IMMERSIVE_LYRIC_STACK)
-        set(value) = getPrefs().edit().putBoolean(KEY_IMMERSIVE_LYRIC_STACK, value).apply()
 
     /** 沉浸专辑：Monet 取色铺底 + 完整封面 */
     var immersiveAlbum: Boolean
@@ -374,10 +365,6 @@ object ModuleConfig {
         get() = magazineString(KEY_MAGAZINE_LYRIC_TRANSITION, lyricTransition)
         set(value) = getPrefs().edit().putString(KEY_MAGAZINE_LYRIC_TRANSITION, value).apply()
 
-    var magazineImmersiveLyricStack: Boolean
-        get() = magazineBool(KEY_MAGAZINE_IMMERSIVE_LYRIC_STACK, immersiveLyricStack)
-        set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_IMMERSIVE_LYRIC_STACK, value).apply()
-
     var magazineKeepLockScreenOn: Boolean
         get() = magazineBool(KEY_MAGAZINE_KEEP_LOCKSCREEN_ON, keepLockScreenOn)
         set(value) = getPrefs().edit().putBoolean(KEY_MAGAZINE_KEEP_LOCKSCREEN_ON, value).apply()
@@ -461,12 +448,6 @@ object ModuleConfig {
     var editLyricTransition: String
         get() = if (isMagazineMode) magazineLyricTransition else lyricTransition
         set(value) { if (isMagazineMode) magazineLyricTransition = value else lyricTransition = value }
-
-    var editImmersiveLyricStack: Boolean
-        get() = if (isMagazineMode) magazineImmersiveLyricStack else immersiveLyricStack
-        set(value) {
-            if (isMagazineMode) magazineImmersiveLyricStack = value else immersiveLyricStack = value
-        }
 
     var editKeepLockScreenOn: Boolean
         get() = if (isMagazineMode) magazineKeepLockScreenOn else keepLockScreenOn
@@ -684,7 +665,6 @@ object ModuleConfig {
                 put("lyric_hide_background", if (lyricHideBackground) 1 else 0)
                 put("lyric_align", lyricAlign)
                 put("lyric_transition", lyricTransition)
-                put("immersive_lyric_stack", if (immersiveLyricStack) 1 else 0)
                 put("immersive_album", if (immersiveAlbum) 1 else 0)
                 put("immersive_album_center_y", immersiveAlbumCenterY)
                 put("immersive_album_edge_gradient", if (immersiveAlbumEdgeGradient) 1 else 0)

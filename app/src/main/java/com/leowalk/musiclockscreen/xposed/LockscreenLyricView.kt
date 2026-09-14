@@ -225,37 +225,12 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var lineContentTy = 0f
     private var lineTransitionAnimator: ValueAnimator? = null
 
-    /** 沉浸三行上滑 */
-    private var cfgImmersiveLyricStack: Boolean = false
-    private var stackPrevText = ""
-    private var stackCurrentText = ""
-    private var stackCurrentSecondaryText = ""
-    private var stackNextText = ""
-    private var stackPrevLayout: StaticLayout? = null
-    private var stackCurrentLayout: StaticLayout? = null
-    private var stackCurrentSecondaryLayout: StaticLayout? = null
-    private var stackNextLayout: StaticLayout? = null
-    private var stackPrevEndFade = false
-    private var stackCurrentEndFade = false
-    private var stackCurrentSecondaryEndFade = false
-    private var stackNextEndFade = false
     private var mainLayoutEndFade = false
     private var immersiveSecondEndFade = false
-    private var stackScrollOffset = 0f
-    /** 晋升上滑进度 0→1；静止为 1 */
-    private var stackAnimProgress = 1f
-    /** 动画态：先滚旧词再换新 triplet（对齐 HyperLyric） */
-    private var stackMotionActive = false
-    private var stackAnimator: ValueAnimator? = null
-    private var pendingStackTriplet: ImmersiveLyricStackPolicy.Triplet? = null
-    private var pendingStackIndex: Int = -1
-    private var lastStackLineIndex = -1
     /** 画报页切行滞回，抑制进度回弹抽搐 */
     private var magazineHeldLineIndex = -1
-    /** 沉浸栈视口高度：同曲只增不减，底边钉死后内容贴底画 */
-    private var stackViewportHeightPx = 0
     private val endFadeMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val stackLineLayerPaint = Paint()
+    private val lineContentLayerPaint = Paint()
 
     // ============================================================
     // 绘制相关
@@ -444,25 +419,11 @@ class LockscreenLyricView(context: Context) : View(context) {
 
         val lyricWidth = computeLyricWidthPx()
         if (cfgImmersiveLyric) {
-            if (isImmersiveStackActive()) {
-                // 动画中勿在 measure 里重建 StaticLayout（切行首帧会卡一下）
-                if (!stackMotionActive) {
-                    ensureStackLayouts((lyricWidth - hPaddingPx * 2).toInt().coerceAtLeast(1))
-                }
-                val contentH = computeImmersiveStackHeightPx()
-                val lpH = (layoutParams?.height ?: 0).takeIf { it > 0 } ?: 0
-                val h = maxOf(contentH, lpH, stackViewportHeightPx)
-                setMeasuredDimension(
-                    resolveSizeAndState(lyricWidth, widthMeasureSpec, 0),
-                    resolveSizeAndState(h, heightMeasureSpec, 0)
-                )
-            } else {
-                rebuildImmersiveLayouts()
-                setMeasuredDimension(
-                    resolveSizeAndState(lyricWidth, widthMeasureSpec, 0),
-                    resolveSizeAndState(lyricWidth, heightMeasureSpec, 0)
-                )
-            }
+            rebuildImmersiveLayouts()
+            setMeasuredDimension(
+                resolveSizeAndState(lyricWidth, widthMeasureSpec, 0),
+                resolveSizeAndState(lyricWidth, heightMeasureSpec, 0)
+            )
             return
         }
 
@@ -491,7 +452,6 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /**
      * 高度变化时钉死底边：优先用 MediaFollow 已钉像素，避免 top+height 漂移。
-     * 沉浸三行视口只增不减，内容在 view 内贴底绘制。
      * 锚点变更时即使高度不变也必须改 topMargin（否则滑条无效）。
      */
     private fun resizeKeepingBottom(newHeight: Int) {
@@ -501,13 +461,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             requestLayout()
             return
         }
-        val targetH = if (isImmersiveStackActive()) {
-            val grown = maxOf(newHeight, stackViewportHeightPx)
-            stackViewportHeightPx = grown
-            grown
-        } else {
-            newHeight
-        }
+        val targetH = newHeight
         val oldHeight = when {
             lp.height > 0 -> lp.height
             height > 0 -> height
@@ -653,8 +607,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                 lineContentTx != 0f ||
                 lineContentTy != 0f
         if (needContentLayer) {
-            stackLineLayerPaint.alpha = (lineContentAlpha * 255f).toInt().coerceIn(0, 255)
-            val layer = canvas.saveLayer(0f, 0f, w, h, stackLineLayerPaint)
+            lineContentLayerPaint.alpha = (lineContentAlpha * 255f).toInt().coerceIn(0, 255)
+            val layer = canvas.saveLayer(0f, 0f, w, h, lineContentLayerPaint)
             canvas.translate(lineContentTx, lineContentTy)
             drawContent(canvas, w, contentWidth,
                 currentMainText, currentSecondText, hasSecondLine, mainStaticLayout)
@@ -714,15 +668,11 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    /** 沉浸歌词：单行居中，或三行上滑（上一句/当前/下一句） */
+    /** 沉浸歌词：主行居中，可选翻译副行。 */
     private fun drawImmersiveContent(
         canvas: Canvas, w: Float, contentWidth: Float,
         mainText: String, secondText: String, hasSecond: Boolean
     ) {
-        if (isImmersiveStackActive()) {
-            drawImmersiveStack(canvas, w, contentWidth)
-            return
-        }
         val mainLayout = mainStaticLayout ?: return
         val h = height.toFloat()
 
@@ -752,166 +702,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    private fun isImmersiveStackActive(): Boolean {
-        return ImmersiveLyricStackPolicy.shouldUseStack(
-            immersiveLyric = cfgImmersiveLyric,
-            stackEnabled = cfgImmersiveLyricStack,
-            screenInteractive = HookUtils.isScreenInteractive(context),
-        )
-    }
-
-    private fun drawImmersiveStack(canvas: Canvas, w: Float, contentWidth: Float) {
-        ensureStackLayouts(contentWidth.toInt().coerceAtLeast(1))
-        val current = stackCurrentLayout ?: return
-        val gap = lineGapPx
-        val prevH = stackPrevLayout?.height?.toFloat() ?: 0f
-        val curH = current.height.toFloat()
-        val secH = stackCurrentSecondaryLayout?.height?.toFloat() ?: 0f
-        val nextH = stackNextLayout?.height?.toFloat() ?: 0f
-        val geo = ImmersiveLyricStackPolicy.bottomGeometry(
-            vPaddingPx = vPaddingPx,
-            gapPx = gap,
-            prevHeightPx = prevH,
-            currentHeightPx = curH,
-            secondaryHeightPx = secH,
-            nextHeightPx = nextH,
-        )
-        // 贴视口底：增高只加上方空，当前块相对底边不跳
-        val originY = ImmersiveLyricStackPolicy.contentOriginY(height.toFloat(), geo.heightPx)
-        val offset = if (stackMotionActive) stackScrollOffset else 0f
-
-        canvas.save()
-        canvas.clipRect(0f, 0f, w, height.toFloat())
-
-        fun y(top: Float): Float = originY + top + offset
-
-        val prev = stackPrevLayout
-        if (prev != null && prevH > 0f) {
-            drawStackLineTop(
-                canvas, prev, hPaddingPx, y(geo.prevTop),
-                ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
-                stackPrevEndFade, mainPaint.textSize,
-            )
-        }
-        drawStackLineTop(
-            canvas, current, hPaddingPx, y(geo.currentTop), 1f,
-            stackCurrentEndFade, mainPaint.textSize,
-        )
-        val secondary = stackCurrentSecondaryLayout
-        if (secondary != null && secH > 0f) {
-            drawStackLineTop(
-                canvas, secondary, hPaddingPx, y(geo.secondaryTop),
-                ImmersiveLyricStackPolicy.SECONDARY_ALPHA,
-                stackCurrentSecondaryEndFade, secondPaint.textSize,
-            )
-        }
-        val next = stackNextLayout
-        if (next != null && nextH > 0f) {
-            drawStackLineTop(
-                canvas, next, hPaddingPx, y(geo.nextTop),
-                ImmersiveLyricStackPolicy.NEIGHBOR_ALPHA,
-                stackNextEndFade, mainPaint.textSize,
-            )
-        }
-        canvas.restore()
-    }
-
-    private fun computeImmersiveStackHeightPx(): Int {
-        if (!stackMotionActive) {
-            ensureStackLayouts((computeLyricWidthPx() - hPaddingPx * 2).toInt().coerceAtLeast(1))
-        }
-        val current = stackCurrentLayout ?: return computeLyricWidthPx()
-        return ImmersiveLyricStackPolicy.bottomGeometry(
-            vPaddingPx = vPaddingPx,
-            gapPx = lineGapPx,
-            prevHeightPx = stackPrevLayout?.height?.toFloat() ?: 0f,
-            currentHeightPx = current.height.toFloat(),
-            secondaryHeightPx = stackCurrentSecondaryLayout?.height?.toFloat() ?: 0f,
-            nextHeightPx = stackNextLayout?.height?.toFloat() ?: 0f,
-        ).heightPx.toInt().coerceAtLeast(1)
-    }
-
-    private fun drawStackLineTop(
-        canvas: Canvas,
-        layout: StaticLayout,
-        x: Float,
-        top: Float,
-        alphaScale: Float,
-        endFade: Boolean,
-        textSizePx: Float,
-    ) {
-        val paint = layout.paint
-        val oldAlpha = paint.alpha
-        val oldAlign = paint.textAlign
-        paint.alpha = (oldAlpha * alphaScale * lineContentAlpha).toInt().coerceIn(0, 255)
-        canvas.save()
-        canvas.translate(x, top)
-        // 行宽渐隐动画中也要画；半透明用 paint.alpha，不再套一层 saveLayer
-        drawStaticLayoutWithOptionalEndFade(canvas, layout, endFade, textSizePx)
-        canvas.restore()
-        paint.alpha = oldAlpha
-        paint.textAlign = oldAlign
-    }
-
-    private fun ensureStackLayouts(contentW: Int) {
-        val cur = stackCurrentText.ifBlank { " " }
-        val needRebuild =
-            stackCurrentLayout == null ||
-                stackCurrentLayout!!.width != contentW ||
-                (stackCurrentLayout!!.text?.toString() ?: "") != cur ||
-                (stackCurrentSecondaryLayout?.text?.toString() ?: "") != stackCurrentSecondaryText
-        if (!needRebuild) return
-        rebuildStackLayouts(contentW)
-    }
-
-    private fun rebuildStackLayouts(contentW: Int = (computeLyricWidthPx() - hPaddingPx * 2).toInt().coerceAtLeast(1)) {
-        // 上一句 / 下一句只显示一行；当前行可两行；翻译单独一层
-        if (stackPrevText.isNotBlank()) {
-            val built = buildImmersiveLayout(stackPrevText, mainPaint, contentW, maxLines = 1)
-            stackPrevLayout = built.layout
-            stackPrevEndFade = built.endFade
-        } else {
-            stackPrevLayout = null
-            stackPrevEndFade = false
-        }
-        run {
-            val built = buildImmersiveLayout(
-                stackCurrentText.ifBlank { " " },
-                mainPaint,
-                contentW,
-                maxLines = 2,
-            )
-            stackCurrentLayout = built.layout
-            stackCurrentEndFade = built.endFade
-        }
-        if (stackCurrentSecondaryText.isNotBlank()) {
-            val built = buildImmersiveLayout(
-                stackCurrentSecondaryText,
-                secondPaint,
-                contentW,
-                maxLines = immersiveMaxSecondLines,
-            )
-            stackCurrentSecondaryLayout = built.layout
-            stackCurrentSecondaryEndFade = built.endFade
-        } else {
-            stackCurrentSecondaryLayout = null
-            stackCurrentSecondaryEndFade = false
-        }
-        if (stackNextText.isNotBlank()) {
-            val built = buildImmersiveLayout(stackNextText, mainPaint, contentW, maxLines = 1)
-            stackNextLayout = built.layout
-            stackNextEndFade = built.endFade
-        } else {
-            stackNextLayout = null
-            stackNextEndFade = false
-        }
-    }
-
     private fun rebuildImmersiveLayouts() {
-        if (isImmersiveStackActive()) {
-            rebuildStackLayouts()
-            return
-        }
         val block = computeLyricWidthPx()
         val contentW = (block - hPaddingPx * 2).toInt().coerceAtLeast(1)
         val main = currentMainText.ifBlank { " " }
@@ -1834,7 +1625,6 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val idxHideBg = cursor.getColumnIndex("lyric_hide_background")
                 val idxAlign = cursor.getColumnIndex("lyric_align")
                 val idxTransition = cursor.getColumnIndex("lyric_transition")
-                val idxStack = cursor.getColumnIndex("immersive_lyric_stack")
 
                 if (idxEnabled >= 0) {
                     cfgLyricEnabled = cursor.getInt(idxEnabled) != 0
@@ -1912,18 +1702,13 @@ class LockscreenLyricView(context: Context) : View(context) {
                         cursor.getString(idxTransition)
                     )
                 }
-                if (idxStack >= 0) {
-                    val newStack = cursor.getInt(idxStack) == 1
-                    if (newStack != cfgImmersiveLyricStack) styleChanged = true
-                    cfgImmersiveLyricStack = newStack
-                }
                 if (positionChanged || lockscreenLyricAnchorStale()) {
                     lockscreenLyricAnchorPercent = Float.NaN
                     MediaFollowController.clearLyricPinAndReflow()
                 }
 
                 cursor.close()
-                applyLyricStyle(resetStackMotion = styleChanged)
+                applyLyricStyle(resetMotion = styleChanged)
                 if (swapChanged) {
                     applySwapIfNeeded()
                 }
@@ -1993,9 +1778,6 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (newAlign != cfgLyricAlign) styleChanged = true
             cfgLyricAlign = newAlign
             cfgLyricTransition = LyricLineTransitionPolicy.normalize(cfg.magazineLyricTransition)
-            val newStack = cfg.magazineImmersiveLyricStack
-            if (newStack != cfgImmersiveLyricStack) styleChanged = true
-            cfgImmersiveLyricStack = newStack
 
             if (LyricDisplayPolicy.shouldForceLyricBootstrapOnEnter(
                     cfgLyricEnabled,
@@ -2010,8 +1792,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                     finalizeLyricDisplayAfterContentUpdate()
                 }
             }
-            // 样式未变时也刷 paint/MiBlur，但勿 resetStackMotion（否则上滑被掐死）
-            applyLyricStyle(resetStackMotion = styleChanged)
+            // 样式未变时也刷 paint/MiBlur，但勿 resetMotion（否则切行动画被掐死）
+            applyLyricStyle(resetMotion = styleChanged)
             if (swapChanged) applySwapIfNeeded()
             if (styleChanged || positionChanged) {
                 // 锚点/沉浸切换后重钉底边，禁止保留旧 topMargin
@@ -2039,16 +1821,9 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    private fun applyLyricStyle(resetStackMotion: Boolean = true) {
-        if (resetStackMotion) {
+    private fun applyLyricStyle(resetMotion: Boolean = true) {
+        if (resetMotion) {
             cancelLineTransition()
-            cancelStackAnimator(commitPending = true)
-            stackScrollOffset = 0f
-            stackAnimProgress = 1f
-            stackViewportHeightPx = 0
-            lastStackLineIndex = -1
-            pendingStackTriplet = null
-            pendingStackIndex = -1
         }
         val density = resources.displayMetrics.density
 
@@ -2089,20 +1864,16 @@ class LockscreenLyricView(context: Context) : View(context) {
             lp.rightMargin = 0
             lp.bottomMargin = 0
             // 样式变更后恢复 WRAP，由 onMeasure 自适应
-            if (resetStackMotion) {
+            if (resetMotion) {
                 lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
                 lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             }
             layoutParams = lp
         }
 
-        if (resetStackMotion) {
+        if (resetMotion) {
             mainStaticLayout = null
             immersiveSecondStaticLayout = null
-            stackPrevLayout = null
-            stackCurrentLayout = null
-            stackCurrentSecondaryLayout = null
-            stackNextLayout = null
             requestLayout()
             if (!isMagazinePageHost()) {
                 MediaFollowController.requestReflow()
@@ -2875,7 +2646,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             bringToFront()
         } catch (_: Throwable) {
         }
-        // 已可见且有尺寸：勿每轮 requestLayout，否则打断三行上滑
+        // 已可见且有尺寸：勿每轮 requestLayout，否则打断切行动画
         if (visibility != View.VISIBLE || width <= 0 || height <= 0) {
             requestLayout()
         }
@@ -2986,21 +2757,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     private fun clearLyricDisplay() {
-        cancelStackAnimator(commitPending = false)
-        stackScrollOffset = 0f
-        stackAnimProgress = 1f
-        stackViewportHeightPx = 0
-        lastStackLineIndex = -1
-        pendingStackTriplet = null
-        pendingStackIndex = -1
-        stackPrevText = ""
-        stackCurrentText = ""
-        stackCurrentSecondaryText = ""
-        stackNextText = ""
-        stackPrevLayout = null
-        stackCurrentLayout = null
-        stackCurrentSecondaryLayout = null
-        stackNextLayout = null
+        cancelLineTransition()
         rawMainText = ""
         rawSecondText = ""
         rawHasSecond = false
@@ -3501,7 +3258,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (AodLyricDisplayPolicy.hasValidLyricLines(neu)) {
                 if (ingestProviderPayload(neu, j, lastLyricVersion, lastLyricFdVersion)) {
                     applyLyricFromJson()
-                    // 有时间轴：必须交还 refresh 补齐三行 next + 连续上滑；勿 return true 挡住
+                    // 有时间轴：交还 refresh 按进度切行；勿 return true 挡住
                     if (cachedLines?.isNotEmpty() == true) {
                         return false
                     }
@@ -3555,10 +3312,6 @@ class LockscreenLyricView(context: Context) : View(context) {
                 val rawIdx = AodLyricDisplayPolicy.clampLyricLineIndex(found, lines.size)
                 val idx = LyricReceivePolicy.preferDisplayLineIndex(byFocus, rawIdx)
                 magazineHeldLineIndex = idx
-                if (isImmersiveStackActive()) {
-                    applyImmersiveStackFromLines(lines, idx)
-                    return true
-                }
                 val currentText = lines[idx].text
                 val currentTrans = lines[idx].translation.takeIf { it.isNotBlank() } ?: ""
                 val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
@@ -3587,7 +3340,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (lines != null && lines.isNotEmpty()) {
                 return false
             }
-            // 无 timeline：用焦点行填栈/主行；s 可能是译文或下一句
+            // 无 timeline：用焦点行填主/副行；s 可能是译文或下一句
             val songHasTrans = try {
                 AodLyricDisplayPolicy.songHasTranslationFromCtx(
                     JSONObject(lastLyricJson.trim().ifEmpty { "{}" }),
@@ -3689,11 +3442,6 @@ class LockscreenLyricView(context: Context) : View(context) {
             val currentText = lines[idx].text
             val currentTrans = lines[idx].translation.takeIf { it.isNotBlank() } ?: ""
             val nextText = if (idx + 1 < lines.size) lines[idx + 1].text else ""
-
-            if (isImmersiveStackActive()) {
-                applyImmersiveStackFromLines(lines, idx)
-                return
-            }
 
             val lightFields = try {
                 AodLyricDisplayPolicy.parseLyricSnapshotFields(
@@ -3831,10 +3579,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         val hasSecondChanged = hasSecondLine != displayHasSecond
 
         if (mainChanged || secondChanged || hasSecondChanged) {
-            val stackActive = isImmersiveStackActive()
             val wantAnim = mainChanged &&
                 shouldDisplayLyric() &&
-                !stackActive &&
                 LyricLineTransitionPolicy.shouldAnimate(HookUtils.isScreenInteractive(context))
             if (wantAnim) {
                 animateLineChange(displayMain, displaySecond, displayHasSecond)
@@ -3846,238 +3592,14 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    private fun applyImmersiveStackFromLines(lines: List<LyricLine>, index: Int) {
-        val lineTexts = lines.map {
-            ImmersiveLyricStackPolicy.LineText(it.text, it.translation)
-        }
-        val triplet = ImmersiveLyricStackPolicy.resolveTriplet(
-            lines = lineTexts,
-            index = index,
-            swapEnabled = cfgSwapLyric,
-        )
-        val prevIndex = lastStackLineIndex
-        val indexChanged = prevIndex >= 0 && index != prevIndex
-        val textChanged =
-            triplet.prev != stackPrevText ||
-                triplet.current != stackCurrentText ||
-                triplet.currentSecondary != stackCurrentSecondaryText ||
-                triplet.next != stackNextText
-
-        val i = index.coerceIn(0, lines.lastIndex)
-        val curLine = lines[i]
-        val hasTrans = curLine.translation.isNotBlank()
-        // 同步主/副行字段（供其它逻辑）；三行模式在栈里画翻译副行
-        rawMainText = curLine.text
-        rawSecondText = if (hasTrans) {
-            if (cfgSwapLyric) curLine.text else curLine.translation
-        } else ""
-        rawHasSecond = hasTrans && rawSecondText.isNotBlank()
-        secondIsTranslation = hasTrans && !cfgSwapLyric
-        currentMainText = triplet.current
-        currentSecondText = triplet.currentSecondary
-        hasSecondLine = triplet.currentSecondary.isNotBlank()
-
-        if (!textChanged && !indexChanged) {
-            lastStackLineIndex = index
-            finalizeLyricDisplayAfterContentUpdate()
-            return
-        }
-
-        val animate = shouldDisplayLyric() &&
-            ImmersiveLyricStackPolicy.shouldUseStack(
-                immersiveLyric = true,
-                stackEnabled = true,
-                screenInteractive = HookUtils.isScreenInteractive(context),
-            ) && (
-                ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex, index) ||
-                    ImmersiveLyricStackPolicy.shouldAnimateTextAdvance(
-                        previousCurrent = stackCurrentText,
-                        nextCurrent = triplet.current,
-                    )
-                )
-
-        if (animate) {
-            cancelLineTransition()
-            cancelStackAnimator(commitPending = true)
-            // 先换上「已展开」的新 triplet，再整块从下方滑入——无单行再展开
-            commitStackTriplet(triplet, index, prepareSlideIn = true)
-            animateStackSlideIn()
-        } else {
-            cancelStackAnimator(commitPending = true)
-            commitStackTriplet(triplet, index, prepareSlideIn = false)
-            invalidate()
-        }
-        finalizeLyricDisplayAfterContentUpdate()
-    }
-
-    private fun commitStackTriplet(
-        triplet: ImmersiveLyricStackPolicy.Triplet,
-        index: Int,
-        prepareSlideIn: Boolean = false,
-    ) {
-        stackPrevText = triplet.prev
-        stackCurrentText = triplet.current
-        stackCurrentSecondaryText = triplet.currentSecondary
-        stackNextText = triplet.next
-        lastStackLineIndex = index
-        rebuildStackLayouts()
-        // 先定最终视口高度（含展开翻译），动画帧内不再改高
-        resizeKeepingBottom(computeImmersiveStackHeightPx())
-        if (prepareSlideIn) {
-            val curH = stackCurrentLayout?.height?.toFloat() ?: 1f
-            val secH = stackCurrentSecondaryLayout?.height?.toFloat() ?: 0f
-            val step = ImmersiveLyricStackPolicy.promotionStepPx(curH, secH, lineGapPx)
-            stackMotionActive = true
-            stackAnimProgress = 0f
-            stackScrollOffset = step
-        } else {
-            stackScrollOffset = 0f
-            stackAnimProgress = 1f
-            stackMotionActive = false
-        }
-    }
-
-    /**
-     * 已是展开新词：仅把整块从 +step 收到 0。
-     * 帧回调用 postInvalidateOnAnimation，并对齐 vsync；绘制走轻量路径。
-     */
-    private fun animateStackSlideIn() {
-        stackAnimator?.cancel()
-        stackAnimator = null
-        ensureStackLayouts((computeLyricWidthPx() - hPaddingPx * 2).toInt().coerceAtLeast(1))
-        val curH = stackCurrentLayout?.height?.toFloat() ?: return
-        val secH = stackCurrentSecondaryLayout?.height?.toFloat() ?: 0f
-        val step = ImmersiveLyricStackPolicy.promotionStepPx(curH, secH, lineGapPx)
-        stackMotionActive = true
-        stackAnimProgress = 0f
-        stackScrollOffset = step
-        val duration = ImmersiveLyricStackPolicy.PROMOTION_MS
-        stackAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            this.duration = duration
-            interpolator = LyricMotionPolicy.fastOutSlowIn()
-            addUpdateListener {
-                val p = (it.animatedValue as Float).coerceIn(0f, 1f)
-                stackAnimProgress = p
-                stackScrollOffset = ImmersiveLyricStackPolicy.scrollOffsetPx(p, step)
-                postInvalidateOnAnimation()
-            }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    stackAnimator = null
-                    stackMotionActive = false
-                    stackScrollOffset = 0f
-                    stackAnimProgress = 1f
-                    invalidate()
-                }
-
-                override fun onAnimationCancel(animation: Animator) {
-                    stackAnimator = null
-                    stackMotionActive = false
-                }
-            })
-            start()
-        }
-    }
-
-    private fun cancelStackAnimator(commitPending: Boolean = false) {
-        val pending = pendingStackTriplet
-        val idx = pendingStackIndex
-        val running = stackAnimator
-        stackAnimator = null
-        stackMotionActive = false
-        running?.cancel()
-        stackAnimProgress = 1f
-        stackScrollOffset = 0f
-        // 兼容旧 pending 路径（若有）
-        if (commitPending && pending != null && idx >= 0) {
-            pendingStackTriplet = null
-            pendingStackIndex = -1
-            commitStackTriplet(pending, idx, prepareSlideIn = false)
-        } else {
-            pendingStackTriplet = null
-            pendingStackIndex = -1
-        }
-    }
-
     private fun applyLyricContentImmediate(main: String, second: String, hasSecond: Boolean) {
         currentMainText = main
         currentSecondText = second
         hasSecondLine = hasSecond
 
         if (cfgImmersiveLyric) {
-            if (isImmersiveStackActive()) {
-                // 有时间轴时必须走 resolveTriplet，才能带上「下一句」邻行
-                val lines = cachedLines
-                if (lines != null && lines.isNotEmpty()) {
-                    val focus = main.trim()
-                    val byFocus = if (focus.isEmpty()) {
-                        -1
-                    } else {
-                        lines.indexOfFirst {
-                            it.text.trim() == focus || it.translation.trim() == focus
-                        }
-                    }
-                    val pos = getCurrentPosition()
-                    val found = if (pos >= 0) findCurrentLineIndex(lines, pos) else -1
-                    val rawIdx = AodLyricDisplayPolicy.clampLyricLineIndex(found, lines.size)
-                    val idx = LyricReceivePolicy.preferDisplayLineIndex(byFocus, rawIdx)
-                    if (idx >= 0) {
-                        applyImmersiveStackFromLines(lines, idx)
-                        notifyMagazineHostLyric(main)
-                        return
-                    }
-                }
-                // 无时间轴：按文本上滑；未确认有译时 s 当作下一句邻行（LyricFocus 惯例）
-                val nextCurrent = main.ifBlank { " " }
-                val songHasTrans = try {
-                    AodLyricDisplayPolicy.songHasTranslationFromCtx(
-                        JSONObject(lastLyricJson.trim().ifEmpty { "{}" }),
-                    )
-                } catch (_: Throwable) {
-                    null
-                }
-                val secondTrim = if (hasSecond) second.trim() else ""
-                val useAsTranslation = hasSecond && secondIsTranslation && songHasTrans == true
-                val useAsNext = hasSecond && secondTrim.isNotEmpty() && !useAsTranslation &&
-                    (!secondIsTranslation || songHasTrans != true)
-                val secondary = if (useAsTranslation) secondTrim else ""
-                val knownNext = if (useAsNext) secondTrim else ""
-                val slide = shouldDisplayLyric() &&
-                    HookUtils.isScreenInteractive(context) &&
-                    ImmersiveLyricStackPolicy.shouldAnimateTextAdvance(
-                        previousCurrent = stackCurrentText,
-                        nextCurrent = nextCurrent,
-                    )
-                if (slide) {
-                    cancelLineTransition()
-                    cancelStackAnimator(commitPending = false)
-                    commitStackTriplet(
-                        ImmersiveLyricStackPolicy.lightAdvanceTriplet(
-                            previousCurrent = stackCurrentText,
-                            newCurrent = nextCurrent,
-                            newSecondary = secondary,
-                            knownNext = knownNext,
-                        ),
-                        index = -1,
-                        prepareSlideIn = true,
-                    )
-                    animateStackSlideIn()
-                } else {
-                    commitStackTriplet(
-                        ImmersiveLyricStackPolicy.lightFocusTriplet(
-                            current = nextCurrent,
-                            currentSecondary = secondary,
-                            prev = stackPrevText,
-                            next = knownNext.ifBlank { stackNextText },
-                        ),
-                        index = lastStackLineIndex,
-                        prepareSlideIn = false,
-                    )
-                }
-            } else {
-                rebuildImmersiveLayouts()
-                resizeKeepingBottom(computeLyricWidthPx())
-            }
+            rebuildImmersiveLayouts()
+            resizeKeepingBottom(computeLyricWidthPx())
         } else {
             val layout = buildMainLayout(main.ifBlank { " " })
             mainStaticLayout = layout

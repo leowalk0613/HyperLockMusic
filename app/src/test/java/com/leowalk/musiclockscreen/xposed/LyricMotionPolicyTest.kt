@@ -7,8 +7,7 @@ import org.junit.Test
 class LyricMotionPolicyTest {
 
     @Test
-    fun stackScroll_matchesHyperLyricPromotion() {
-        assertEquals(ImmersiveLyricStackPolicy.PROMOTION_MS, LyricMotionPolicy.STACK_SCROLL_MS)
+    fun springSlideDefaultDuration_isShort() {
         assertEquals(220L, LyricMotionPolicy.STACK_SCROLL_MS)
     }
 

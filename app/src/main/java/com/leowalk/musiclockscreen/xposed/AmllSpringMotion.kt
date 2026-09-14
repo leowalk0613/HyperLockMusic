@@ -34,7 +34,7 @@ internal object AmllSpringMotion {
     val UI_SLIDE = Params(mass = 1f, damping = 36f, stiffness = 480f, soft = true)
 
     /**
-     * 三行上滑：对齐 AMLL 播放态刚度中值 + damping = √k · 2.2（略欠阻尼）。
+     * 滑动弹簧：对齐 AMLL 播放态刚度中值 + damping = √k · 2.2（略欠阻尼）。
      */
     val STACK = Params(
         mass = 1f,

@@ -31,7 +31,6 @@ object ConfigReader {
     private var cachedLyricHideBackground: Boolean = false
     private var cachedLyricAlign: String = "left"
     private var cachedLyricTransition: String = "fade"
-    private var cachedImmersiveLyricStack: Boolean = false
     private var cachedKeepLockScreenOn: Boolean = false
     private var cachedImmersiveAlbum: Boolean = false
     private var cachedImmersiveAlbumCenterY: Float = 38f
@@ -185,12 +184,6 @@ object ConfigReader {
     fun lyricTransition(context: Context): String {
         refreshConfigIfNeeded(context)
         return cachedLyricTransition
-    }
-
-    /** 沉浸歌词三行上滑（AOD 时调用方应忽略）。 */
-    fun immersiveLyricStack(context: Context): Boolean {
-        refreshConfigIfNeeded(context)
-        return cachedImmersiveLyricStack
     }
 
     fun keepLockScreenOn(context: Context): Boolean {
@@ -363,7 +356,6 @@ object ConfigReader {
                 val lyricHideBackgroundIdx = cursor.getColumnIndex("lyric_hide_background")
                 val lyricAlignIdx = cursor.getColumnIndex("lyric_align")
                 val lyricTransitionIdx = cursor.getColumnIndex("lyric_transition")
-                val immersiveLyricStackIdx = cursor.getColumnIndex("immersive_lyric_stack")
                 val keepLockScreenOnIdx = cursor.getColumnIndex("keep_lockscreen_on")
                 val immersiveAlbumIdx = cursor.getColumnIndex("immersive_album")
                 val immersiveAlbumCenterYIdx = cursor.getColumnIndex("immersive_album_center_y")
@@ -427,9 +419,6 @@ object ConfigReader {
                 }
                 if (lyricTransitionIdx >= 0) {
                     cachedLyricTransition = cursor.getString(lyricTransitionIdx) ?: "fade"
-                }
-                if (immersiveLyricStackIdx >= 0) {
-                    cachedImmersiveLyricStack = cursor.getInt(immersiveLyricStackIdx) == 1
                 }
                 if (keepLockScreenOnIdx >= 0) {
                     cachedKeepLockScreenOn = cursor.getInt(keepLockScreenOnIdx) == 1

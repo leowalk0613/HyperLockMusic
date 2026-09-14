@@ -137,15 +137,6 @@ class LyricStyleActivity : BaseScrollingActivity() {
             ModuleConfig.editLyricAlign = alignModes[index]
             ModuleConfig.push(this)
         })
-        immersiveOnlyBlock!!.addView(M3.switchRow(
-            this,
-            "三行上滑",
-            "仅沉浸歌词：上一句/当前/下一句，当前行居中并显示翻译；邻行更透，上下裁切。AOD 退回单行。共用切行动画在关闭本项时对所有模式生效",
-            ModuleConfig.editImmersiveLyricStack,
-        ) { checked ->
-            ModuleConfig.editImmersiveLyricStack = checked
-            ModuleConfig.push(this)
-        })
         immersiveOnlyBlock!!.addView(TextView(this).apply {
             text = if (ModuleConfig.isMagazineMode) {
                 "区块大小/底边请到「专辑封面」调整（画报页大专辑档案）。"
@@ -195,10 +186,10 @@ class LyricStyleActivity : BaseScrollingActivity() {
             if (ModuleConfig.isMagazineMode) {
                 "画报页绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
                     "在「专辑封面」切换样式时会套用默认歌词样式；本页与普通锁屏档案互不影响。\n" +
-                    "「三行上滑」为沉浸独立开关。"
+                    "切行动画对普通与沉浸通用；AOD 不播动画。"
             } else {
                 "绑定：大专辑 ↔ 沉浸歌词；沉浸封面 ↔ 普通歌词（无背景）。\n" +
-                    "「三行上滑」为沉浸独立开关；下方切行动画在未开三行上滑时对普通与沉浸通用。AOD 均不播动画。\n" +
+                    "切行动画对普通与沉浸通用；AOD 不播动画。\n" +
                     "灰显项表示当前歌词样式下不生效。"
             })))
 
@@ -218,8 +209,8 @@ class LyricStyleActivity : BaseScrollingActivity() {
         modeHint?.text = when {
             !enabled -> "歌词功能已在主界面关闭，样式设置暂不生效。"
             !show -> "显示歌词已关闭，样式设置暂不生效。"
-            immersive -> "当前：沉浸歌词。可开三行上滑；关闭后切行动画生效。"
-            else -> "当前：普通歌词。切行动画通用；三行上滑仅沉浸可用。"
+            immersive -> "当前：沉浸歌词。切行动画通用。"
+            else -> "当前：普通歌词。切行动画通用。"
         }
     }
 
