@@ -7,7 +7,7 @@ import kotlin.math.min
 /**
  * 专辑/壁纸取色策略：
  * - 深底：accent 洗成近白浅彩，混进白字
- * - 浅/过白底：优先保留专辑突出色并压暗成可读字色；没有对比色才回退中灰
+ * - 浅/过白底：少量突出色掺进偏白浅灰字；没有对比色才回退浅灰
  *
  * 不依赖 [android.graphics.Color] 的 HSV API，便于 JVM 单测。
  */
@@ -36,8 +36,8 @@ internal object AlbumTintExtractPolicy {
     /** 过白图上：单像素最大 chroma 权重下限。 */
     const val OVERWHITE_MIN_MAX_CHROMA = 0.035f
 
-    /** 浅底回退中灰（无突出色时）。 */
-    val LIGHT_BG_GRAY_FALLBACK: Int = rgb(118, 118, 122)
+    /** 浅底无突出色时的回退浅灰（偏白一点，靠阴影保对比）。 */
+    val LIGHT_BG_GRAY_FALLBACK: Int = rgb(158, 158, 162)
 
     /** 近灰/近白/近黑：彩度权重为 0；过白图上的淡金/线稿仍给一点权重。 */
     fun chromaWeight(r: Int, g: Int, b: Int): Float {
@@ -114,14 +114,15 @@ internal object AlbumTintExtractPolicy {
     }
 
     /**
-     * 浅底字形：保留色相与足够饱和，压低明度保证白底可读。
-     * 非突出色返回 null，由调用方回退中灰。
+     * 浅底字形：只掺少量突出色相，整体仍偏浅灰白（可读靠阴影）。
+     * 非突出色返回 null，由调用方回退浅灰。
      */
     fun accentForLightGlyph(rawAccent: Int): Int? {
         if (!isProminentRawAccent(rawAccent)) return null
         val hsv = rgbToHsv(red(rawAccent), green(rawAccent), blue(rawAccent))
-        hsv[1] = hsv[1].coerceIn(0.35f, 0.85f)
-        hsv[2] = hsv[2].coerceIn(0.32f, 0.55f)
+        // 低饱和 + 高明度：视角上偏白，仅留一点专辑色
+        hsv[1] = (hsv[1] * 0.16f).coerceIn(0.04f, 0.12f)
+        hsv[2] = 0.80f
         return hsvToColor(hsv)
     }
 

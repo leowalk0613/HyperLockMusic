@@ -84,7 +84,7 @@ class AlbumTintExtractPolicyTest {
     }
 
     @Test
-    fun accentForLightGlyph_keepsHueDarkensForReadability() {
+    fun accentForLightGlyph_keepsHueSoftNearWhite() {
         val gold = AlbumTintExtractPolicy.rgb(210, 170, 60)
         val glyph = AlbumTintExtractPolicy.accentForLightGlyph(gold)
         assertTrue(glyph != null)
@@ -95,9 +95,11 @@ class AlbumTintExtractPolicyTest {
             AlbumTintExtractPolicy.blue(glyph),
         )
         assertEquals(hsvIn[0], hsvOut[0], 20f)
-        assertTrue(hsvOut[1] >= 0.35f)
-        assertTrue(hsvOut[2] in 0.32f..0.55f)
-        assertTrue(AlbumTintExtractPolicy.luminance(glyph) < 0.55f)
+        assertTrue(hsvOut[1] in 0.04f..0.14f)
+        assertEquals(0.80f, hsvOut[2], 0.02f)
+        // 偏白浅彩，仍略带金色倾向
+        assertTrue(AlbumTintExtractPolicy.luminance(glyph) in 0.70f..0.88f)
+        assertTrue(AlbumTintExtractPolicy.red(glyph) > AlbumTintExtractPolicy.blue(glyph))
     }
 
     @Test

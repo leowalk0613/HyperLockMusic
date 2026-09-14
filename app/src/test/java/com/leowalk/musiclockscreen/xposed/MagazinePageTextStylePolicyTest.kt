@@ -21,26 +21,26 @@ class MagazinePageTextStylePolicyTest {
     }
 
     @Test
-    fun lightBgGlyph_isReadableMidGrayNotNearWhiteOrDeepBlack() {
+    fun lightBgGlyph_isReadableLightGrayNotNearWhiteOrDeepBlack() {
         val light = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = true)
         val dark = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = false)
-        assertEquals(118, MagazinePageTextStylePolicy.red(light))
+        assertEquals(158, MagazinePageTextStylePolicy.red(light))
         assertEquals(0xFF, MagazinePageTextStylePolicy.red(dark))
         val lum = MagazinePageTextStylePolicy.luminance(light)
-        // 中灰：白底可读，且远亮于深黑墨色
-        assertTrue(lum in 0.40f..0.55f)
+        // 浅灰偏白：白底可读（靠阴影），远亮于深黑墨色
+        assertTrue(lum in 0.55f..0.72f)
         assertTrue(MagazinePageTextStylePolicy.luminance(dark) > 0.95f)
         assertTrue(lum > MagazinePageTextStylePolicy.luminance(MagazinePageTextStylePolicy.rgb(28, 28, 30)))
     }
 
     @Test
-    fun fallbackOnLight_staysMidGrayFamily() {
+    fun fallbackOnLight_staysLightGrayFamily() {
         val fallback = MagazinePageTextStylePolicy.fallbackReadableRgb(
             onLight = true,
             tintRgb = MagazinePageTextStylePolicy.rgb(200, 180, 160),
         )
         val lum = MagazinePageTextStylePolicy.luminance(fallback)
-        assertTrue(lum in 0.35f..0.60f)
+        assertTrue(lum in 0.50f..0.78f)
     }
 
     @Test
@@ -63,7 +63,7 @@ class MagazinePageTextStylePolicyTest {
     }
 
     @Test
-    fun fallbackOnLight_withAccent_staysNearAccent() {
+    fun fallbackOnLight_withAccent_staysSoftTintedNearWhite() {
         val goldGlyph = AlbumTintExtractPolicy.accentForLightGlyph(
             AlbumTintExtractPolicy.rgb(210, 170, 60),
         )!!
@@ -72,8 +72,8 @@ class MagazinePageTextStylePolicyTest {
             tintRgb = MagazinePageTextStylePolicy.rgb(250, 250, 250),
             lightAccent = goldGlyph,
         )
-        // 几乎直接用突出色（权重 0.05），应明显偏金而非中灰
-        assertTrue(MagazinePageTextStylePolicy.red(out) > MagazinePageTextStylePolicy.blue(out) + 20)
-        assertTrue(MagazinePageTextStylePolicy.luminance(out) < 0.55f)
+        // 少量金色倾向，整体仍偏亮
+        assertTrue(MagazinePageTextStylePolicy.red(out) >= MagazinePageTextStylePolicy.blue(out))
+        assertTrue(MagazinePageTextStylePolicy.luminance(out) in 0.68f..0.90f)
     }
 }

@@ -2,7 +2,7 @@ package com.leowalk.musiclockscreen.xposed
 
 /**
  * 画报页歌词 + 歌曲信息共用文字样式。
- * 深底近白；白/浅底用浅灰字（不取深黑），靠阴影保对比。
+ * 深底近白；白/浅底用偏白浅灰字（少量专辑色点缀，不取深黑），靠阴影保对比。
  */
 internal object MagazinePageTextStylePolicy {
 
@@ -10,7 +10,7 @@ internal object MagazinePageTextStylePolicy {
     const val LIGHT_LUM_THRESHOLD = 0.55f
 
     /**
-     * 浅底主字回退中灰（无突出专辑色时）。
+     * 浅底主字回退浅灰（无突出专辑色时）。
      */
     val LIGHT_BG_GLYPH_RGB: Int get() = AlbumTintExtractPolicy.LIGHT_BG_GRAY_FALLBACK
 
