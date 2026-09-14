@@ -53,15 +53,20 @@ internal object MagazinePageChromePolicy {
     /** 按钮行最大宽度占「整带可用宽」比例，居中。 */
     const val CONTROLS_ROW_MAX_WIDTH_FRACTION = 0.85f
 
-    /** 歌名旁小封面：左封面、右三行文案（歌名/副标题/歌手）；封面边长=三行总高。 */
-    const val INFO_TITLE_SP = 20f
-    const val INFO_ARTIST_SP = 13f
-    const val INFO_SUBTITLE_SP = 12f
-    const val INFO_TITLE_ARTIST_GAP_DP = 3
-    const val INFO_SUBTITLE_GAP_DP = 2
+    /** 歌名旁小封面：左封面、右三行文案；封面边长=三行槽位总高。 */
+    const val INFO_TITLE_SP = 16f
+    const val INFO_ARTIST_SP = 11f
+    const val INFO_SUBTITLE_SP = 10f
+    const val INFO_TITLE_ARTIST_GAP_DP = 2
+    const val INFO_SUBTITLE_GAP_DP = 1
     const val INFO_ALBUM_CORNER_DP = 5f
     const val INFO_ALBUM_GAP_DP = 10
     const val INFO_ALBUM_ELEVATION_DP = 8f
+
+    /**
+     * 行槽相对字号的倍率：MiSans 实际字形常高于 sp，槽位略高避免裁切。
+     */
+    const val INFO_LINE_HEIGHT_FACTOR = 1.28f
 
     /**
      * 歌曲信息竖直度量：三行（含间距）总高 == 小封面边长，文字不得超过封面。
@@ -82,15 +87,23 @@ internal object MagazinePageChromePolicy {
             titleHeightPx + subtitleSlotPx + titleArtistGapPx + artistHeightPx
     }
 
+    /** 单行槽高：字号 × 倍率，保证字形完整落在槽内。 */
+    fun infoLineSlotHeightPx(sp: Float, density: Float, scaledDensity: Float): Int {
+        val d = density.coerceAtLeast(0.01f)
+        val sd = scaledDensity.coerceAtLeast(0.01f)
+        val fromSp = (sp * sd * INFO_LINE_HEIGHT_FACTOR).toInt()
+        val floor = (sp * d * 0.9f).toInt().coerceAtLeast(1)
+        return fromSp.coerceAtLeast(floor)
+    }
+
     fun infoTextMetrics(
         density: Float,
         scaledDensity: Float,
     ): InfoTextMetrics {
         val d = density.coerceAtLeast(0.01f)
-        val sd = scaledDensity.coerceAtLeast(0.01f)
-        val titleH = (INFO_TITLE_SP * sd).toInt().coerceAtLeast((18f * d).toInt())
-        val artistH = (INFO_ARTIST_SP * sd).toInt().coerceAtLeast((10f * d).toInt())
-        val subtitleH = (INFO_SUBTITLE_SP * sd).toInt().coerceAtLeast((9f * d).toInt())
+        val titleH = infoLineSlotHeightPx(INFO_TITLE_SP, density, scaledDensity)
+        val artistH = infoLineSlotHeightPx(INFO_ARTIST_SP, density, scaledDensity)
+        val subtitleH = infoLineSlotHeightPx(INFO_SUBTITLE_SP, density, scaledDensity)
         val subtitleGap = (INFO_SUBTITLE_GAP_DP * d).toInt().coerceAtLeast(0)
         val titleArtistGap = (INFO_TITLE_ARTIST_GAP_DP * d).toInt().coerceAtLeast(0)
         val album = (titleH + subtitleGap + subtitleH + titleArtistGap + artistH)

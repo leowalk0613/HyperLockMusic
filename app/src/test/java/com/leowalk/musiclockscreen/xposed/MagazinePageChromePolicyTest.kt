@@ -151,9 +151,18 @@ class MagazinePageChromePolicyTest {
             MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = false),
             MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = true),
         )
-        // 至少覆盖「三行」：大于单行歌名高度
         assertTrue(m.albumSizePx > m.titleHeightPx)
         assertTrue(m.subtitleSlotPx > 0)
+    }
+
+    @Test
+    fun infoLineSlot_tallerThanRawSpToAvoidClip() {
+        val sd = 3f
+        val titleSp = MagazinePageChromePolicy.INFO_TITLE_SP
+        val slot = MagazinePageChromePolicy.infoLineSlotHeightPx(titleSp, 3f, sd)
+        val raw = (titleSp * sd).toInt()
+        assertTrue(slot > raw)
+        assertTrue(MagazinePageChromePolicy.INFO_TITLE_SP <= 16.01f)
     }
 
     @Test
