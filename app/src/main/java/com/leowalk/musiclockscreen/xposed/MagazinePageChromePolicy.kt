@@ -53,7 +53,7 @@ internal object MagazinePageChromePolicy {
     /** 按钮行最大宽度占「整带可用宽」比例，居中。 */
     const val CONTROLS_ROW_MAX_WIDTH_FRACTION = 0.85f
 
-    /** 歌名旁小封面：左封面、右三行文案（歌名/副标题/歌手），边长=三行合计高度。 */
+    /** 歌名旁小封面：左封面、右三行文案（歌名/副标题/歌手）；封面边长=三行总高。 */
     const val INFO_TITLE_SP = 20f
     const val INFO_ARTIST_SP = 13f
     const val INFO_SUBTITLE_SP = 12f
@@ -64,23 +64,55 @@ internal object MagazinePageChromePolicy {
     const val INFO_ALBUM_ELEVATION_DP = 8f
 
     /**
-     * 小封面边长：固定按歌名 + 副标题 + 歌手三行合计（正方形「占三行」），
-     * 不随副标题显隐伸缩。
+     * 歌曲信息竖直度量：三行（含间距）总高 == 小封面边长，文字不得超过封面。
+     * 副标题显隐时仍预留副标题槽，保证封面尺寸稳定。
      */
-    fun infoAlbumArtSizePx(
+    data class InfoTextMetrics(
+        val albumSizePx: Int,
+        val titleHeightPx: Int,
+        val subtitleGapPx: Int,
+        val subtitleHeightPx: Int,
+        val titleArtistGapPx: Int,
+        val artistHeightPx: Int,
+    ) {
+        /** 副标题行槽（间距+行高），GONE 时也占位。 */
+        val subtitleSlotPx: Int get() = subtitleGapPx + subtitleHeightPx
+
+        fun textBlockHeightPx(): Int =
+            titleHeightPx + subtitleSlotPx + titleArtistGapPx + artistHeightPx
+    }
+
+    fun infoTextMetrics(
         density: Float,
         scaledDensity: Float,
-        includeSubtitle: Boolean = true,
-    ): Int {
+    ): InfoTextMetrics {
         val d = density.coerceAtLeast(0.01f)
         val sd = scaledDensity.coerceAtLeast(0.01f)
         val titleH = (INFO_TITLE_SP * sd).toInt().coerceAtLeast((18f * d).toInt())
         val artistH = (INFO_ARTIST_SP * sd).toInt().coerceAtLeast((10f * d).toInt())
-        val gap = (INFO_TITLE_ARTIST_GAP_DP * d).toInt()
-        // 始终按三行高度：副标题行 + 间距，保证封面尺寸稳定
-        val sub = (INFO_SUBTITLE_SP * sd).toInt() + (INFO_SUBTITLE_GAP_DP * d).toInt()
-        return (titleH + artistH + gap + sub).coerceAtLeast((32f * d).toInt())
+        val subtitleH = (INFO_SUBTITLE_SP * sd).toInt().coerceAtLeast((9f * d).toInt())
+        val subtitleGap = (INFO_SUBTITLE_GAP_DP * d).toInt().coerceAtLeast(0)
+        val titleArtistGap = (INFO_TITLE_ARTIST_GAP_DP * d).toInt().coerceAtLeast(0)
+        val album = (titleH + subtitleGap + subtitleH + titleArtistGap + artistH)
+            .coerceAtLeast((32f * d).toInt())
+        return InfoTextMetrics(
+            albumSizePx = album,
+            titleHeightPx = titleH,
+            subtitleGapPx = subtitleGap,
+            subtitleHeightPx = subtitleH,
+            titleArtistGapPx = titleArtistGap,
+            artistHeightPx = artistH,
+        )
     }
+
+    /**
+     * 小封面边长：与 [infoTextMetrics] 三行总高一致。
+     */
+    fun infoAlbumArtSizePx(
+        density: Float,
+        scaledDensity: Float,
+        @Suppress("UNUSED_PARAMETER") includeSubtitle: Boolean = true,
+    ): Int = infoTextMetrics(density, scaledDensity).albumSizePx
 
     /** 控件带底边距屏幕底的像素距离。 */
     fun chromeBottomOffsetPx(screenHeightPx: Int): Int {

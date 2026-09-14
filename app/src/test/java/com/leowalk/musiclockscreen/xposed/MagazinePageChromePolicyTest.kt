@@ -143,16 +143,17 @@ class MagazinePageChromePolicyTest {
     }
 
     @Test
-    fun infoAlbumArt_fixedThreeLineSize() {
-        val withoutFlag = MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = false)
-        val withFlag = MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = true)
-        // 正方形边长=歌名+副标题+歌手三行高度，参数不影响结果
-        assertEquals(withFlag, withoutFlag)
-        val expected = (20f * 3f).toInt() + (13f * 3f).toInt() + (3 * 3) +
-            (12f * 3f).toInt() + (2 * 3)
-        assertEquals(expected, withFlag)
+    fun infoAlbumArt_equalsThreeLineTextBlockHeight() {
+        val m = MagazinePageChromePolicy.infoTextMetrics(3f, 3f)
+        assertEquals(m.albumSizePx, m.textBlockHeightPx())
+        assertEquals(m.albumSizePx, MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f))
+        assertEquals(
+            MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = false),
+            MagazinePageChromePolicy.infoAlbumArtSizePx(3f, 3f, includeSubtitle = true),
+        )
         // 至少覆盖「三行」：大于单行歌名高度
-        assertTrue(withFlag > (20f * 3f).toInt())
+        assertTrue(m.albumSizePx > m.titleHeightPx)
+        assertTrue(m.subtitleSlotPx > 0)
     }
 
     @Test

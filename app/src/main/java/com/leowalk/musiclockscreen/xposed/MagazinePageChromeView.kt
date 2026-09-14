@@ -174,24 +174,31 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
 
         infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            // 歌名/副标题/歌手左对齐；整块再与封面一起在 songRow 居中
+            // 歌名/副标题/歌手左对齐；整块高度锁死为封面边长
             gravity = Gravity.START
             clipChildren = false
             clipToPadding = false
         }
 
+        val metrics = MagazinePageChromePolicy.infoTextMetrics(
+            density = density,
+            scaledDensity = resources.displayMetrics.scaledDensity,
+        )
+
         titleView = EndFadeTextView(context).apply {
             typeface = MiSansTypefaces.bold()
             setTextSize(TypedValue.COMPLEX_UNIT_SP, MagazinePageChromePolicy.INFO_TITLE_SP)
             setTextColor(Color.WHITE)
-            gravity = Gravity.START
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
             includeFontPadding = false
+            maxLines = 1
+            ellipsize = null
         }
         infoCol.addView(
             titleView,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                metrics.titleHeightPx,
             ).apply {
                 gravity = Gravity.START
             },
@@ -201,18 +208,21 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             typeface = MiSansTypefaces.medium()
             setTextSize(TypedValue.COMPLEX_UNIT_SP, MagazinePageChromePolicy.INFO_SUBTITLE_SP)
             setTextColor(Color.argb(160, 255, 255, 255))
-            gravity = Gravity.START
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
             includeFontPadding = false
-            visibility = GONE
+            maxLines = 1
+            ellipsize = null
+            // INVISIBLE 占位：无副标题时仍占槽，保证三行总高=封面
+            visibility = INVISIBLE
         }
         infoCol.addView(
             subtitleView,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                metrics.subtitleHeightPx,
             ).apply {
                 gravity = Gravity.START
-                topMargin = dp(MagazinePageChromePolicy.INFO_SUBTITLE_GAP_DP)
+                topMargin = metrics.subtitleGapPx
             },
         )
 
@@ -220,24 +230,26 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             typeface = MiSansTypefaces.medium()
             setTextSize(TypedValue.COMPLEX_UNIT_SP, MagazinePageChromePolicy.INFO_ARTIST_SP)
             setTextColor(Color.argb(200, 255, 255, 255))
-            gravity = Gravity.START
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
             includeFontPadding = false
+            maxLines = 1
+            ellipsize = null
         }
         infoCol.addView(
             artistView,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                metrics.artistHeightPx,
             ).apply {
                 gravity = Gravity.START
-                topMargin = dp(MagazinePageChromePolicy.INFO_TITLE_ARTIST_GAP_DP)
+                topMargin = metrics.titleArtistGapPx
             },
         )
         songRow.addView(
             infoCol,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                metrics.albumSizePx,
             ).apply {
                 gravity = Gravity.CENTER_VERTICAL
             },
@@ -313,8 +325,8 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
 
         if (MagazinePageChromePolicy.shouldApplyInlineShrink(titleBracketMode, sub)) {
             titleView.text = buildShrinkSpannable(main, sub)
-            subtitleView.visibility = GONE
             subtitleView.text = ""
+            subtitleView.visibility = INVISIBLE
         } else {
             titleView.text = main
             if (showLine && sub.isNotEmpty()) {
@@ -322,7 +334,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 subtitleView.visibility = VISIBLE
             } else {
                 subtitleView.text = ""
-                subtitleView.visibility = GONE
+                subtitleView.visibility = INVISIBLE
             }
         }
         val key = "$main\u0000${artistView.text}\u0000$titleBracketMode"
@@ -358,11 +370,19 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     private fun relayoutAlbumArt() {
-        val lp = albumArtLayoutParams()
-        if (albumArtWrap.layoutParams?.width != lp.width) {
+        val metrics = MagazinePageChromePolicy.infoTextMetrics(
+            density = density,
+            scaledDensity = resources.displayMetrics.scaledDensity,
+        )
+        val lp = albumArtLayoutParams(metrics.albumSizePx)
+        val albumLp = albumArtWrap.layoutParams as? LinearLayout.LayoutParams
+        if (albumLp == null ||
+            albumLp.width != lp.width ||
+            albumLp.height != lp.height
+        ) {
             albumArtWrap.layoutParams = lp
         }
-        val albumW = if (albumArtWrap.visibility == VISIBLE) lp.width else 0
+        val albumW = if (albumArtWrap.visibility == VISIBLE) metrics.albumSizePx else 0
         val gap = if (albumArtWrap.visibility == VISIBLE) {
             dp(MagazinePageChromePolicy.INFO_ALBUM_GAP_DP)
         } else {
@@ -410,45 +430,66 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             albumGapPx = gap,
             minTextPx = dp(80),
         )
-        // 信息列 wrap + 左对齐；短文不拉满，超长靠 maxWidth + 末尾渐隐
+        // 信息列高度锁死=封面边长；三行槽位固定，副标题 INVISIBLE 仍占位
         val infoLp = infoCol.layoutParams as? LinearLayout.LayoutParams
         if (infoLp != null &&
-            (infoLp.width != LinearLayout.LayoutParams.WRAP_CONTENT || infoLp.weight != 0f)
+            (infoLp.width != LinearLayout.LayoutParams.WRAP_CONTENT ||
+                infoLp.height != metrics.albumSizePx ||
+                infoLp.weight != 0f)
         ) {
             infoLp.width = LinearLayout.LayoutParams.WRAP_CONTENT
+            infoLp.height = metrics.albumSizePx
             infoLp.weight = 0f
             infoLp.gravity = Gravity.CENTER_VERTICAL
             infoCol.layoutParams = infoLp
         }
         infoCol.gravity = Gravity.START
-        applyInfoTextMaxWidth(titleView, maxText)
-        applyInfoTextMaxWidth(subtitleView, maxText)
-        applyInfoTextMaxWidth(artistView, maxText)
+        applyInfoLineSlot(titleView, maxText, metrics.titleHeightPx, topMarginPx = 0)
+        applyInfoLineSlot(
+            subtitleView,
+            maxText,
+            metrics.subtitleHeightPx,
+            topMarginPx = metrics.subtitleGapPx,
+        )
+        applyInfoLineSlot(
+            artistView,
+            maxText,
+            metrics.artistHeightPx,
+            topMarginPx = metrics.titleArtistGapPx,
+        )
     }
 
-    private fun applyInfoTextMaxWidth(tv: EndFadeTextView, maxText: Int) {
+    private fun applyInfoLineSlot(
+        tv: EndFadeTextView,
+        maxText: Int,
+        heightPx: Int,
+        topMarginPx: Int,
+    ) {
         val lp = tv.layoutParams as? LinearLayout.LayoutParams
         if (lp != null &&
             (lp.width != LinearLayout.LayoutParams.WRAP_CONTENT ||
+                lp.height != heightPx ||
+                lp.topMargin != topMarginPx ||
                 lp.gravity != Gravity.START)
         ) {
             lp.width = LinearLayout.LayoutParams.WRAP_CONTENT
+            lp.height = heightPx
+            lp.topMargin = topMarginPx
             lp.gravity = Gravity.START
             tv.layoutParams = lp
         }
         if (tv.maxWidth != maxText) {
             tv.maxWidth = maxText
         }
-        tv.gravity = Gravity.START
+        tv.gravity = Gravity.START or Gravity.CENTER_VERTICAL
         tv.invalidate()
     }
 
-    private fun albumArtLayoutParams(): LinearLayout.LayoutParams {
-        val size = MagazinePageChromePolicy.infoAlbumArtSizePx(
-            density = density,
-            scaledDensity = resources.displayMetrics.scaledDensity,
-        )
-        return LinearLayout.LayoutParams(size, size).apply {
+    private fun albumArtLayoutParams(sizePx: Int = MagazinePageChromePolicy.infoAlbumArtSizePx(
+        density = density,
+        scaledDensity = resources.displayMetrics.scaledDensity,
+    )): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(sizePx, sizePx).apply {
             gravity = Gravity.CENTER_VERTICAL
             marginEnd = dp(MagazinePageChromePolicy.INFO_ALBUM_GAP_DP)
         }
