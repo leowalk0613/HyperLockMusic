@@ -49,4 +49,31 @@ class MagazinePageTextStylePolicyTest {
         assertEquals(0, MagazinePageTextStylePolicy.red(sh.colorArgb))
         assertTrue((sh.colorArgb ushr 24) and 0xFF >= 200)
     }
+
+    @Test
+    fun lightBgWithProminentAccent_usesAccentNotGray() {
+        val goldGlyph = AlbumTintExtractPolicy.accentForLightGlyph(
+            AlbumTintExtractPolicy.rgb(210, 170, 60),
+        )!!
+        val withAccent = MagazinePageTextStylePolicy.glyphBaseRgb(onLight = true, goldGlyph)
+        val grayFallback = MagazinePageTextStylePolicy.glyphBaseRgb(onLight = true, null)
+        assertEquals(goldGlyph and 0xFFFFFF, withAccent and 0xFFFFFF)
+        assertEquals(AlbumTintExtractPolicy.LIGHT_BG_GRAY_FALLBACK and 0xFFFFFF, grayFallback and 0xFFFFFF)
+        assertTrue(withAccent != grayFallback)
+    }
+
+    @Test
+    fun fallbackOnLight_withAccent_staysNearAccent() {
+        val goldGlyph = AlbumTintExtractPolicy.accentForLightGlyph(
+            AlbumTintExtractPolicy.rgb(210, 170, 60),
+        )!!
+        val out = MagazinePageTextStylePolicy.fallbackReadableRgb(
+            onLight = true,
+            tintRgb = MagazinePageTextStylePolicy.rgb(250, 250, 250),
+            lightAccent = goldGlyph,
+        )
+        // 几乎直接用突出色（权重 0.05），应明显偏金而非中灰
+        assertTrue(MagazinePageTextStylePolicy.red(out) > MagazinePageTextStylePolicy.blue(out) + 20)
+        assertTrue(MagazinePageTextStylePolicy.luminance(out) < 0.55f)
+    }
 }

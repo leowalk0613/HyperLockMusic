@@ -10,10 +10,9 @@ internal object MagazinePageTextStylePolicy {
     const val LIGHT_LUM_THRESHOLD = 0.55f
 
     /**
-     * 浅底主字：中灰偏浅，白底可读，但不走深黑墨色。
-     * （过近白如 #D8D8DC 会几乎看不见）
+     * 浅底主字回退中灰（无突出专辑色时）。
      */
-    val LIGHT_BG_GLYPH_RGB: Int = rgb(118, 118, 122)
+    val LIGHT_BG_GLYPH_RGB: Int get() = AlbumTintExtractPolicy.LIGHT_BG_GRAY_FALLBACK
 
     /** 深底主字。 */
     val DARK_BG_GLYPH_RGB: Int = rgb(255, 255, 255)
@@ -25,29 +24,43 @@ internal object MagazinePageTextStylePolicy {
     fun isLightBackground(color: Int): Boolean =
         luminance(color) >= LIGHT_LUM_THRESHOLD
 
-    fun glyphBaseRgb(onLight: Boolean): Int =
-        if (onLight) LIGHT_BG_GLYPH_RGB else DARK_BG_GLYPH_RGB
+    /**
+     * @param lightAccent 过白底上的突出色字色；null 时回退中灰
+     */
+    fun glyphBaseRgb(onLight: Boolean, lightAccent: Int? = null): Int {
+        if (!onLight) return DARK_BG_GLYPH_RGB
+        return lightAccent ?: LIGHT_BG_GLYPH_RGB
+    }
 
-    fun miBlurPrimaryRgb(onLight: Boolean): Int = glyphBaseRgb(onLight)
+    fun miBlurPrimaryRgb(onLight: Boolean, lightAccent: Int? = null): Int =
+        glyphBaseRgb(onLight, lightAccent)
 
-    fun miBlurOverArgb(onLight: Boolean): Int =
-        if (onLight) {
-            argb(120, red(LIGHT_BG_GLYPH_RGB), green(LIGHT_BG_GLYPH_RGB), blue(LIGHT_BG_GLYPH_RGB))
+    fun miBlurOverArgb(onLight: Boolean, lightAccent: Int? = null): Int {
+        val base = glyphBaseRgb(onLight, lightAccent)
+        return argb(if (onLight) 120 else 140, red(base), green(base), blue(base))
+    }
+
+    fun miBlurBlendRgb(onLight: Boolean, tintRgb: Int, lightAccent: Int? = null): Int {
+        val weight = if (onLight) {
+            AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT
         } else {
-            argb(140, 255, 255, 255)
+            AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK
         }
-
-    fun miBlurBlendRgb(onLight: Boolean, tintRgb: Int): Int =
-        blendRgb(glyphBaseRgb(onLight), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
+        // 浅底已有突出色时，blend 直接用字色，少再混洗白 tint
+        val base = glyphBaseRgb(onLight, lightAccent)
+        val tint = if (onLight && lightAccent != null) lightAccent else tintRgb
+        return blendRgb(base, tint, weight)
+    }
 
     fun miBlurAlphas(@Suppress("UNUSED_PARAMETER") onLight: Boolean): MiBlurAlphas =
         MiBlurAlphas(blendAlpha = 180, labAlpha = 170)
 
-    fun glyphPrimaryRgb(onLight: Boolean): Int = glyphBaseRgb(onLight)
+    fun glyphPrimaryRgb(onLight: Boolean, lightAccent: Int? = null): Int =
+        glyphBaseRgb(onLight, lightAccent)
 
-    fun glyphSecondaryArgb(onLight: Boolean): Int {
-        val p = glyphPrimaryRgb(onLight)
-        val a = if (onLight) 190 else 170
+    fun glyphSecondaryArgb(onLight: Boolean, lightAccent: Int? = null): Int {
+        val p = glyphPrimaryRgb(onLight, lightAccent)
+        val a = if (onLight) 200 else 170
         return argb(a, red(p), green(p), blue(p))
     }
 
@@ -58,8 +71,15 @@ internal object MagazinePageTextStylePolicy {
             ShadowSpec(radius = 14f, dy = 5f, colorArgb = argb(230, 0, 0, 0))
         }
 
-    fun fallbackReadableRgb(onLight: Boolean, tintRgb: Int): Int =
-        blendRgb(glyphBaseRgb(onLight), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
+    fun fallbackReadableRgb(onLight: Boolean, tintRgb: Int, lightAccent: Int? = null): Int {
+        if (onLight) {
+            val base = glyphBaseRgb(true, lightAccent)
+            // 已有突出色：几乎直接用；否则中灰轻混 soft tint
+            val w = if (lightAccent != null) 0.05f else AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT
+            return blendRgb(base, lightAccent ?: tintRgb, w)
+        }
+        return blendRgb(DARK_BG_GLYPH_RGB, tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
+    }
 
     fun fallbackSecondaryArgb(onLight: Boolean, mainRgb: Int): Int {
         val a = if (onLight) 190 else 160

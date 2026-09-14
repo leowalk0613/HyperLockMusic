@@ -43,19 +43,28 @@ internal object MinimalClockTextStylePolicy {
         )
     }
 
-    fun glyphBaseRgb(onLightBackground: Boolean): Int =
-        if (onLightBackground) LIGHT_BG_GLYPH_RGB else DARK_BG_GLYPH_RGB
+    fun glyphBaseRgb(onLightBackground: Boolean, lightAccent: Int? = null): Int =
+        MagazinePageTextStylePolicy.glyphBaseRgb(onLightBackground, lightAccent)
 
-    /** 深底近白 / 白底浅灰 + 浅彩混色。 */
-    fun readableTextRgb(onLightBackground: Boolean, tintRgb: Int): Int =
-        blendRgb(glyphBaseRgb(onLightBackground), tintRgb, TINT_WEIGHT)
+    /** 深底近白 / 浅底突出色或中灰。 */
+    fun readableTextRgb(
+        onLightBackground: Boolean,
+        tintRgb: Int,
+        lightAccent: Int? = null,
+    ): Int {
+        if (onLightBackground) {
+            val base = glyphBaseRgb(true, lightAccent)
+            val w = if (lightAccent != null) 0.05f else AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT
+            return blendRgb(base, lightAccent ?: tintRgb, w)
+        }
+        return blendRgb(DARK_BG_GLYPH_RGB, tintRgb, TINT_WEIGHT)
+    }
 
-    fun miBlurBlendRgb(onLightBackground: Boolean, tintRgb: Int): Int =
-        blendRgb(
-            glyphBaseRgb(onLightBackground),
-            tintRgb,
-            AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
-        )
+    fun miBlurBlendRgb(
+        onLightBackground: Boolean,
+        tintRgb: Int,
+        lightAccent: Int? = null,
+    ): Int = MagazinePageTextStylePolicy.miBlurBlendRgb(onLightBackground, tintRgb, lightAccent)
 
     fun shadowLayer(onLightBackground: Boolean): ShadowSpec {
         return if (onLightBackground) {

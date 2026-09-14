@@ -5,8 +5,9 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 专辑/壁纸取色策略：对比度用背景亮度代表色，染色用「近白浅彩」accent。
- * 保留一点色相提示，整体趋近白/浅灰，避免浓艳主题色抢戏。
+ * 专辑/壁纸取色策略：
+ * - 深底：accent 洗成近白浅彩，混进白字
+ * - 浅/过白底：优先保留专辑突出色并压暗成可读字色；没有对比色才回退中灰
  *
  * 不依赖 [android.graphics.Color] 的 HSV API，便于 JVM 单测。
  */
@@ -17,39 +18,57 @@ internal object AlbumTintExtractPolicy {
     /** 深底歌词/时钟混入 accent 的权重（越小越白）。 */
     const val GLYPH_TINT_WEIGHT_ON_DARK = 0.10f
 
-    /** 浅底深色字路径已废弃；保留常量兼容旧调用。 */
+    /** 浅底用突出色时，混入权重（突出色已可读，轻混即可）。 */
     const val GLYPH_TINT_WEIGHT_ON_LIGHT = 0.08f
 
     /** MiBlur blend 在深底上的 accent 权重。 */
     const val MIBLUR_BLEND_WEIGHT_ON_DARK = 0.14f
 
     /** MiBlur blend 在浅底上的 accent 权重。 */
-    const val MIBLUR_BLEND_WEIGHT_ON_LIGHT = 0.10f
+    const val MIBLUR_BLEND_WEIGHT_ON_LIGHT = 0.12f
 
-    /** 近灰/近白/近黑：彩度权重为 0，不参与 accent 加权。 */
+    /** 相对采样像素，chroma 加权总和超过此比例视为「有突出色」。 */
+    const val PROMINENT_ACCENT_RATIO = 0.025f
+
+    /** 浅底回退中灰（无突出色时）。 */
+    val LIGHT_BG_GRAY_FALLBACK: Int = rgb(118, 118, 122)
+
+    /** 近灰/近白/近黑：彩度权重为 0；过白图上的淡金/线稿仍给一点权重。 */
     fun chromaWeight(r: Int, g: Int, b: Int): Float {
         val maxC = max(r, max(g, b)).toFloat()
         val minC = min(r, min(g, b)).toFloat()
         if (maxC < 1f) return 0f
         val sat = (maxC - minC) / maxC
         val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
-        if (sat < 0.14f) return 0f
-        if (lum < 0.10f || lum > 0.92f) return 0f
-        // 偏好中等亮度、高饱和
+        if (sat < 0.10f) return 0f
+        if (lum < 0.08f) return 0f
+        // 近白但有彩度：降权保留，避免被整片白底淹没
+        if (lum > 0.92f) {
+            if (sat < 0.18f) return 0f
+            return sat * sat * 0.35f
+        }
         val mid = 1f - abs(lum - 0.45f) / 0.45f
         return sat * sat * mid.coerceIn(0.15f, 1f)
     }
 
+    fun hasProminentAccent(accentWeightSum: Double, opaquePixelCount: Int): Boolean {
+        if (opaquePixelCount <= 0) return false
+        return accentWeightSum / opaquePixelCount.toDouble() >= PROMINENT_ACCENT_RATIO
+    }
+
+    fun isProminentRawAccent(color: Int): Boolean {
+        val hsv = rgbToHsv(red(color), green(color), blue(color))
+        return hsv[1] >= 0.12f && hsv[2] in 0.12f..0.96f
+    }
+
     /**
-     * 把 accent 洗成近白浅彩：保住色相，压饱和、抬明度。
-     * 禁止浓艳中明度「主题色」直接混字。
+     * 深底雾色/混色：洗成近白浅彩。
      */
     fun normalizeAccentTint(color: Int): Int {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
         val sat = hsv[1]
         when {
             sat < 0.10f -> {
-                // 无彩：近白灰
                 hsv[1] = 0.02f
                 hsv[2] = 0.94f
             }
@@ -62,9 +81,18 @@ internal object AlbumTintExtractPolicy {
     }
 
     /**
-     * 字形混色前再洗一遍：进一步趋近白，只留极淡色相。
-     * 替代旧版「抬饱和」的 boostAlbumTint。
+     * 浅底字形：保留色相与足够饱和，压低明度保证白底可读。
+     * 非突出色返回 null，由调用方回退中灰。
      */
+    fun accentForLightGlyph(rawAccent: Int): Int? {
+        if (!isProminentRawAccent(rawAccent)) return null
+        val hsv = rgbToHsv(red(rawAccent), green(rawAccent), blue(rawAccent))
+        hsv[1] = hsv[1].coerceIn(0.35f, 0.85f)
+        hsv[2] = hsv[2].coerceIn(0.32f, 0.55f)
+        return hsvToColor(hsv)
+    }
+
+    /** 字形混色前再洗一遍（深底路径）。 */
     fun washAccentTowardWhite(color: Int): Int {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
         hsv[1] = (hsv[1] * 0.55f).coerceIn(0f, 0.12f)
@@ -81,13 +109,20 @@ internal object AlbumTintExtractPolicy {
         return hsv[2] < 0.12f || hsv[2] > 0.92f
     }
 
-    /** 规范化后的 accent 是否落在近白浅彩区间。 */
     fun isWashedNearWhite(color: Int): Boolean {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
         return hsv[1] <= 0.18f && hsv[2] >= 0.88f
     }
 
-    /** HSV：h∈[0,360)，s/v∈[0,1]。 */
+    fun luminance(color: Int): Float {
+        val r = red(color) / 255f
+        val g = green(color) / 255f
+        val b = blue(color) / 255f
+        return 0.2126f * r + 0.7152f * g + 0.0722f * b
+    }
+
+    fun isOverWhiteContrast(contrast: Int): Boolean = luminance(contrast) >= 0.82f
+
     fun rgbToHsv(r: Int, g: Int, b: Int): FloatArray {
         val rf = r / 255f
         val gf = g / 255f

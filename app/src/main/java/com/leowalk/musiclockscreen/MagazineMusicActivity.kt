@@ -408,9 +408,9 @@ class MagazineMusicActivity : AppCompatActivity() {
             setMagazineChromeStyleSync {
                 chromeView?.syncStyleWithLyric()
             }
-            setMagazineSharedTintListener { contrast, accent ->
-                // 歌词侧 recovery / 独立取色：底栏跟同一对 contrast+accent
-                chromeView?.setAlbumTint(accent)
+            setMagazineSharedTintListener { contrast, accent, lightGlyph ->
+                // 歌词侧 recovery / 独立取色：底栏跟同一对 contrast+accent（含浅底突出色）
+                chromeView?.setAlbumTint(accent, lightGlyph)
                 chromeView?.setContrastBackground(contrast)
                 chromeView?.syncStyleWithLyric()
             }
@@ -559,16 +559,16 @@ class MagazineMusicActivity : AppCompatActivity() {
             if (pair == null) return@execute
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
-                applySharedMagazineTint(pair.contrast, pair.accent)
+                applySharedMagazineTint(pair.contrast, pair.accent, pair.lightGlyphAccent)
             }
         }
     }
 
-    /** 底栏 + 歌词共用 contrast（深浅）与 accent（染色）。 */
-    private fun applySharedMagazineTint(contrast: Int, accent: Int) {
-        chromeView?.setAlbumTint(accent)
+    /** 底栏 + 歌词共用 contrast（深浅）、accent（染色）与浅底突出字色。 */
+    private fun applySharedMagazineTint(contrast: Int, accent: Int, lightGlyph: Int? = null) {
+        chromeView?.setAlbumTint(accent, lightGlyph)
         chromeView?.setContrastBackground(contrast)
-        lyricView?.applyMagazineAlbumTint(accent, contrast)
+        lyricView?.applyMagazineAlbumTint(accent, contrast, lightGlyph)
         chromeView?.syncStyleWithLyric()
     }
 
@@ -813,7 +813,7 @@ class MagazineMusicActivity : AppCompatActivity() {
                 mainHandler.post {
                     if (isFinishing || isDestroyed) return@post
                     if (gen != bakeGeneration.get()) return@post
-                    applySharedMagazineTint(pair.contrast, pair.accent)
+                    applySharedMagazineTint(pair.contrast, pair.accent, pair.lightGlyphAccent)
                 }
             }
         }

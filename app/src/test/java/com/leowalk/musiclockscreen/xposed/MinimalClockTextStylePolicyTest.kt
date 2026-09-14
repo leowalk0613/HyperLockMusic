@@ -41,6 +41,20 @@ class MinimalClockTextStylePolicyTest {
     }
 
     @Test
+    fun readableText_onLight_withAccent_prefersAccentHue() {
+        val goldGlyph = AlbumTintExtractPolicy.accentForLightGlyph(
+            AlbumTintExtractPolicy.rgb(210, 170, 60),
+        )!!
+        val out = MinimalClockTextStylePolicy.readableTextRgb(
+            onLightBackground = true,
+            tintRgb = MinimalClockTextStylePolicy.rgb(250, 250, 250),
+            lightAccent = goldGlyph,
+        )
+        assertTrue(MinimalClockTextStylePolicy.red(out) > MinimalClockTextStylePolicy.blue(out) + 20)
+        assertTrue(MinimalClockTextStylePolicy.luminance(out) < 160f)
+    }
+
+    @Test
     fun lightShadow_usesDarkHalo() {
         val sh = MinimalClockTextStylePolicy.shadowLayer(onLightBackground = true)
         assertTrue((sh.colorArgb ushr 24) and 0xFF >= 200)

@@ -59,7 +59,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 歌词样式就绪后同步底栏歌曲信息（MiBlur / 对比色）。 */
     private var magazineChromeStyleSync: (() -> Unit)? = null
     /** 歌词侧单独取色完成后，回推底栏共用同一 contrast + accent。 */
-    private var magazineSharedTintListener: ((contrast: Int, accent: Int) -> Unit)? = null
+    private var magazineSharedTintListener: ((contrast: Int, accent: Int, lightGlyph: Int?) -> Unit)? = null
 
     /** 画报：沉浸歌词占大专辑槽时通知宿主重烘焙壁纸（hide=true 不叠前景专辑）。 */
     private var magazineAlbumSlotListener: ((hideAlbum: Boolean) -> Unit)? = null
@@ -69,7 +69,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         magazineChromeStyleSync = listener
     }
 
-    fun setMagazineSharedTintListener(listener: ((contrast: Int, accent: Int) -> Unit)?) {
+    fun setMagazineSharedTintListener(listener: ((contrast: Int, accent: Int, lightGlyph: Int?) -> Unit)?) {
         magazineSharedTintListener = listener
     }
 
@@ -111,10 +111,15 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /** 画报页：accent 染色 + contrast 判深浅（与底栏成对广播）。 */
-    fun applyMagazineAlbumTint(accent: Int, contrast: Int = accent) {
+    fun applyMagazineAlbumTint(
+        accent: Int,
+        contrast: Int = accent,
+        lightGlyphAccent: Int? = null,
+    ) {
         if (!isMagazinePageHost()) return
         fogTintColor = accent
         magazineContrastColor = contrast
+        this.lightGlyphAccent = lightGlyphAccent
         showFogBackground = !cfgImmersiveLyric
         immersiveMiBlurBlendKey = 0
         requestMagazineMiBlurRefresh()
@@ -124,11 +129,16 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    private fun publishMagazineSharedTint(contrast: Int, accent: Int) {
+    private fun publishMagazineSharedTint(
+        contrast: Int,
+        accent: Int,
+        lightGlyphAccent: Int? = null,
+    ) {
         try {
-            magazineSharedTintListener?.invoke(contrast, accent)
+            magazineSharedTintListener?.invoke(contrast, accent, lightGlyphAccent)
         } catch (_: Throwable) {
         }
+        this.lightGlyphAccent = lightGlyphAccent
     }
 
     /**
@@ -286,6 +296,8 @@ class LockscreenLyricView(context: Context) : View(context) {
     // 渐变遮罩（专辑下半主色调 + 半透明黑，自下而上消散）
     // ============================================================
     private var fogTintColor: Int? = null
+    /** 浅/过白底优先用的突出色字色；无突出色则为 null → 中灰。 */
+    private var lightGlyphAccent: Int? = null
     /** 画报页亮度代表色（与 accent 分离，专供浅/深字判定） */
     private var magazineContrastColor: Int? = null
     /** 画报页烘焙壁纸（仅取样，不持有所有权 / 不 recycle） */
@@ -1197,6 +1209,7 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun clearFogCaches() {
         fogTintColor = null
+        lightGlyphAccent = null
         magazineContrastColor = null
         fogShader = null
         fogShaderW = 0
@@ -1489,11 +1502,15 @@ class LockscreenLyricView(context: Context) : View(context) {
                         return@post
                     }
                     fogTintColor = tintColor
+                    lightGlyphAccent = tintPair.lightGlyphAccent
                     if (magazineHost) {
                         magazineContrastColor = tintPair.contrast
                     }
                     if (!magazineHost) {
-                        LockscreenClockController.onAlbumTint(tintColor)
+                        LockscreenClockController.onAlbumTint(
+                            softAccent = tintColor,
+                            lightGlyphAccent = tintPair.lightGlyphAccent,
+                        )
                     }
                     if (cfgImmersiveLyric) {
                         showFogBackground = false
@@ -1503,7 +1520,11 @@ class LockscreenLyricView(context: Context) : View(context) {
                     // 沉浸 / 普通歌词共用 MiBlur 透色；失败则走混色回退
                     if (magazineHost) {
                         // 歌词侧自行取色时回推底栏，避免与 Activity 广播不同步
-                        publishMagazineSharedTint(tintPair.contrast, tintColor)
+                        publishMagazineSharedTint(
+                            tintPair.contrast,
+                            tintColor,
+                            tintPair.lightGlyphAccent,
+                        )
                         requestMagazineMiBlurRefresh()
                     } else {
                         immersiveMiBlurBlendKey = 0
@@ -2053,16 +2074,17 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 歌词文字染色：锁屏 / 画报优先真·MiBlur；深底近白，白底浅灰。
+     * 歌词文字染色：深底近白；浅底优先专辑突出色，否则中灰。
      */
     private fun applyImmersiveTextColors() {
         val bgRef = contrastBackgroundColor()
+        val lightAccent = lightGlyphAccent
         if (immersiveMiBlurActive) {
             if (isMagazinePageHost()) {
                 val onLight = immersiveMiBlurOnLightBg
-                val ink = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight)
+                val ink = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight, lightAccent)
                 mainPaint.color = ink
-                secondPaint.color = MagazinePageTextStylePolicy.glyphSecondaryArgb(onLight)
+                secondPaint.color = MagazinePageTextStylePolicy.glyphSecondaryArgb(onLight, lightAccent)
                 mainPaint.alpha = 255
                 secondPaint.alpha = 255
                 val sh = MagazinePageTextStylePolicy.glyphShadow(onLight)
@@ -2071,7 +2093,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 return
             }
             val onLight = immersiveMiBlurOnLightBg
-            val ink = MagazinePageTextStylePolicy.glyphBaseRgb(onLight)
+            val ink = MagazinePageTextStylePolicy.glyphBaseRgb(onLight, lightAccent)
             mainPaint.color = ink
             secondPaint.color = ink
             mainPaint.alpha = 255
@@ -2090,9 +2112,10 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     private fun applyMagazineAlbumTintPaint(bgRef: Int) {
         val tint = boostAlbumTint(fogTintColor ?: bgRef)
+        val lightAccent = lightGlyphAccent
         if (isMagazinePageHost()) {
             val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
-            val mainColor = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, tint)
+            val mainColor = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, tint, lightAccent)
             mainPaint.color = mainColor
             secondPaint.color = MagazinePageTextStylePolicy.fallbackSecondaryArgb(onLight, mainColor)
             val sh = MagazinePageTextStylePolicy.fallbackShadow(onLight)
@@ -2101,11 +2124,15 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
         val onLight = isNearWhiteBackground(bgRef)
-        val base = MagazinePageTextStylePolicy.glyphBaseRgb(onLight)
-        val mainColor = blendTextColor(base, tint, immersiveTintWeight)
+        val base = MagazinePageTextStylePolicy.glyphBaseRgb(onLight, lightAccent)
+        val mainColor = if (onLight && lightAccent != null) {
+            blendTextColor(base, lightAccent, 0.05f)
+        } else {
+            blendTextColor(base, tint, immersiveTintWeight)
+        }
         mainPaint.color = mainColor
         secondPaint.color = Color.argb(
-            if (onLight) 190 else 160,
+            if (onLight) 200 else 160,
             Color.red(mainColor),
             Color.green(mainColor),
             Color.blue(mainColor),
@@ -2130,9 +2157,10 @@ class LockscreenLyricView(context: Context) : View(context) {
             applyImmersiveTextColors()
             return
         }
-        // 对比度看「歌词背后的壁纸」；深底近白、白底浅灰
+        // 对比度看「歌词背后的壁纸」；浅底优先突出色
         val bgRef = contrastBackgroundColor()
         val tint = boostAlbumTint(fogTintColor ?: bgRef)
+        val lightAccent = lightGlyphAccent
         val bgLum = colorLuminance(bgRef)
         val onLight: Boolean
         val blend: Int
@@ -2142,20 +2170,20 @@ class LockscreenLyricView(context: Context) : View(context) {
         val labAlpha: Int
         if (isMagazinePageHost()) {
             onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
-            blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, tint)
-            primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight)
-            over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight)
+            blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, tint, lightAccent)
+            primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight, lightAccent)
+            over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight, lightAccent)
             val alphas = MagazinePageTextStylePolicy.miBlurAlphas(onLight)
             blendAlpha = alphas.blendAlpha
             labAlpha = alphas.labAlpha
         } else {
             onLight = isNearWhiteBackground(bgRef)
-            val base = MagazinePageTextStylePolicy.glyphBaseRgb(onLight)
-            blend = blendTextColor(
-                base,
-                tint,
-                AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
-            )
+            val base = MagazinePageTextStylePolicy.glyphBaseRgb(onLight, lightAccent)
+            blend = if (onLight && lightAccent != null) {
+                blendTextColor(base, lightAccent, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT)
+            } else {
+                blendTextColor(base, tint, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
+            }
             primary = base
             over = Color.argb(
                 if (onLight) 120 else 130,

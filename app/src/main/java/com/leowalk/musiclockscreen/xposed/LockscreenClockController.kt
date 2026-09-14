@@ -73,8 +73,8 @@ object LockscreenClockController {
         syncMinimalOverlay()
     }
 
-    fun onAlbumTint(color: Int?) {
-        minimalClock?.setAlbumTint(color)
+    fun onAlbumTint(softAccent: Int?, lightGlyphAccent: Int? = null) {
+        minimalClock?.setAlbumTint(softAccent, lightGlyphAccent)
     }
 
     private fun isMinimalClockEnabled(): Boolean {

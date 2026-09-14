@@ -44,10 +44,15 @@ object BlurUtils {
     }
 
     /**
-     * Lower-half tint: contrast (mean luminance) + accent (chroma-weighted, normalized).
-     * extractLowerHalfDominantColor returns accent; use LowerHalfTint.contrast for light/dark.
+     * Lower-half tint: contrast (mean luminance) + soft accent for dark bg,
+     * plus optional light-bg glyph accent from prominent chroma (null → gray fallback).
      */
-    data class LowerHalfTint(val contrast: Int, val accent: Int)
+    data class LowerHalfTint(
+        val contrast: Int,
+        val accent: Int,
+        val lightGlyphAccent: Int? = null,
+        val hasProminentAccent: Boolean = false,
+    )
 
     fun extractLowerHalfTintColors(albumBitmap: Bitmap): LowerHalfTint {
         val w = albumBitmap.width
@@ -62,62 +67,101 @@ object BlurUtils {
         val sampleW = 48
         val sampleH = 48
         val small = Bitmap.createScaledBitmap(albumBitmap, sampleW, sampleH, true)
-        val startRow = sampleH / 2
 
-        var rSum = 0L
-        var gSum = 0L
-        var bSum = 0L
-        var count = 0
-
-        var accentR = 0.0
-        var accentG = 0.0
-        var accentB = 0.0
-        var accentW = 0.0
-
-        for (y in startRow until sampleH) {
-            for (x in 0 until sampleW) {
-                val pixel = small.getPixel(x, y)
-                val a = Color.alpha(pixel)
-                if (a < 128) continue
-                val r = Color.red(pixel)
-                val g = Color.green(pixel)
-                val b = Color.blue(pixel)
-                rSum += r
-                gSum += g
-                bSum += b
-                count++
-                val wChroma = AlbumTintExtractPolicy.chromaWeight(r, g, b)
-                if (wChroma > 0f) {
-                    accentR += r * wChroma
-                    accentG += g * wChroma
-                    accentB += b * wChroma
-                    accentW += wChroma
+        fun accumulate(startRow: Int, endRow: Int): Acc {
+            var rSum = 0L
+            var gSum = 0L
+            var bSum = 0L
+            var count = 0
+            var accentR = 0.0
+            var accentG = 0.0
+            var accentB = 0.0
+            var accentW = 0.0
+            for (y in startRow until endRow) {
+                for (x in 0 until sampleW) {
+                    val pixel = small.getPixel(x, y)
+                    if (Color.alpha(pixel) < 128) continue
+                    val r = Color.red(pixel)
+                    val g = Color.green(pixel)
+                    val b = Color.blue(pixel)
+                    rSum += r
+                    gSum += g
+                    bSum += b
+                    count++
+                    val wChroma = AlbumTintExtractPolicy.chromaWeight(r, g, b)
+                    if (wChroma > 0f) {
+                        accentR += r * wChroma
+                        accentG += g * wChroma
+                        accentB += b * wChroma
+                        accentW += wChroma
+                    }
                 }
             }
+            return Acc(rSum, gSum, bSum, count, accentR, accentG, accentB, accentW)
         }
-        if (small !== albumBitmap) small.recycle()
-        if (count == 0) {
+
+        // 先取下半：对比度代表色更贴近歌词区域
+        var acc = accumulate(sampleH / 2, sampleH)
+        if (acc.count == 0) {
+            if (small !== albumBitmap) small.recycle()
             return LowerHalfTint(
                 Color.rgb(40, 40, 44),
                 AlbumTintExtractPolicy.normalizeAccentTint(Color.GRAY),
             )
         }
-        val contrast = Color.rgb(
-            (rSum / count).toInt().coerceIn(0, 255),
-            (gSum / count).toInt().coerceIn(0, 255),
-            (bSum / count).toInt().coerceIn(0, 255),
+        var contrast = Color.rgb(
+            (acc.rSum / acc.count).toInt().coerceIn(0, 255),
+            (acc.gSum / acc.count).toInt().coerceIn(0, 255),
+            (acc.bSum / acc.count).toInt().coerceIn(0, 255),
         )
-        val rawAccent = if (accentW > 1e-3) {
+        var prominent = AlbumTintExtractPolicy.hasProminentAccent(acc.accentW, acc.count)
+
+        // 过白封面下半常无色：全图再扫突出色（线稿金/彩点）
+        if (!prominent && AlbumTintExtractPolicy.isOverWhiteContrast(contrast)) {
+            val full = accumulate(0, sampleH)
+            if (full.count > 0 &&
+                AlbumTintExtractPolicy.hasProminentAccent(full.accentW, full.count)
+            ) {
+                acc = full
+                prominent = true
+            }
+        }
+
+        if (small !== albumBitmap) small.recycle()
+
+        val rawAccent = if (prominent && acc.accentW > 1e-3) {
             Color.rgb(
-                (accentR / accentW).toInt().coerceIn(0, 255),
-                (accentG / accentW).toInt().coerceIn(0, 255),
-                (accentB / accentW).toInt().coerceIn(0, 255),
+                (acc.accentR / acc.accentW).toInt().coerceIn(0, 255),
+                (acc.accentG / acc.accentW).toInt().coerceIn(0, 255),
+                (acc.accentB / acc.accentW).toInt().coerceIn(0, 255),
             )
         } else {
             contrast
         }
-        return LowerHalfTint(contrast, AlbumTintExtractPolicy.normalizeAccentTint(rawAccent))
+        val softAccent = AlbumTintExtractPolicy.normalizeAccentTint(rawAccent)
+        val lightGlyph = if (prominent) {
+            AlbumTintExtractPolicy.accentForLightGlyph(rawAccent)
+        } else {
+            null
+        }
+        return LowerHalfTint(
+            contrast = contrast,
+            accent = softAccent,
+            lightGlyphAccent = lightGlyph,
+            hasProminentAccent = prominent && lightGlyph != null,
+        )
     }
+
+    private data class Acc(
+        val rSum: Long,
+        val gSum: Long,
+        val bSum: Long,
+        val count: Int,
+        val accentR: Double,
+        val accentG: Double,
+        val accentB: Double,
+        val accentW: Double,
+    )
 
     /** Accent from lower half. For light/dark use extractLowerHalfTintColors().contrast. */
     fun extractLowerHalfDominantColor(albumBitmap: Bitmap): Int =

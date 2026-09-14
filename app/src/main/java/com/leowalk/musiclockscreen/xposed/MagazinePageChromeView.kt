@@ -55,6 +55,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
 
     private var callbacks: Callbacks? = null
     private var albumTint: Int? = null
+    private var lightGlyphAccent: Int? = null
     private var contrastBackground: Int? = null
     private var bracketMode: String = "default"
     private var miBlurRefreshGen = 0
@@ -470,10 +471,11 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         scheduleMiBlurEnhance()
     }
 
-    fun setAlbumTint(color: Int?) {
-        if (albumTint == color) return
+    fun setAlbumTint(color: Int?, lightGlyph: Int? = null) {
+        if (albumTint == color && lightGlyphAccent == lightGlyph) return
         val prevLight = styleBgRef()?.let { MagazinePageTextStylePolicy.isLightBackground(it) }
         albumTint = color
+        lightGlyphAccent = lightGlyph
         val nextLight = styleBgRef()?.let { MagazinePageTextStylePolicy.isLightBackground(it) }
         if (prevLight != nextLight || !infoMiBlurActive) {
             paintSolidReadable(clearBlur = true)
@@ -701,9 +703,10 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         bgRef: Int,
         passOnSelf: Boolean,
     ) {
-        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, tint)
-        val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight)
-        val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight)
+        val lightAccent = if (onLight) lightGlyphAccent else null
+        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, tint, lightAccent)
+        val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight, lightAccent)
+        val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight, lightAccent)
         val alphas = MagazinePageTextStylePolicy.miBlurAlphas(onLight)
         val radius = (48f * density).toInt().coerceIn(32, 96)
         for (v in listOf(prevBtn, playPauseBtn, nextBtn, lyricBtn, exitBtn)) {
@@ -825,7 +828,8 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     private fun applyFallbackColors(v: View, tint: Int, onLight: Boolean) {
-        val c = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, tint)
+        val lightAccent = if (onLight) lightGlyphAccent else null
+        val c = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, tint, lightAccent)
         if (v is TextView) {
             val solid = if (v === subtitleView || v === artistView) {
                 MagazinePageTextStylePolicy.fallbackSecondaryArgb(onLight, c)

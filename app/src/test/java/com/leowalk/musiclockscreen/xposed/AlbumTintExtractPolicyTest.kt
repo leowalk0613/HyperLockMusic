@@ -56,4 +56,47 @@ class AlbumTintExtractPolicyTest {
         assertTrue(AlbumTintExtractPolicy.isWashedNearWhite(washed))
         assertFalse(AlbumTintExtractPolicy.isNearWhiteOrBlack(AlbumTintExtractPolicy.rgb(40, 40, 44)))
     }
+
+    @Test
+    fun hasProminentAccent_thresholdByWeightedRatio() {
+        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(0.0, 100))
+        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(2.0, 100)) // 0.02 < 0.025
+        assertTrue(AlbumTintExtractPolicy.hasProminentAccent(3.0, 100))
+    }
+
+    @Test
+    fun chromaWeight_keepsPaleGoldOnNearWhite() {
+        // 近白底上的淡金线稿：应有非零权重，避免被整片白淹没
+        assertTrue(AlbumTintExtractPolicy.chromaWeight(235, 210, 150) > 0f)
+        assertEquals(0f, AlbumTintExtractPolicy.chromaWeight(250, 248, 245), 0f)
+    }
+
+    @Test
+    fun accentForLightGlyph_keepsHueDarkensForReadability() {
+        val gold = AlbumTintExtractPolicy.rgb(210, 170, 60)
+        val glyph = AlbumTintExtractPolicy.accentForLightGlyph(gold)
+        assertTrue(glyph != null)
+        val hsvIn = AlbumTintExtractPolicy.rgbToHsv(210, 170, 60)
+        val hsvOut = AlbumTintExtractPolicy.rgbToHsv(
+            AlbumTintExtractPolicy.red(glyph!!),
+            AlbumTintExtractPolicy.green(glyph),
+            AlbumTintExtractPolicy.blue(glyph),
+        )
+        assertEquals(hsvIn[0], hsvOut[0], 20f)
+        assertTrue(hsvOut[1] >= 0.35f)
+        assertTrue(hsvOut[2] in 0.32f..0.55f)
+        assertTrue(AlbumTintExtractPolicy.luminance(glyph) < 0.55f)
+    }
+
+    @Test
+    fun accentForLightGlyph_nullForNearGray() {
+        assertEquals(null, AlbumTintExtractPolicy.accentForLightGlyph(AlbumTintExtractPolicy.rgb(200, 200, 202)))
+        assertEquals(null, AlbumTintExtractPolicy.accentForLightGlyph(AlbumTintExtractPolicy.rgb(250, 250, 250)))
+    }
+
+    @Test
+    fun isOverWhiteContrast_highLuminanceOnly() {
+        assertTrue(AlbumTintExtractPolicy.isOverWhiteContrast(AlbumTintExtractPolicy.rgb(240, 240, 245)))
+        assertFalse(AlbumTintExtractPolicy.isOverWhiteContrast(AlbumTintExtractPolicy.rgb(100, 100, 110)))
+    }
 }
