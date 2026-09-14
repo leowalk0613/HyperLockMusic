@@ -1,5 +1,6 @@
 package com.leowalk.musiclockscreen.xposed
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,40 +25,24 @@ class MinimalClockTextStylePolicyTest {
     }
 
     @Test
-    fun readableText_onLight_isMidGray_onDark_isNearWhite() {
+    fun readableText_onLight_isBlack_onDark_isWhite() {
         val onLight = MinimalClockTextStylePolicy.readableTextRgb(
             onLightBackground = true,
-            tintRgb = MinimalClockTextStylePolicy.rgb(40, 40, 40),
+            tintRgb = MinimalClockTextStylePolicy.rgb(200, 40, 80),
         )
         val onDark = MinimalClockTextStylePolicy.readableTextRgb(
             onLightBackground = false,
-            tintRgb = MinimalClockTextStylePolicy.rgb(40, 40, 40),
+            tintRgb = MinimalClockTextStylePolicy.rgb(200, 40, 80),
         )
-        val lumLight = MinimalClockTextStylePolicy.luminance(onLight)
-        val lumDark = MinimalClockTextStylePolicy.luminance(onDark)
-        assertTrue(lumLight in 120f..190f)
-        assertTrue(lumDark > 230f)
-        assertTrue(lumLight < lumDark)
-    }
-
-    @Test
-    fun readableText_onLight_withAccent_prefersSoftAccentHue() {
-        val goldGlyph = AlbumTintExtractPolicy.accentForLightGlyph(
-            AlbumTintExtractPolicy.rgb(210, 170, 60),
-        )!!
-        val out = MinimalClockTextStylePolicy.readableTextRgb(
-            onLightBackground = true,
-            tintRgb = MinimalClockTextStylePolicy.rgb(250, 250, 250),
-            lightAccent = goldGlyph,
-        )
-        assertTrue(MinimalClockTextStylePolicy.red(out) >= MinimalClockTextStylePolicy.blue(out))
-        assertTrue(MinimalClockTextStylePolicy.luminance(out) in 160f..230f)
+        assertEquals(0, MinimalClockTextStylePolicy.red(onLight))
+        assertEquals(0xFF, MinimalClockTextStylePolicy.red(onDark))
+        assertTrue(MinimalClockTextStylePolicy.luminance(onDark) > 230f)
+        assertTrue(MinimalClockTextStylePolicy.luminance(onLight) < 10f)
     }
 
     @Test
     fun lightShadow_usesDarkHalo() {
         val sh = MinimalClockTextStylePolicy.shadowLayer(onLightBackground = true)
-        assertTrue((sh.colorArgb ushr 24) and 0xFF >= 200)
         assertTrue(MinimalClockTextStylePolicy.red(sh.colorArgb) == 0)
     }
 

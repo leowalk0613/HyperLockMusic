@@ -1,29 +1,20 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 简洁时钟文字样式：深底近白；白底略灰，不取深黑。
+ * 简洁时钟：对比只看模糊底。白模糊底 → 黑字；其余 → 白字。
  */
 internal object MinimalClockTextStylePolicy {
 
-    /** 歌词 MiBlur / 主行参考（LockscreenLyricView） */
     const val LYRIC_MI_BLUR_BLEND_LIGHT = 200
     const val LYRIC_MI_BLUR_LAB_LIGHT = 230
     const val LYRIC_MI_BLUR_BLEND_DARK = 180
     const val LYRIC_MI_BLUR_LAB_DARK = 170
     const val LYRIC_MAIN_TEXT_ALPHA = 255
-
-    /** 简洁时钟：paint 与 MiBlur 均不低于歌词，视觉上更实 */
     const val CLOCK_TEXT_ALPHA = 255
 
-    /** 专辑色混入权重（近白浅彩） */
-    const val TINT_WEIGHT = AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK
-
-    /** 浅底主字：与歌词共用浅灰。 */
     val LIGHT_BG_GLYPH_RGB: Int get() = MagazinePageTextStylePolicy.LIGHT_BG_GLYPH_RGB
-
     val DARK_BG_GLYPH_RGB: Int get() = MagazinePageTextStylePolicy.DARK_BG_GLYPH_RGB
 
-    /** 简洁时钟字重：优先 Bold / Semibold，比歌词主行 Medium 更醒目 */
     val CLOCK_TYPEFACE_PATHS: Array<String> = arrayOf(
         "/system/fonts/MiSans-Bold.ttf",
         "/system/fonts/MiSans-Semibold.ttf",
@@ -46,19 +37,12 @@ internal object MinimalClockTextStylePolicy {
     fun glyphBaseRgb(onLightBackground: Boolean, lightAccent: Int? = null): Int =
         MagazinePageTextStylePolicy.glyphBaseRgb(onLightBackground, lightAccent)
 
-    /** 深底近白 / 浅底突出色或中灰。 */
+    @Suppress("UNUSED_PARAMETER")
     fun readableTextRgb(
         onLightBackground: Boolean,
         tintRgb: Int,
         lightAccent: Int? = null,
-    ): Int {
-        if (onLightBackground) {
-            val base = glyphBaseRgb(true, lightAccent)
-            val w = if (lightAccent != null) 0.05f else AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT
-            return blendRgb(base, lightAccent ?: tintRgb, w)
-        }
-        return blendRgb(DARK_BG_GLYPH_RGB, tintRgb, TINT_WEIGHT)
-    }
+    ): Int = glyphBaseRgb(onLightBackground, lightAccent)
 
     fun miBlurBlendRgb(
         onLightBackground: Boolean,
@@ -67,11 +51,8 @@ internal object MinimalClockTextStylePolicy {
     ): Int = MagazinePageTextStylePolicy.miBlurBlendRgb(onLightBackground, tintRgb, lightAccent)
 
     fun shadowLayer(onLightBackground: Boolean): ShadowSpec {
-        return if (onLightBackground) {
-            ShadowSpec(radius = 16f, dy = 4f, colorArgb = argb(245, 0, 0, 0))
-        } else {
-            ShadowSpec(radius = 14f, dy = 5f, colorArgb = argb(250, 0, 0, 0))
-        }
+        val sh = MagazinePageTextStylePolicy.glyphShadow(onLightBackground)
+        return ShadowSpec(radius = sh.radius, dy = sh.dy, colorArgb = sh.colorArgb)
     }
 
     fun luminance(rgb: Int): Float {
@@ -98,14 +79,4 @@ internal object MinimalClockTextStylePolicy {
     fun green(color: Int): Int = (color shr 8) and 0xFF
 
     fun blue(color: Int): Int = color and 0xFF
-
-    private fun blendRgb(base: Int, tint: Int, weight: Float): Int {
-        val w = weight.coerceIn(0f, 1f)
-        val inv = 1f - w
-        return rgb(
-            (red(base) * inv + red(tint) * w).toInt().coerceIn(0, 255),
-            (green(base) * inv + green(tint) * w).toInt().coerceIn(0, 255),
-            (blue(base) * inv + blue(tint) * w).toInt().coerceIn(0, 255),
-        )
-    }
 }

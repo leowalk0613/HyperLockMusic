@@ -271,20 +271,17 @@ class MusicMinimalClockView @JvmOverloads constructor(
             return
         }
         val bgRef = contrastBackgroundColor()
-        val tint = boostAlbumTint(albumTint ?: bgRef)
-        val onLight = isNearWhiteBackground(bgRef) || lightGlyphAccent != null
-        val lightAccent = if (onLight) lightGlyphAccent else null
+        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
         val blurAlphas = MinimalClockTextStylePolicy.miBlurAlphas(onLight)
-        val blend = MinimalClockTextStylePolicy.miBlurBlendRgb(onLight, tint, lightAccent)
-        val primary = MinimalClockTextStylePolicy.glyphBaseRgb(onLight, lightAccent)
+        val primary = MinimalClockTextStylePolicy.glyphBaseRgb(onLight)
+        val blend = MinimalClockTextStylePolicy.miBlurBlendRgb(onLight, primary)
         val over = MinimalClockTextStylePolicy.argb(
             if (onLight) 120 else 110,
             MinimalClockTextStylePolicy.red(primary),
             MinimalClockTextStylePolicy.green(primary),
             MinimalClockTextStylePolicy.blue(primary),
         )
-        val accentKey = lightAccent ?: 0
-        val blendKey = blend xor bgRef xor accentKey xor (if (onLight) 0xA1 else 0xA2)
+        val blendKey = blend xor bgRef xor (if (onLight) 0xA1 else 0xA2)
         if (miBlurActive && blendKey == miBlurBlendKey && onLight == miBlurOnLight) {
             applyTextColors()
             return
@@ -321,19 +318,17 @@ class MusicMinimalClockView @JvmOverloads constructor(
 
     private fun applyTextColors() {
         val bgRef = contrastBackgroundColor()
-        val onLight = isNearWhiteBackground(bgRef) || lightGlyphAccent != null
-        val lightAccent = if (onLight) lightGlyphAccent else null
+        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
         val textAlpha = MinimalClockTextStylePolicy.CLOCK_TEXT_ALPHA
         val shadow = MinimalClockTextStylePolicy.shadowLayer(onLight)
-        val tint = boostAlbumTint(albumTint ?: bgRef)
-        textPaint.color = MinimalClockTextStylePolicy.readableTextRgb(onLight, tint, lightAccent)
+        textPaint.color = MinimalClockTextStylePolicy.readableTextRgb(onLight, bgRef)
         textPaint.alpha = textAlpha
         textPaint.setShadowLayer(shadow.radius, 0f, shadow.dy, shadow.colorArgb)
     }
 
     private fun contrastBackgroundColor(): Int {
         sampleWallpaperBehind()?.let { return it }
-        return albumTint ?: Color.WHITE
+        return Color.rgb(40, 40, 44)
     }
 
     private fun sampleWallpaperBehind(): Int? {
@@ -388,17 +383,6 @@ class MusicMinimalClockView @JvmOverloads constructor(
         return (0.2126f * Color.red(color) +
             0.7152f * Color.green(color) +
             0.0722f * Color.blue(color)) / 255f
-    }
-
-    private fun isNearWhiteBackground(color: Int): Boolean {
-        if (colorLuminance(color) < 0.88f) return false
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        return hsv[1] < 0.18f
-    }
-
-    private fun boostAlbumTint(color: Int): Int {
-        return AlbumTintExtractPolicy.washAccentTowardWhite(color)
     }
 
     private fun resolveMiSans(): Typeface {

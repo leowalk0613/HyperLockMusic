@@ -497,7 +497,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         scheduleMiBlurEnhance()
     }
 
-    private fun styleBgRef(): Int? = contrastBackground ?: albumTint
+    private fun styleBgRef(): Int? = contrastBackground
 
     /** @deprecated 保留调用点；内部改为防抖增强，避免闪。 */
     fun requestStableMiBlur() = scheduleMiBlurEnhance()
@@ -643,31 +643,29 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
      */
     private fun applyTrueMiBlur(): Boolean {
         if (!isAttachedToWindow) return false
-        val bgRef = contrastBackground ?: albumTint ?: Color.rgb(40, 40, 44)
-        val tint = boostTint(albumTint ?: bgRef)
+        val bgRef = contrastBackground ?: Color.rgb(40, 40, 44)
         val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
         val passOnSelf = MagazinePageMiBlurPolicy.enablePassWindowBlur() &&
             !softGlassActive &&
             !(MagazinePageSoftGlassPolicy.enabled() && !MagazinePageSoftGlassPolicy.chromeEmbedsGlassLayer())
 
-        // 浅底：实色最稳，避免「只见阴影」
+        // 浅底：实色黑字最稳
         if (onLight || !HyperMiBlurHelper.isSupported(context)) {
             for (v in infoTextTargets()) {
                 try {
                     HyperMiBlurHelper.clearTextBlend(v)
                 } catch (_: Throwable) {
                 }
-                applyFallbackColors(v, tint, onLight = true)
+                applyFallbackColors(v, onLight = true)
             }
-            // 按钮仍可试 MiBlur
             if (HyperMiBlurHelper.isSupported(context)) {
-                applyButtonMiBlur(onLight = true, tint = tint, bgRef = bgRef, passOnSelf = passOnSelf)
+                applyButtonMiBlur(onLight = true, bgRef = bgRef, passOnSelf = passOnSelf)
             }
             return true
         }
 
-        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight = false, tint)
         val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight = false)
+        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight = false, primary)
         val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight = false)
         val alphas = MagazinePageTextStylePolicy.miBlurAlphas(onLight = false)
         val radius = (48f * density).toInt().coerceIn(32, 96)
@@ -688,25 +686,23 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             )
             if (!ok) {
                 infoOk = false
-                applyFallbackColors(v, tint, onLight = false)
+                applyFallbackColors(v, onLight = false)
                 continue
             }
             applyInfoTextAppearance(v, onLight = false, primary)
         }
-        applyButtonMiBlur(onLight = false, tint = tint, bgRef = bgRef, passOnSelf = passOnSelf)
+        applyButtonMiBlur(onLight = false, bgRef = bgRef, passOnSelf = passOnSelf)
         return infoOk
     }
 
     private fun applyButtonMiBlur(
         onLight: Boolean,
-        tint: Int,
         bgRef: Int,
         passOnSelf: Boolean,
     ) {
-        val lightAccent = if (onLight) lightGlyphAccent else null
-        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, tint, lightAccent)
-        val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight, lightAccent)
-        val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight, lightAccent)
+        val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight)
+        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, primary)
+        val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight)
         val alphas = MagazinePageTextStylePolicy.miBlurAlphas(onLight)
         val radius = (48f * density).toInt().coerceIn(32, 96)
         for (v in listOf(prevBtn, playPauseBtn, nextBtn, lyricBtn, exitBtn)) {
@@ -806,11 +802,10 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     private fun applyFallbackAll() {
-        val bgRef = contrastBackground ?: albumTint ?: Color.rgb(40, 40, 44)
-        val tint = boostTint(albumTint ?: bgRef)
+        val bgRef = contrastBackground ?: Color.rgb(40, 40, 44)
         val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
         for (v in infoTextTargets()) {
-            applyFallbackColors(v, tint, onLight)
+            applyFallbackColors(v, onLight)
         }
         for (v in listOf(prevBtn, playPauseBtn, nextBtn, lyricBtn, exitBtn)) {
             v.clearColorFilter()
@@ -827,9 +822,8 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         infoMiBlurActive = false
     }
 
-    private fun applyFallbackColors(v: View, tint: Int, onLight: Boolean) {
-        val lightAccent = if (onLight) lightGlyphAccent else null
-        val c = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, tint, lightAccent)
+    private fun applyFallbackColors(v: View, onLight: Boolean) {
+        val c = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, 0)
         if (v is TextView) {
             val solid = if (v === subtitleView || v === artistView) {
                 MagazinePageTextStylePolicy.fallbackSecondaryArgb(onLight, c)
@@ -837,23 +831,10 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 Color.argb(255, Color.red(c), Color.green(c), Color.blue(c))
             }
             v.setTextColor(solid)
-            // 白字：浅底加深黑晕，深底用常规阴影
             val sh = MagazinePageTextStylePolicy.fallbackShadow(onLight)
             v.setShadowLayer(sh.radius, 0f, sh.dy, sh.colorArgb)
         } else if (v is ImageButton) {
             v.clearColorFilter()
         }
-    }
-
-    private fun boostTint(color: Int): Int {
-        return AlbumTintExtractPolicy.washAccentTowardWhite(color)
-    }
-
-    private fun blendTextColor(base: Int, tint: Int, weight: Float): Int {
-        val w = weight.coerceIn(0f, 1f)
-        val r = (Color.red(base) * (1f - w) + Color.red(tint) * w).toInt().coerceIn(0, 255)
-        val g = (Color.green(base) * (1f - w) + Color.green(tint) * w).toInt().coerceIn(0, 255)
-        val b = (Color.blue(base) * (1f - w) + Color.blue(tint) * w).toInt().coerceIn(0, 255)
-        return Color.rgb(r, g, b)
     }
 }
