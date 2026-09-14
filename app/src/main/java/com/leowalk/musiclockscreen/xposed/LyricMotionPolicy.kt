@@ -15,7 +15,7 @@ internal object LyricMotionPolicy {
 
     private val settleMs: Long = AmllSpringMotion.settleMs(AmllSpringMotion.UI_SLIDE)
 
-    /** 沉浸三行晋升遗留名：现仅作弹簧滑动默认时长 */
+    /** 弹簧滑动默认时长（ms） */
     val STACK_SCROLL_MS: Long = 220L
 
     /** 普通切行：离场短、入场略长（串行总时长约 0.5s） */
