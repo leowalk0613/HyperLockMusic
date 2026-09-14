@@ -23,6 +23,13 @@ internal object ImmersiveLyricStackPolicy {
         screenInteractive: Boolean,
     ): Boolean = immersiveLyric && stackEnabled && screenInteractive
 
+    /**
+     * 三行上滑：向前切行即播（允许一次跳过多行仍滑一次）。
+     * [prevIndex]<0 表示尚未建立栈索引，首句只落位不动画。
+     */
+    fun shouldAnimateAdvance(prevIndex: Int, nextIndex: Int): Boolean =
+        prevIndex >= 0 && nextIndex > prevIndex
+
     data class Triplet(
         val prev: String,
         val current: String,

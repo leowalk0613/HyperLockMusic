@@ -1862,7 +1862,12 @@ class LockscreenLyricView(context: Context) : View(context) {
                         }
                     }
                 }
-                if (idxSize >= 0) cfgLyricSize = cursor.getFloat(idxSize)
+                var styleChanged = false
+                if (idxSize >= 0) {
+                    val newSize = cursor.getFloat(idxSize)
+                    if (newSize != cfgLyricSize) styleChanged = true
+                    cfgLyricSize = newSize
+                }
                 var swapChanged = false
                 if (idxSwap >= 0) {
                     val newSwap = cursor.getInt(idxSwap) != 0
@@ -1870,7 +1875,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                     cfgSwapLyric = newSwap
                 }
                 var positionChanged = false
-                var styleChanged = false
+                // styleChanged 可能已由 size 置位；勿在此重新清零
                 if (idxWidth >= 0) {
                     val newWidth = cursor.getFloat(idxWidth)
                     if (newWidth != cfgLyricWidth) positionChanged = true
@@ -1893,8 +1898,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                     cfgImmersiveLyric = newImmersive
                 }
                 if (idxHideBg >= 0) {
-                    cfgLyricHideBackground = cursor.getInt(idxHideBg) == 1
-                    styleChanged = true
+                    val newHideBg = cursor.getInt(idxHideBg) == 1
+                    if (newHideBg != cfgLyricHideBackground) styleChanged = true
+                    cfgLyricHideBackground = newHideBg
                 }
                 if (idxAlign >= 0) {
                     val newAlign = cursor.getString(idxAlign) ?: "left"
@@ -1917,7 +1923,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                 }
 
                 cursor.close()
-                applyLyricStyle()
+                applyLyricStyle(resetStackMotion = styleChanged)
                 if (swapChanged) {
                     applySwapIfNeeded()
                 }
@@ -1954,12 +1960,14 @@ class LockscreenLyricView(context: Context) : View(context) {
             val newShow = cfg.magazineShowLyric
             val showChanged = newShow != cfgShowLyric
             cfgShowLyric = newShow
-            cfgLyricSize = cfg.magazineLyricSize
             val newSwap = cfg.magazineSwapLyric
             val swapChanged = newSwap != cfgSwapLyric
             cfgSwapLyric = newSwap
             var positionChanged = false
             var styleChanged = false
+            val newSize = cfg.magazineLyricSize
+            if (newSize != cfgLyricSize) styleChanged = true
+            cfgLyricSize = newSize
             val newWidth = cfg.magazineLyricWidth
             if (newWidth != cfgLyricWidth) positionChanged = true
             cfgLyricWidth = newWidth
@@ -1978,8 +1986,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                 styleChanged = true
             }
             cfgImmersiveLyric = newImmersive
-            cfgLyricHideBackground = cfg.magazineLyricHideBackground
-            styleChanged = true
+            val newHideBg = cfg.magazineLyricHideBackground
+            if (newHideBg != cfgLyricHideBackground) styleChanged = true
+            cfgLyricHideBackground = newHideBg
             val newAlign = cfg.magazineLyricAlign
             if (newAlign != cfgLyricAlign) styleChanged = true
             cfgLyricAlign = newAlign
@@ -2001,7 +2010,8 @@ class LockscreenLyricView(context: Context) : View(context) {
                     finalizeLyricDisplayAfterContentUpdate()
                 }
             }
-            applyLyricStyle()
+            // 样式未变时也刷 paint/MiBlur，但勿 resetStackMotion（否则上滑被掐死）
+            applyLyricStyle(resetStackMotion = styleChanged)
             if (swapChanged) applySwapIfNeeded()
             if (styleChanged || positionChanged) {
                 // 锚点/沉浸切换后重钉底边，禁止保留旧 topMargin
@@ -2029,15 +2039,17 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
     }
 
-    private fun applyLyricStyle() {
-        cancelLineTransition()
-        cancelStackAnimator(commitPending = true)
-        stackScrollOffset = 0f
-        stackAnimProgress = 1f
-        stackViewportHeightPx = 0
-        lastStackLineIndex = -1
-        pendingStackTriplet = null
-        pendingStackIndex = -1
+    private fun applyLyricStyle(resetStackMotion: Boolean = true) {
+        if (resetStackMotion) {
+            cancelLineTransition()
+            cancelStackAnimator(commitPending = true)
+            stackScrollOffset = 0f
+            stackAnimProgress = 1f
+            stackViewportHeightPx = 0
+            lastStackLineIndex = -1
+            pendingStackTriplet = null
+            pendingStackIndex = -1
+        }
         val density = resources.displayMetrics.density
 
         val useMiSans = MagazinePageLyricVisualPolicy.shouldUseMiSansTypeface(
@@ -2077,26 +2089,30 @@ class LockscreenLyricView(context: Context) : View(context) {
             lp.rightMargin = 0
             lp.bottomMargin = 0
             // 样式变更后恢复 WRAP，由 onMeasure 自适应
-            lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            if (resetStackMotion) {
+                lp.width = ViewGroup.LayoutParams.WRAP_CONTENT
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
             layoutParams = lp
         }
 
-        mainStaticLayout = null
-        immersiveSecondStaticLayout = null
-        stackPrevLayout = null
-        stackCurrentLayout = null
-        stackCurrentSecondaryLayout = null
-        stackNextLayout = null
-        requestLayout()
-        if (!isMagazinePageHost()) {
-            MediaFollowController.requestReflow()
+        if (resetStackMotion) {
+            mainStaticLayout = null
+            immersiveSecondStaticLayout = null
+            stackPrevLayout = null
+            stackCurrentLayout = null
+            stackCurrentSecondaryLayout = null
+            stackNextLayout = null
+            requestLayout()
+            if (!isMagazinePageHost()) {
+                MediaFollowController.requestReflow()
+            }
         }
         invalidate()
     }
 
     /**
-     * 歌词文字：模糊底亮→黑字，否则白字；MiBlur 生效时清阴影以免盖住 blend。
+     * 歌词文字：模糊底亮→黑字，否则白字；MiBlur 与阴影并存（可读靠两者）。
      */
     private fun applyImmersiveTextColors() {
         val bgRef = contrastBackgroundColor()
@@ -2110,11 +2126,6 @@ class LockscreenLyricView(context: Context) : View(context) {
         secondPaint.color = MagazinePageTextStylePolicy.glyphSecondaryArgb(onLight)
         mainPaint.alpha = 255
         secondPaint.alpha = 255
-        if (immersiveMiBlurActive) {
-            mainPaint.setShadowLayer(0f, 0f, 0f, 0)
-            secondPaint.setShadowLayer(0f, 0f, 0f, 0)
-            return
-        }
         val sh = MagazinePageTextStylePolicy.glyphShadow(onLight)
         mainPaint.setShadowLayer(sh.radius, 0f, sh.dy, sh.colorArgb)
         secondPaint.setShadowLayer(sh.radius * 0.75f, 0f, sh.dy, sh.colorArgb)
@@ -2864,12 +2875,18 @@ class LockscreenLyricView(context: Context) : View(context) {
             bringToFront()
         } catch (_: Throwable) {
         }
-        requestLayout()
+        // 已可见且有尺寸：勿每轮 requestLayout，否则打断三行上滑
+        if (visibility != View.VISIBLE || width <= 0 || height <= 0) {
+            requestLayout()
+        }
         // 必须先 VISIBLE 再套 MiBlur（GONE 时 sync 会直接清掉）
         syncImmersiveMiBlur()
         if (!immersiveMiBlurActive) {
             applyImmersiveTextColors()
             requestMagazineMiBlurRefresh()
+        } else {
+            // MiBlur 已在：仍刷阴影/字色，避免首句后阴影被清掉后不恢复
+            applyImmersiveTextColors()
         }
         invalidate()
     }
@@ -3823,7 +3840,8 @@ class LockscreenLyricView(context: Context) : View(context) {
             index = index,
             swapEnabled = cfgSwapLyric,
         )
-        val indexChanged = lastStackLineIndex >= 0 && index != lastStackLineIndex
+        val prevIndex = lastStackLineIndex
+        val indexChanged = prevIndex >= 0 && index != prevIndex
         val textChanged =
             triplet.prev != stackPrevText ||
                 triplet.current != stackCurrentText ||
@@ -3850,8 +3868,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
 
-        val animate = indexChanged &&
-            index == lastStackLineIndex + 1 &&
+        val animate = ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex, index) &&
             shouldDisplayLyric() &&
             ImmersiveLyricStackPolicy.shouldUseStack(
                 immersiveLyric = true,

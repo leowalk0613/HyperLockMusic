@@ -59,6 +59,13 @@ class MagazinePageTextStylePolicyTest {
     }
 
     @Test
+    fun darkShadow_keepsVisibleHaloForMiBlur() {
+        val sh = MagazinePageTextStylePolicy.glyphShadow(onLight = false)
+        assertTrue(sh.radius > 0f)
+        assertTrue((sh.colorArgb ushr 24) > 0)
+    }
+
+    @Test
     fun chrome_alwaysUsesDarkBgWhiteGlyph() {
         // 底栏永白：即使背景被判为浅色，也应走白字路径参数
         val white = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = false)

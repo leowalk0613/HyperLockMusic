@@ -26,6 +26,15 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
+    fun shouldAnimateAdvance_forwardOnly_afterSeeded() {
+        assertFalse(ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex = -1, nextIndex = 0))
+        assertFalse(ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex = 0, nextIndex = 0))
+        assertTrue(ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex = 0, nextIndex = 1))
+        assertTrue(ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex = 0, nextIndex = 3))
+        assertFalse(ImmersiveLyricStackPolicy.shouldAnimateAdvance(prevIndex = 3, nextIndex = 2))
+    }
+
+    @Test
     fun resolveTriplet_keepsExpandedSecondary() {
         val lines = listOf(
             ImmersiveLyricStackPolicy.LineText("A", "a"),
