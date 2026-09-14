@@ -45,13 +45,29 @@ object TitleBracketKeepWordsPolicy {
         resolveEntries(stored).filter { it.enabled }.map { it.word }
 
     /**
-     * 括号内全文（忽略大小写、尾标点）命中已开启词 → 免处理。
-     * 例如 LIVE / Live / live / inst. / Instrumental。
+     * 括号内全文（忽略大小写、尾标点）命中已开启词 → 算免处理整词。
+     * 例如 LIVE / Live / live / inst. / Instrumental；`(LIVE Remix)` 不算。
      */
     fun shouldKeepBracketContent(inner: String, enabledWords: Collection<String>): Boolean {
         val key = normalizeKey(inner)
         if (key.isEmpty() || enabledWords.isEmpty()) return false
         return enabledWords.any { normalizeKey(it) == key }
+    }
+
+    /**
+     * 是否整段标题免处理：标题里至少有一个括号，且**每一个**括号都是免处理整词。
+     * 与其它括号混杂时返回 false，调用方应对全部括号做普通拆分。
+     */
+    fun shouldPreserveTitleUnprocessed(
+        title: String?,
+        enabledWords: Collection<String>,
+    ): Boolean {
+        if (title.isNullOrBlank() || enabledWords.isEmpty()) return false
+        val matches = TitleBracketHelper.BRACKET_RE.findAll(title).toList()
+        if (matches.isEmpty()) return false
+        return matches.all { m ->
+            shouldKeepBracketContent(m.groupValues[1].trim(), enabledWords)
+        }
     }
 
     /**

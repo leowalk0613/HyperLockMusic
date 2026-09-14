@@ -1,6 +1,8 @@
 package com.leowalk.musiclockscreen.xposed
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TitleBracketHelperTest {
@@ -8,48 +10,56 @@ class TitleBracketHelperTest {
     private val defaultsOn = TitleBracketKeepWordsPolicy.enabledWords("")
 
     @Test
-    fun keepLive_staysInMain_unaffectedBySplit() {
-        val (main, sub) = TitleBracketHelper.splitBrackets("Song Name (LIVE)", defaultsOn)
-        assertEquals("Song Name (LIVE)", main)
-        assertEquals("", sub)
+    fun soleKeepWord_preservesEntireTitle() {
+        assertEquals(
+            "Song Name (LIVE)" to "",
+            TitleBracketHelper.splitBrackets("Song Name (LIVE)", defaultsOn),
+        )
+        assertEquals(
+            "曲（Instrumental）" to "",
+            TitleBracketHelper.splitBrackets("曲（Instrumental）", defaultsOn),
+        )
+        assertEquals(
+            "A (LIVE) (inst)" to "",
+            TitleBracketHelper.splitBrackets("A (LIVE) (inst)", defaultsOn),
+        )
     }
 
     @Test
-    fun keepLive_fullwidthAndSquareBrackets() {
-        val (a, asub) = TitleBracketHelper.splitBrackets("曲（LIVE）", defaultsOn)
-        assertEquals("曲（LIVE）", a)
-        assertEquals("", asub)
-        val (b, bsub) = TitleBracketHelper.splitBrackets("曲【LIVE】名", defaultsOn)
-        assertEquals("曲【LIVE】名", b)
-        assertEquals("", bsub)
+    fun mixedKeepAndOther_processesAllBrackets() {
+        // 夹杂非免处理括号：LIVE 也不再特殊保留
+        val (main, sub) = TitleBracketHelper.splitBrackets(
+            "曲名 (LIVE)（现场版）",
+            defaultsOn,
+        )
+        assertEquals("曲名", main)
+        assertEquals("LIVE 现场版", sub)
+        assertFalse(
+            TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed(
+                "曲名 (LIVE)（现场版）",
+                defaultsOn,
+            ),
+        )
     }
 
     @Test
-    fun keepInst_withTrailingDot() {
-        val (main, sub) = TitleBracketHelper.splitBrackets("Track (inst.)", defaultsOn)
-        assertEquals("Track (inst.)", main)
-        assertEquals("", sub)
+    fun keepWordMixedInsideSameBracket_notPreserved() {
+        val (main, sub) = TitleBracketHelper.splitBrackets(
+            "Song (LIVE Remix)",
+            defaultsOn,
+        )
+        assertEquals("Song", main)
+        assertEquals("LIVE Remix", sub)
     }
 
     @Test
     fun disabledLive_goesToSubtitle() {
         val stored = TitleBracketKeepWordsPolicy.setEnabled("", "LIVE", false)
-        val (main, sub) = TitleBracketHelper.splitBrackets(
-            "Song Name (LIVE)",
-            TitleBracketKeepWordsPolicy.enabledWords(stored),
-        )
-        assertEquals("Song Name", main)
+        val words = TitleBracketKeepWordsPolicy.enabledWords(stored)
+        assertFalse(TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed("Song (LIVE)", words))
+        val (main, sub) = TitleBracketHelper.splitBrackets("Song (LIVE)", words)
+        assertEquals("Song", main)
         assertEquals("LIVE", sub)
-    }
-
-    @Test
-    fun keepInstrumental_andSplitRemix() {
-        val (main, sub) = TitleBracketHelper.splitBrackets(
-            "Track (Instrumental) (Remix)",
-            defaultsOn,
-        )
-        assertEquals("Track (Instrumental)", main)
-        assertEquals("Remix", sub)
     }
 
     @Test
@@ -60,50 +70,45 @@ class TitleBracketHelperTest {
     }
 
     @Test
-    fun customKeepWord_sameAsBuiltin() {
-        val stored = TitleBracketKeepWordsPolicy.tryAddCustom("", "Demo").second
-        val (main, sub) = TitleBracketHelper.splitBrackets(
-            "A (Demo) (现场版)",
-            TitleBracketKeepWordsPolicy.enabledWords(stored),
-        )
-        assertEquals("A (Demo)", main)
-        assertEquals("现场版", sub)
-    }
-
-    @Test
-    fun hideShrinkLine_modesKeepEnabledWordsInMain() {
-        val raw = "曲名 (LIVE)（现场版）"
-        val (main, sub) = TitleBracketHelper.splitBrackets(raw, defaultsOn)
-        assertEquals("曲名 (LIVE)", main)
-        assertEquals("现场版", sub)
-
-        val hide = MagazinePageChromePolicy.resolveTitleDisplay(raw, "hide", defaultsOn)
-        assertEquals("曲名 (LIVE)", hide.first)
-        assertEquals("", hide.second)
-
-        val shrink = MagazinePageChromePolicy.resolveTitleDisplay(raw, "shrink", defaultsOn)
-        assertEquals("曲名 (LIVE)", shrink.first)
-        assertEquals("现场版", shrink.second)
-
-        val line = MagazinePageChromePolicy.resolveTitleDisplay(raw, "line", defaultsOn)
-        assertEquals("曲名 (LIVE)", line.first)
-        assertEquals("现场版", line.second)
-        assertTrue(line.third)
-
-        // 仅免处理词：三种模式都不得拆掉括号
+    fun modes_soleKeep_untouched() {
         val onlyKeep = "歌名（LIVE）"
         assertEquals(onlyKeep, MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "hide", defaultsOn).first)
         assertEquals(onlyKeep, MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "shrink", defaultsOn).first)
         assertEquals(onlyKeep, MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "line", defaultsOn).first)
+        assertFalse(MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "line", defaultsOn).third)
+    }
+
+    @Test
+    fun modes_mixed_processesKeepToo() {
+        val raw = "曲名 (LIVE)（现场版）"
+        val hide = MagazinePageChromePolicy.resolveTitleDisplay(raw, "hide", defaultsOn)
+        assertEquals("曲名", hide.first)
+
+        val line = MagazinePageChromePolicy.resolveTitleDisplay(raw, "line", defaultsOn)
+        assertEquals("曲名", line.first)
+        assertEquals("LIVE 现场版", line.second)
+        assertTrue(line.third)
+
+        val shrink = MagazinePageChromePolicy.resolveTitleDisplay(raw, "shrink", defaultsOn)
+        assertEquals("曲名", shrink.first)
+        assertEquals("LIVE 现场版", shrink.second)
+    }
+
+    @Test
+    fun soleKeep_withPrefixSymbol_stillPreserved() {
+        val title = "熱視線DAZZLING☆(Instrumental)"
+        assertTrue(
+            TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed(title, defaultsOn),
+        )
+        assertEquals(
+            title to "",
+            TitleBracketHelper.splitBrackets(title, defaultsOn),
+        )
     }
 
     @Test
     fun emptyTitle() {
         assertEquals("" to "", TitleBracketHelper.splitBrackets(null))
         assertEquals("" to "", TitleBracketHelper.splitBrackets(""))
-    }
-
-    private fun assertTrue(v: Boolean) {
-        org.junit.Assert.assertTrue(v)
     }
 }

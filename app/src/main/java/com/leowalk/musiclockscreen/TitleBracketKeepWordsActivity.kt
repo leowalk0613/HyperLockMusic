@@ -29,7 +29,8 @@ class TitleBracketKeepWordsActivity : BaseScrollingActivity() {
                 this,
                 M3.tipContent(
                     this,
-                    "勾选启用后，括号内整词匹配不受隐藏 / 缩小 / 分行影响，仍原样留在主标题。" +
+                    "勾选启用后：仅当歌名里出现的括号全部是免处理整词（如只有 (LIVE)）时，" +
+                        "隐藏 / 缩小 / 分行都不会动它；与其它括号混用则全部按普通处理。" +
                         "词库与普通锁屏、画报共用。",
                 ),
             ),

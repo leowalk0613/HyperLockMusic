@@ -8,6 +8,29 @@ import org.junit.Test
 class TitleBracketKeepWordsPolicyTest {
 
     @Test
+    fun preserveOnlyWhenEveryBracketIsKeepWord() {
+        val words = TitleBracketKeepWordsPolicy.enabledWords("")
+        assertTrue(
+            TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed("A (LIVE)", words),
+        )
+        assertTrue(
+            TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed(
+                "A (LIVE)(Instrumental)",
+                words,
+            ),
+        )
+        assertFalse(
+            TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed(
+                "A (LIVE)(现场版)",
+                words,
+            ),
+        )
+        assertFalse(
+            TitleBracketKeepWordsPolicy.shouldPreserveTitleUnprocessed("A (LIVE Remix)", words),
+        )
+    }
+
+    @Test
     fun entryPageSummary_showsEnabledCount() {
         val entries = TitleBracketKeepWordsPolicy.resolveEntries("LIVE=1,inst=0,Instrumental=1")
         assertEquals(
