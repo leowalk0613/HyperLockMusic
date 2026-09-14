@@ -32,13 +32,13 @@
 
 | 项目 | 说明 |
 |------|------|
-| 系统 | **HyperOS 4**（以 `4.0.0.14` 为开发与验证基准） |
+| 系统 | **HyperOS 4**（以 `4.0.0.8.XOCCNXM.D01` 为开发与验证基准） |
 | Android | **Android 17**（开发机） |
 | 框架 | LSPosed（API **102+**，libxposed） |
 | Root | 需要（LSPosed；应用内「重启界面」亦需 `su`） |
 | 歌词 | 建议安装并启用 **LyricFocus**（外部渲染） |
 
-**测试机型：** Xiaomi 14，HyperOS 4 `4.0.0.14`，Android 17。
+**测试机型：** Xiaomi 14，HyperOS 4 `4.0.0.8.XOCCNXM.D01`，Android 17。
 
 > **不支持 MIUI。** 钩子针对 HyperOS 4 锁屏 / SystemUI / AOD 编写，MIUI 及 HyperOS 1/2/3 无法正常使用。其他机型与版本未充分测试。
 
