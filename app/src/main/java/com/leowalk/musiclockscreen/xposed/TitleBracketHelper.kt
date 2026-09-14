@@ -1,8 +1,9 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 歌名括号拆分（与 aodchange LyricHook 一致）。
- * [keepWords] 为自定义「不分离」词；内置 LIVE / inst / Instrumental 始终生效。
+ * 歌名括号拆分。
+ * [keepWords] 为已开启的「免处理」词：匹配的括号段原样留在主标题，
+ * 不受隐藏 / 缩小 / 分行影响。
  */
 object TitleBracketHelper {
 
@@ -22,7 +23,6 @@ object TitleBracketHelper {
             if (inner.isNotEmpty() &&
                 TitleBracketKeepWordsPolicy.shouldKeepBracketContent(inner, keepWords)
             ) {
-                // 保留原始括号形态，留在主标题
                 main.append(match.value)
             } else if (inner.isNotEmpty()) {
                 if (sub.isNotEmpty()) sub.append(' ')

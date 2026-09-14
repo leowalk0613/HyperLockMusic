@@ -608,21 +608,57 @@ object ModuleConfig {
         set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_MODE, value).apply()
 
     /**
-     * 括号「不分离」自定义词（逗号分隔）。普通锁屏与画报共用同一份。
-     * 内置 LIVE / inst / Instrumental 始终生效，不写入本字段。
+     * 括号「免处理」词库（`词=0/1`）。普通锁屏与画报共用。
+     * 空/未写：内置词默认全开。
      */
     var titleBracketKeepWords: String
         get() = getPrefs().getString(KEY_TITLE_BRACKET_KEEP_WORDS, "") ?: ""
         set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_KEEP_WORDS, value).apply()
 
+    /** 已开启的免处理词（含内置与自定义），供拆分匹配。 */
     fun getTitleBracketKeepWords(): List<String> =
-        com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.parseCustomWords(
+        com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.enabledWords(
             titleBracketKeepWords,
         )
 
-    fun saveTitleBracketKeepWords(words: Collection<String>) {
+    fun getTitleBracketKeepEntries():
+        List<com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.Entry> =
+        com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.resolveEntries(
+            titleBracketKeepWords,
+        )
+
+    fun saveTitleBracketKeepEntries(
+        entries: Collection<com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.Entry>,
+    ) {
         titleBracketKeepWords =
-            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.serializeCustomWords(words)
+            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.serializeEntries(entries)
+    }
+
+    fun setTitleBracketKeepWordEnabled(word: String, enabled: Boolean) {
+        titleBracketKeepWords =
+            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.setEnabled(
+                titleBracketKeepWords,
+                word,
+                enabled,
+            )
+    }
+
+    fun addTitleBracketKeepWord(word: String): Boolean {
+        val (ok, next) =
+            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.tryAddCustom(
+                titleBracketKeepWords,
+                word,
+            )
+        if (ok) titleBracketKeepWords = next
+        return ok
+    }
+
+    fun removeTitleBracketKeepWord(word: String) {
+        titleBracketKeepWords =
+            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.removeCustom(
+                titleBracketKeepWords,
+                word,
+            )
     }
 
     /** 开启后仅白名单内应用可开启/保持音乐锁屏 */

@@ -5,40 +5,82 @@ import org.junit.Test
 
 class TitleBracketHelperTest {
 
+    private val defaultsOn = TitleBracketKeepWordsPolicy.enabledWords("")
+
     @Test
-    fun keepLive_staysInMain() {
-        val (main, sub) = TitleBracketHelper.splitBrackets("Song Name (LIVE)")
+    fun keepLive_staysInMain_unaffectedBySplit() {
+        val (main, sub) = TitleBracketHelper.splitBrackets("Song Name (LIVE)", defaultsOn)
         assertEquals("Song Name (LIVE)", main)
         assertEquals("", sub)
     }
 
     @Test
+    fun disabledLive_goesToSubtitle() {
+        val stored = TitleBracketKeepWordsPolicy.setEnabled("", "LIVE", false)
+        val (main, sub) = TitleBracketHelper.splitBrackets(
+            "Song Name (LIVE)",
+            TitleBracketKeepWordsPolicy.enabledWords(stored),
+        )
+        assertEquals("Song Name", main)
+        assertEquals("LIVE", sub)
+    }
+
+    @Test
     fun keepInstrumental_andSplitRemix() {
-        val (main, sub) = TitleBracketHelper.splitBrackets("Track (Instrumental) (Remix)")
+        val (main, sub) = TitleBracketHelper.splitBrackets(
+            "Track (Instrumental) (Remix)",
+            defaultsOn,
+        )
         assertEquals("Track (Instrumental)", main)
         assertEquals("Remix", sub)
     }
 
     @Test
     fun chineseBracket_splitAsSubtitle() {
-        val (main, sub) = TitleBracketHelper.splitBrackets("歌名（现场版）")
+        val (main, sub) = TitleBracketHelper.splitBrackets("歌名（现场版）", defaultsOn)
         assertEquals("歌名", main)
         assertEquals("现场版", sub)
     }
 
     @Test
-    fun customKeepWord() {
+    fun customKeepWord_sameAsBuiltin() {
+        val stored = TitleBracketKeepWordsPolicy.tryAddCustom("", "Demo").second
         val (main, sub) = TitleBracketHelper.splitBrackets(
             "A (Demo) (现场版)",
-            keepWords = listOf("Demo"),
+            TitleBracketKeepWordsPolicy.enabledWords(stored),
         )
         assertEquals("A (Demo)", main)
         assertEquals("现场版", sub)
     }
 
     @Test
+    fun hideShrinkLine_modesKeepEnabledWordsInMain() {
+        val raw = "曲名 (LIVE)（现场版）"
+        val (main, sub) = TitleBracketHelper.splitBrackets(raw, defaultsOn)
+        assertEquals("曲名 (LIVE)", main)
+        assertEquals("现场版", sub)
+
+        val hide = MagazinePageChromePolicy.resolveTitleDisplay(raw, "hide", defaultsOn)
+        assertEquals("曲名 (LIVE)", hide.first)
+        assertEquals("", hide.second)
+
+        val shrink = MagazinePageChromePolicy.resolveTitleDisplay(raw, "shrink", defaultsOn)
+        assertEquals("曲名 (LIVE)", shrink.first)
+        assertEquals("现场版", shrink.second)
+
+        val line = MagazinePageChromePolicy.resolveTitleDisplay(raw, "line", defaultsOn)
+        assertEquals("曲名 (LIVE)", line.first)
+        assertEquals("现场版", line.second)
+        assertTrue(line.third)
+    }
+
+    @Test
     fun emptyTitle() {
         assertEquals("" to "", TitleBracketHelper.splitBrackets(null))
         assertEquals("" to "", TitleBracketHelper.splitBrackets(""))
+    }
+
+    private fun assertTrue(v: Boolean) {
+        org.junit.Assert.assertTrue(v)
     }
 }

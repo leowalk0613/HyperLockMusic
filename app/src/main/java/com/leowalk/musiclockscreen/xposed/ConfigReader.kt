@@ -263,10 +263,10 @@ object ConfigReader {
         return cachedTitleBracketMode
     }
 
-    /** 括号不分离自定义词（与画报共用同一 ContentProvider 字段）。 */
+    /** 括号免处理已开启词（与画报共用同一 ContentProvider 字段）。 */
     fun titleBracketKeepWords(context: Context): List<String> {
         refreshConfigIfNeeded(context)
-        return TitleBracketKeepWordsPolicy.parseCustomWords(cachedTitleBracketKeepWords)
+        return TitleBracketKeepWordsPolicy.enabledWords(cachedTitleBracketKeepWords)
     }
 
     /** AOD 时完整显示媒体控件并实时更新进度条 */

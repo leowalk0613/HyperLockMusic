@@ -157,7 +157,7 @@ class MagazinePageChromePolicyTest {
         val keep = MagazinePageChromePolicy.resolveTitleDisplay(
             "Song (LIVE)（现场版）",
             "line",
-            keepWords = emptyList(),
+            keepWords = TitleBracketKeepWordsPolicy.enabledWords(""),
         )
         assertEquals("Song (LIVE)", keep.first)
         assertEquals("现场版", keep.second)
@@ -171,6 +171,14 @@ class MagazinePageChromePolicyTest {
         assertEquals("A (Demo)", custom.first)
         assertEquals("", custom.second)
         assertFalse(custom.third)
+
+        val hideKeep = MagazinePageChromePolicy.resolveTitleDisplay(
+            "Song (LIVE)（现场版）",
+            "hide",
+            keepWords = TitleBracketKeepWordsPolicy.enabledWords(""),
+        )
+        assertEquals("Song (LIVE)", hideKeep.first)
+        assertFalse(hideKeep.third)
     }
 
     @Test

@@ -1,7 +1,6 @@
 package com.leowalk.musiclockscreen
 
 import android.util.TypedValue
-import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -138,7 +137,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
             })
 
             titleCard.addView(TextView(this).apply {
-                text = "不分离词汇（普通锁屏与画报共用）"
+                text = "免处理词汇（普通锁屏与画报共用）"
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_ROW_TITLE_SP)
                 setTextColor(
                     M3.attrColor(
@@ -153,7 +152,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                 ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 14f) }
             })
             titleCard.addView(TextView(this).apply {
-                text = "括号内整词匹配时留在主标题，例如 (LIVE)、(inst)。内置词不可删，可添加自定义。"
+                text = "开关开启时：括号内整词匹配不受隐藏 / 缩小 / 分行影响，仍原样显示在主标题括号里。"
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
                 setTextColor(
                     M3.attrColor(
@@ -190,15 +189,15 @@ class OtherSettingsActivity : BaseScrollingActivity() {
 
         list.addView(M3.card(this, M3.tipContent(this,
             if (mag) {
-                "画报模式：模糊 / 常亮 / 括号显示模式为画报独立档案；「不分离词汇」与普通锁屏互通。\n\n" +
-                    "模糊只改画报页壁纸烘焙；常亮作用于右划自建页；括号模式作用于画报底栏标题。\n\n" +
+                "画报模式：模糊 / 常亮 / 括号显示模式为画报独立档案；「免处理词汇」与普通锁屏互通。\n\n" +
+                    "开启的词在隐藏 / 缩小 / 分行下仍留在主标题括号内。\n\n" +
                     "修改后可重新进入画报页查看效果。"
             } else {
                 "模糊：壁纸用金字塔降采样 + box blur 烘焙（滑杆直接控制力度），锁屏再叠 MiBlur 遮罩；解锁清遮罩不影响桌面。改完请重新开关音乐锁屏。\n\n" +
                     "禁用息屏壁纸缩放对大专辑、沉浸封面与仅歌词模式均生效。\n\n" +
                     "AOD 完整媒体控件需重启系统界面后生效。\n\n" +
-                    "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行时主标题单行，有括号才显示副标题，并上拉歌手间距。\n\n" +
-                    "不分离词汇与画报设置页共用同一词库。\n\n" +
+                    "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行时主标题单行，有括号才显示副标题。\n\n" +
+                    "免处理词汇（内置 / 自定义均可开关）不受上述三种模式影响，括号原样留在主标题；词库与画报共用。\n\n" +
                     "修改后需重启系统界面或重新开关音乐锁屏生效。"
             })))
 
@@ -214,51 +213,35 @@ class OtherSettingsActivity : BaseScrollingActivity() {
     private fun refreshKeepWordsList() {
         val host = keepWordsList ?: return
         host.removeAllViews()
-        TitleBracketKeepWordsPolicy.DEFAULT_WORDS.forEach { word ->
-            host.addView(keepWordRow(word, removable = false))
-        }
-        ModuleConfig.getTitleBracketKeepWords().forEach { word ->
-            host.addView(keepWordRow(word, removable = true))
+        ModuleConfig.getTitleBracketKeepEntries().forEach { entry ->
+            host.addView(keepWordRow(entry))
         }
     }
 
-    private fun keepWordRow(word: String, removable: Boolean): LinearLayout {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 4f) }
+    private fun keepWordRow(entry: TitleBracketKeepWordsPolicy.Entry): LinearLayout {
+        val label = if (entry.builtin) "${entry.word}（内置）" else entry.word
+        val row = M3.switchRow(
+            this,
+            label,
+            if (entry.builtin) null else "关闭后按普通括号处理；可删除",
+            entry.enabled,
+        ) { checked ->
+            ModuleConfig.setTitleBracketKeepWordEnabled(entry.word, checked)
+            ModuleConfig.push(this)
         }
-        row.addView(TextView(this).apply {
-            text = if (removable) word else "$word（内置）"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
-            setTextColor(
-                M3.attrColor(
-                    this@OtherSettingsActivity,
-                    com.google.android.material.R.attr.colorOnSurface,
-                    0xFFE6E1E5.toInt(),
-                ),
+        if (!entry.builtin) {
+            row.addView(
+                MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    text = "删除"
+                    minimumHeight = 0
+                    minHeight = 0
+                    setOnClickListener {
+                        ModuleConfig.removeTitleBracketKeepWord(entry.word)
+                        ModuleConfig.push(this@OtherSettingsActivity)
+                        refreshKeepWordsList()
+                    }
+                },
             )
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        if (removable) {
-            row.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                text = "删除"
-                minimumHeight = 0
-                minHeight = 0
-                setOnClickListener {
-                    val next = ModuleConfig.getTitleBracketKeepWords()
-                        .filterNot {
-                            TitleBracketKeepWordsPolicy.normalizeKey(it) ==
-                                TitleBracketKeepWordsPolicy.normalizeKey(word)
-                        }
-                    ModuleConfig.saveTitleBracketKeepWords(next)
-                    ModuleConfig.push(this@OtherSettingsActivity)
-                    refreshKeepWordsList()
-                }
-            })
         }
         return row
     }
@@ -296,8 +279,8 @@ class OtherSettingsActivity : BaseScrollingActivity() {
         dialogView.addView(err)
 
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("添加不分离词")
-            .setMessage("括号内全文匹配（忽略大小写）时不拆到副标题。词库与画报/普通锁屏互通。")
+            .setTitle("添加免处理词")
+            .setMessage("开启后括号内全文匹配（忽略大小写）不受隐藏 / 缩小 / 分行影响。词库两边互通。")
             .setView(dialogView)
             .setPositiveButton("添加", null)
             .setNegativeButton(android.R.string.cancel, null)
@@ -308,17 +291,10 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                 when {
                     raw.trim().isEmpty() -> err.text = "请输入词汇"
                     TitleBracketKeepWordsPolicy.isDefaultWord(raw) ->
-                        err.text = "已是内置词，无需添加"
+                        err.text = "已是内置词，请直接开关"
+                    !ModuleConfig.addTitleBracketKeepWord(raw) ->
+                        err.text = "该词已在列表中"
                     else -> {
-                        val (added, next) = TitleBracketKeepWordsPolicy.tryAddCustomWord(
-                            ModuleConfig.getTitleBracketKeepWords(),
-                            raw,
-                        )
-                        if (!added) {
-                            err.text = "该词已在列表中"
-                            return@setOnClickListener
-                        }
-                        ModuleConfig.saveTitleBracketKeepWords(next)
                         ModuleConfig.push(this)
                         refreshKeepWordsList()
                         dialog.dismiss()
