@@ -472,32 +472,27 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     fun setAlbumTint(color: Int?, lightGlyph: Int? = null) {
+        // 底栏字/钮永白，专辑 tint 不改字色；保留字段供玻璃层等旁路使用
         if (albumTint == color && lightGlyphAccent == lightGlyph) return
-        val prevLight = styleBgRef()?.let { MagazinePageTextStylePolicy.isLightBackground(it) }
         albumTint = color
         lightGlyphAccent = lightGlyph
-        val nextLight = styleBgRef()?.let { MagazinePageTextStylePolicy.isLightBackground(it) }
-        if (prevLight != nextLight || !infoMiBlurActive) {
+        if (!infoMiBlurActive) {
             paintSolidReadable(clearBlur = true)
         }
         scheduleMiBlurEnhance()
     }
 
     /**
-     * 与歌词对齐：壁纸对比色（亮度判定）优先于专辑取色。
+     * 保留调用点；底栏不再跟对比色变黑/白。
      */
     fun setContrastBackground(color: Int?) {
         if (contrastBackground == color) return
-        val prevLight = styleBgRef()?.let { MagazinePageTextStylePolicy.isLightBackground(it) }
         contrastBackground = color
-        val nextLight = styleBgRef()?.let { MagazinePageTextStylePolicy.isLightBackground(it) }
-        if (prevLight != nextLight || !infoMiBlurActive) {
+        if (!infoMiBlurActive) {
             paintSolidReadable(clearBlur = true)
         }
         scheduleMiBlurEnhance()
     }
-
-    private fun styleBgRef(): Int? = contrastBackground
 
     /** @deprecated 保留调用点；内部改为防抖增强，避免闪。 */
     fun requestStableMiBlur() = scheduleMiBlurEnhance()
@@ -636,13 +631,13 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * 套真·MiBlur（黑字/白字都走；浅底 colorDark=true）。
+     * 套真·MiBlur（歌曲信息/控件永白，colorDark=false）。
      * 柔光玻璃已由 [glassLayer] 承担 PassWindowBlur 时，字/钮不再自开 pass blur，避免双层冲突。
      */
     private fun applyTrueMiBlur(): Boolean {
         if (!isAttachedToWindow) return false
-        val bgRef = contrastBackground ?: Color.rgb(40, 40, 44)
-        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
+        // 歌曲信息 + 控件：永白（不跟浅/深模糊底切换）
+        val onLight = false
         if (!HyperMiBlurHelper.isSupported(context)) {
             for (v in infoTextTargets()) {
                 applyFallbackColors(v, onLight)
@@ -665,7 +660,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 view = v,
                 blendColor = blend,
                 primaryColor = primary,
-                colorDark = onLight,
+                colorDark = false,
                 enablePassBlurOnSelf = passOnSelf,
                 sampleSiblingContent = MagazinePageMiBlurPolicy.sampleSiblingContent(),
                 passBlurRadius = radius,
@@ -680,15 +675,12 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             }
             applyInfoTextAppearance(v, onLight, primary)
         }
-        applyButtonMiBlur(onLight = onLight, bgRef = bgRef, passOnSelf = passOnSelf)
+        applyButtonMiBlur(passOnSelf = passOnSelf)
         return infoOk
     }
 
-    private fun applyButtonMiBlur(
-        onLight: Boolean,
-        bgRef: Int,
-        passOnSelf: Boolean,
-    ) {
+    private fun applyButtonMiBlur(passOnSelf: Boolean) {
+        val onLight = false
         val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight)
         val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, primary)
         val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight)
@@ -699,7 +691,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
                 view = v,
                 blendColor = blend,
                 primaryColor = primary,
-                colorDark = onLight,
+                colorDark = false,
                 enablePassBlurOnSelf = passOnSelf,
                 sampleSiblingContent = MagazinePageMiBlurPolicy.sampleSiblingContent(),
                 passBlurRadius = radius,
@@ -791,8 +783,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     private fun applyFallbackAll() {
-        val bgRef = contrastBackground ?: Color.rgb(40, 40, 44)
-        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
+        val onLight = false // 永白
         for (v in infoTextTargets()) {
             applyFallbackColors(v, onLight)
         }

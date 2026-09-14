@@ -57,4 +57,13 @@ class MagazinePageTextStylePolicyTest {
         val sh = MagazinePageTextStylePolicy.glyphShadow(onLight = true)
         assertEquals(0, MagazinePageTextStylePolicy.red(sh.colorArgb))
     }
+
+    @Test
+    fun chrome_alwaysUsesDarkBgWhiteGlyph() {
+        // 底栏永白：即使背景被判为浅色，也应走白字路径参数
+        val white = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = false)
+        assertEquals(0xFF, MagazinePageTextStylePolicy.red(white))
+        assertEquals(0xFF, MagazinePageTextStylePolicy.green(white))
+        assertEquals(0xFF, MagazinePageTextStylePolicy.blue(white))
+    }
 }

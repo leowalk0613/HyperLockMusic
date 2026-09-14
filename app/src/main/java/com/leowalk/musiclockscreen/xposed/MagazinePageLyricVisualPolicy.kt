@@ -21,14 +21,16 @@ internal object MagazinePageLyricVisualPolicy {
         magazinePageHost
 
     /**
-     * 画报对比度参考色：优先与底栏共用的亮度代表色（非 accent），再采样 / fogTint。
+     * 画报歌词对比度：只采模糊壁纸，绝不回退专辑 contrast / fogTint
+     *（白封面会误判黑字叠在深色模糊底上）。
      */
+    @Suppress("UNUSED_PARAMETER")
     fun magazineContrastBackground(
         sharedContrast: Int?,
         fogTint: Int?,
         sampledBehindLyrics: Int?,
         defaultColor: Int,
-    ): Int = sharedContrast ?: sampledBehindLyrics ?: fogTint ?: defaultColor
+    ): Int = sampledBehindLyrics ?: defaultColor
 
     /**
      * 画报页传入当次烘培壁纸副本时，勿用 Session 缓存 trackKey 否决取色

@@ -101,7 +101,10 @@ class LockscreenLyricView(context: Context) : View(context) {
     fun setMagazineWallpaperForTint(bitmap: Bitmap?) {
         magazineWallpaperBitmap = bitmap?.takeIf { !it.isRecycled }
         if (isMagazinePageHost()) {
+            immersiveMiBlurBlendKey = 0
+            magazineMiBlurRevealed = true
             requestMagazineMiBlurRefresh()
+            updateVisibilityState()
             invalidate()
         }
     }
@@ -110,7 +113,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         magazineWallpaperBitmap = null
     }
 
-    /** 画报页：accent 染色 + contrast 判深浅（与底栏成对广播）。 */
+    /** 画报页：壁纸对比刷新；字色只采模糊壁纸，不跟专辑 contrast。 */
     fun applyMagazineAlbumTint(
         accent: Int,
         contrast: Int = accent,
@@ -118,12 +121,15 @@ class LockscreenLyricView(context: Context) : View(context) {
     ) {
         if (!isMagazinePageHost()) return
         fogTintColor = accent
-        magazineContrastColor = contrast
-        albumContrastColor = contrast
-        this.lightGlyphAccent = lightGlyphAccent
+        // 不再用专辑 contrast 判深浅（白封面会黑字叠深底）
+        magazineContrastColor = null
+        albumContrastColor = null
+        this.lightGlyphAccent = null
         showFogBackground = !cfgImmersiveLyric
         immersiveMiBlurBlendKey = 0
+        magazineMiBlurRevealed = true
         requestMagazineMiBlurRefresh()
+        updateVisibilityState()
         try {
             magazineChromeStyleSync?.invoke()
         } catch (_: Throwable) {
@@ -1515,7 +1521,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                             "prominent=${tintPair.hasProminentAccent}"
                     )
                     if (magazineHost) {
-                        magazineContrastColor = tintPair.contrast
+                        magazineContrastColor = null
                     }
                     if (!magazineHost) {
                         LockscreenClockController.onAlbumTint(
@@ -2206,13 +2212,11 @@ class LockscreenLyricView(context: Context) : View(context) {
 
     /**
      * 歌词区域背后的模糊壁纸代表色（对比度判断用）。
-     * 不回退专辑 tint：字色只跟模糊底走。
+     * 画报/锁屏一律只采壁纸；绝不回退专辑 tint（白封面会误判黑字）。
      */
     private fun contrastBackgroundColor(): Int {
         sampleWallpaperBehindLyrics()?.let { return it }
-        if (isMagazinePageHost()) {
-            magazineContrastColor?.let { return it }
-        }
+        // 默认当深底：白字，保证可见
         return Color.rgb(40, 40, 44)
     }
 
@@ -2232,12 +2236,18 @@ class LockscreenLyricView(context: Context) : View(context) {
             val screenW = resources.displayMetrics.widthPixels.coerceAtLeast(1)
             val loc = IntArray(2)
             getLocationOnScreen(loc)
-            val centerY = if (height > 0) {
+            // 画报歌词常在中部；未 layout 时用屏高 42% 作采样点，避免回退专辑色
+            val fallbackY = if (isMagazinePageHost()) {
+                (screenH * 0.42f).toInt()
+            } else {
+                ((cfgLyricBgAnchorY / 100f) * screenH).toInt()
+            }
+            val centerY = if (height > 0 && loc[1] > 0) {
                 (loc[1] + height / 2).coerceIn(0, screenH - 1)
             } else {
-                ((cfgLyricBgAnchorY / 100f) * screenH).toInt().coerceIn(0, screenH - 1)
+                fallbackY.coerceIn(0, screenH - 1)
             }
-            val centerX = if (width > 0) {
+            val centerX = if (width > 0 && loc[0] >= 0) {
                 (loc[0] + width / 2).coerceIn(0, screenW - 1)
             } else {
                 screenW / 2
@@ -2841,7 +2851,12 @@ class LockscreenLyricView(context: Context) : View(context) {
             bringToFront()
         } catch (_: Throwable) {
         }
+        // 保证露出时字色已按壁纸对比算过（避免黑字叠深底）
+        immersiveMiBlurBlendKey = 0
         syncImmersiveMiBlur()
+        if (!immersiveMiBlurActive) {
+            applyImmersiveTextColors()
+        }
         invalidate()
     }
 

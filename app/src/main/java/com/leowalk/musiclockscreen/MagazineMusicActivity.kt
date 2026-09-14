@@ -408,10 +408,9 @@ class MagazineMusicActivity : AppCompatActivity() {
             setMagazineChromeStyleSync {
                 chromeView?.syncStyleWithLyric()
             }
-            setMagazineSharedTintListener { contrast, accent, lightGlyph ->
-                // 歌词侧 recovery / 独立取色：底栏跟同一对 contrast+accent（含浅底突出色）
+            setMagazineSharedTintListener { _, accent, lightGlyph ->
+                // 底栏字/钮永白；仅同步玻璃旁路 tint，不跟 contrast 变色
                 chromeView?.setAlbumTint(accent, lightGlyph)
-                chromeView?.setContrastBackground(contrast)
                 chromeView?.syncStyleWithLyric()
             }
             setMagazineAlbumSlotListener { hideAlbum ->
@@ -564,10 +563,9 @@ class MagazineMusicActivity : AppCompatActivity() {
         }
     }
 
-    /** 底栏 + 歌词共用 contrast（深浅）、accent（染色）与浅底突出字色。 */
+    /** 底栏永白；歌词字色只采模糊壁纸（见 LockscreenLyricView）。 */
     private fun applySharedMagazineTint(contrast: Int, accent: Int, lightGlyph: Int? = null) {
         chromeView?.setAlbumTint(accent, lightGlyph)
-        chromeView?.setContrastBackground(contrast)
         lyricView?.applyMagazineAlbumTint(accent, contrast, lightGlyph)
         chromeView?.syncStyleWithLyric()
     }

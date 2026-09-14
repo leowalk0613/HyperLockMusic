@@ -62,21 +62,22 @@ class MagazinePageLyricVisualPolicyTest {
     }
 
     @Test
-    fun magazineContrast_prefersSharedContrast() {
+    fun magazineContrast_wallpaperSampleOnly_ignoresAlbumContrast() {
         val contrast = 0xFFCCCCCC.toInt()
         val fog = 0xFFAA44AA.toInt()
         val sampled = 0xFF222222.toInt()
         val def = 0xFF28282C.toInt()
+        // 有壁纸采样时只用采样，忽略专辑 contrast / fog
         assertEquals(
-            contrast,
+            sampled,
             MagazinePageLyricVisualPolicy.magazineContrastBackground(contrast, fog, sampled, def),
         )
         assertEquals(
-            sampled,
-            MagazinePageLyricVisualPolicy.magazineContrastBackground(null, fog, sampled, def),
+            def,
+            MagazinePageLyricVisualPolicy.magazineContrastBackground(contrast, fog, null, def),
         )
         assertEquals(
-            fog,
+            def,
             MagazinePageLyricVisualPolicy.magazineContrastBackground(null, fog, null, def),
         )
         assertEquals(
