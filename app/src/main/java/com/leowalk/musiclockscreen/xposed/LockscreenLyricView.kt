@@ -119,6 +119,7 @@ class LockscreenLyricView(context: Context) : View(context) {
         if (!isMagazinePageHost()) return
         fogTintColor = accent
         magazineContrastColor = contrast
+        albumContrastColor = contrast
         this.lightGlyphAccent = lightGlyphAccent
         showFogBackground = !cfgImmersiveLyric
         immersiveMiBlurBlendKey = 0
@@ -298,6 +299,8 @@ class LockscreenLyricView(context: Context) : View(context) {
     private var fogTintColor: Int? = null
     /** 浅/过白底优先用的突出色字色；无突出色则为 null → 中灰。 */
     private var lightGlyphAccent: Int? = null
+    /** 专辑下半代表亮度（锁屏也用于过白封面判定，不依赖壁纸采样）。 */
+    private var albumContrastColor: Int? = null
     /** 画报页亮度代表色（与 accent 分离，专供浅/深字判定） */
     private var magazineContrastColor: Int? = null
     /** 画报页烘焙壁纸（仅取样，不持有所有权 / 不 recycle） */
@@ -1210,6 +1213,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     private fun clearFogCaches() {
         fogTintColor = null
         lightGlyphAccent = null
+        albumContrastColor = null
         magazineContrastColor = null
         fogShader = null
         fogShaderW = 0
@@ -1503,6 +1507,13 @@ class LockscreenLyricView(context: Context) : View(context) {
                     }
                     fogTintColor = tintColor
                     lightGlyphAccent = tintPair.lightGlyphAccent
+                    albumContrastColor = tintPair.contrast
+                    logI(
+                        "album tint contrast=#${Integer.toHexString(tintPair.contrast)} " +
+                            "soft=#${Integer.toHexString(tintColor)} " +
+                            "lightGlyph=${tintPair.lightGlyphAccent?.let { "#" + Integer.toHexString(it) } ?: "null"} " +
+                            "prominent=${tintPair.hasProminentAccent}"
+                    )
                     if (magazineHost) {
                         magazineContrastColor = tintPair.contrast
                     }
@@ -2196,7 +2207,8 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
         val modeBit = if (cfgImmersiveLyric) 0x10 else 0x20
         val magazineBit = if (isMagazinePageHost()) 0x40 else 0
-        val blendKey = blend xor bgRef xor (if (onLight) 0x91 else 0x92) xor modeBit xor magazineBit xor
+        val blendKey = blend xor bgRef xor (lightAccent ?: 0) xor
+            (if (onLight) 0x91 else 0x92) xor modeBit xor magazineBit xor
             (if (visibility == VISIBLE) 1 else 0)
         if (immersiveMiBlurActive &&
             blendKey == immersiveMiBlurBlendKey &&
@@ -2236,7 +2248,9 @@ class LockscreenLyricView(context: Context) : View(context) {
             logI(
                 "lyric MiBlur applied immersive=$cfgImmersiveLyric nearWhite=$onLight " +
                     "magazine=${isMagazinePageHost()} bgLum=${"%.2f".format(bgLum)} " +
-                    "bg=#${Integer.toHexString(bgRef)} blend=#${Integer.toHexString(blend)}"
+                    "bg=#${Integer.toHexString(bgRef)} blend=#${Integer.toHexString(blend)} " +
+                    "lightGlyph=${lightAccent?.let { "#" + Integer.toHexString(it) } ?: "null"} " +
+                    "albumContrast=${albumContrastColor?.let { "#" + Integer.toHexString(it) } ?: "null"}"
             )
         } else {
             clearImmersiveMiBlur()
@@ -2263,13 +2277,20 @@ class LockscreenLyricView(context: Context) : View(context) {
             0.0722f * Color.blue(color)) / 255f
     }
 
-    /** 近白/浅灰底：加深阴影，不切深色字。 */
+    /** 近白/浅灰底：加深阴影，不切深色字。过白专辑+突出色时也走浅底字色。 */
     private fun isNearWhiteBackground(color: Int): Boolean {
+        albumContrastColor?.let { album ->
+            if (lightGlyphAccent != null &&
+                AlbumTintExtractPolicy.isOverWhiteContrast(album)
+            ) {
+                return true
+            }
+        }
         val lum = colorLuminance(color)
-        if (lum < 0.88f) return false
+        if (lum < 0.72f) return false
         val hsv = FloatArray(3)
         Color.colorToHSV(color, hsv)
-        return hsv[1] < 0.18f
+        return hsv[1] < 0.22f || lum >= 0.88f
     }
 
     /**

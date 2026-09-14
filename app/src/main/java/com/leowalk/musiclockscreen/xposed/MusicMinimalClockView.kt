@@ -272,7 +272,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
         }
         val bgRef = contrastBackgroundColor()
         val tint = boostAlbumTint(albumTint ?: bgRef)
-        val onLight = isNearWhiteBackground(bgRef)
+        val onLight = isNearWhiteBackground(bgRef) || lightGlyphAccent != null
         val lightAccent = if (onLight) lightGlyphAccent else null
         val blurAlphas = MinimalClockTextStylePolicy.miBlurAlphas(onLight)
         val blend = MinimalClockTextStylePolicy.miBlurBlendRgb(onLight, tint, lightAccent)
@@ -321,7 +321,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
 
     private fun applyTextColors() {
         val bgRef = contrastBackgroundColor()
-        val onLight = isNearWhiteBackground(bgRef)
+        val onLight = isNearWhiteBackground(bgRef) || lightGlyphAccent != null
         val lightAccent = if (onLight) lightGlyphAccent else null
         val textAlpha = MinimalClockTextStylePolicy.CLOCK_TEXT_ALPHA
         val shadow = MinimalClockTextStylePolicy.shadowLayer(onLight)

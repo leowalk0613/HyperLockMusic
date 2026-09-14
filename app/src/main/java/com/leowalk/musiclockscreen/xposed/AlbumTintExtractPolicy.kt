@@ -28,7 +28,13 @@ internal object AlbumTintExtractPolicy {
     const val MIBLUR_BLEND_WEIGHT_ON_LIGHT = 0.12f
 
     /** 相对采样像素，chroma 加权总和超过此比例视为「有突出色」。 */
-    const val PROMINENT_ACCENT_RATIO = 0.025f
+    const val PROMINENT_ACCENT_RATIO = 0.008f
+
+    /** 过白图上：至少这么多带彩度像素才认作线稿/色点突出色。 */
+    const val OVERWHITE_MIN_CHROMA_PIXELS = 4
+
+    /** 过白图上：单像素最大 chroma 权重下限。 */
+    const val OVERWHITE_MIN_MAX_CHROMA = 0.035f
 
     /** 浅底回退中灰（无突出色时）。 */
     val LIGHT_BG_GRAY_FALLBACK: Int = rgb(118, 118, 122)
@@ -40,25 +46,52 @@ internal object AlbumTintExtractPolicy {
         if (maxC < 1f) return 0f
         val sat = (maxC - minC) / maxC
         val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
-        if (sat < 0.10f) return 0f
+        if (sat < 0.08f) return 0f
         if (lum < 0.08f) return 0f
         // 近白但有彩度：降权保留，避免被整片白底淹没
-        if (lum > 0.92f) {
-            if (sat < 0.18f) return 0f
-            return sat * sat * 0.35f
+        if (lum > 0.88f) {
+            if (sat < 0.10f) return 0f
+            // 越接近纯白权重越低，但仍保留淡金线
+            val nearWhitePenalty = ((lum - 0.88f) / 0.12f).coerceIn(0f, 1f)
+            return sat * sat * (0.55f - 0.25f * nearWhitePenalty)
         }
         val mid = 1f - abs(lum - 0.45f) / 0.45f
         return sat * sat * mid.coerceIn(0.15f, 1f)
     }
+
+    data class ChromaStats(
+        val opaqueCount: Int,
+        val chromaticCount: Int,
+        val accentWeightSum: Double,
+        val maxChromaWeight: Float,
+    )
 
     fun hasProminentAccent(accentWeightSum: Double, opaquePixelCount: Int): Boolean {
         if (opaquePixelCount <= 0) return false
         return accentWeightSum / opaquePixelCount.toDouble() >= PROMINENT_ACCENT_RATIO
     }
 
+    /**
+     * 过白封面常见细线稿：缩放后占比极低，需用「彩度像素数 + 峰值」兜底。
+     */
+    fun hasProminentAccent(stats: ChromaStats, overWhiteContrast: Boolean): Boolean {
+        if (stats.opaqueCount <= 0) return false
+        if (hasProminentAccent(stats.accentWeightSum, stats.opaqueCount)) return true
+        if (!overWhiteContrast) return false
+        if (stats.chromaticCount >= OVERWHITE_MIN_CHROMA_PIXELS &&
+            stats.maxChromaWeight >= OVERWHITE_MIN_MAX_CHROMA
+        ) {
+            return true
+        }
+        return stats.chromaticCount >= 2 &&
+            stats.maxChromaWeight >= 0.10f &&
+            stats.accentWeightSum >= 0.35
+    }
+
     fun isProminentRawAccent(color: Int): Boolean {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
-        return hsv[1] >= 0.12f && hsv[2] in 0.12f..0.96f
+        // 淡金线稿平均后可能偏亮，放宽上限
+        return hsv[1] >= 0.10f && hsv[2] in 0.10f..0.98f
     }
 
     /**

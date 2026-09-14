@@ -64,9 +64,10 @@ object BlurUtils {
             )
         }
 
-        val sampleW = 48
-        val sampleH = 48
-        val small = Bitmap.createScaledBitmap(albumBitmap, sampleW, sampleH, true)
+        // 原图步进采样：勿先缩到 48，细金/线稿会被双线性糊进白底
+        val targetSamples = 72
+        val stepX = max(1, w / targetSamples)
+        val stepY = max(1, h / targetSamples)
 
         fun accumulate(startRow: Int, endRow: Int): Acc {
             var rSum = 0L
@@ -77,10 +78,17 @@ object BlurUtils {
             var accentG = 0.0
             var accentB = 0.0
             var accentW = 0.0
-            for (y in startRow until endRow) {
-                for (x in 0 until sampleW) {
-                    val pixel = small.getPixel(x, y)
-                    if (Color.alpha(pixel) < 128) continue
+            var chromaticCount = 0
+            var maxChroma = 0f
+            var y = startRow
+            while (y < endRow) {
+                var x = 0
+                while (x < w) {
+                    val pixel = albumBitmap.getPixel(x, y)
+                    if (Color.alpha(pixel) < 128) {
+                        x += stepX
+                        continue
+                    }
                     val r = Color.red(pixel)
                     val g = Color.green(pixel)
                     val b = Color.blue(pixel)
@@ -94,40 +102,46 @@ object BlurUtils {
                         accentG += g * wChroma
                         accentB += b * wChroma
                         accentW += wChroma
+                        chromaticCount++
+                        if (wChroma > maxChroma) maxChroma = wChroma
                     }
+                    x += stepX
                 }
+                y += stepY
             }
-            return Acc(rSum, gSum, bSum, count, accentR, accentG, accentB, accentW)
+            return Acc(
+                rSum, gSum, bSum, count,
+                accentR, accentG, accentB, accentW,
+                chromaticCount, maxChroma,
+            )
         }
 
         // 先取下半：对比度代表色更贴近歌词区域
-        var acc = accumulate(sampleH / 2, sampleH)
+        var acc = accumulate(h / 2, h)
         if (acc.count == 0) {
-            if (small !== albumBitmap) small.recycle()
             return LowerHalfTint(
                 Color.rgb(40, 40, 44),
                 AlbumTintExtractPolicy.normalizeAccentTint(Color.GRAY),
             )
         }
-        var contrast = Color.rgb(
+        val contrast = Color.rgb(
             (acc.rSum / acc.count).toInt().coerceIn(0, 255),
             (acc.gSum / acc.count).toInt().coerceIn(0, 255),
             (acc.bSum / acc.count).toInt().coerceIn(0, 255),
         )
-        var prominent = AlbumTintExtractPolicy.hasProminentAccent(acc.accentW, acc.count)
+        val overWhite = AlbumTintExtractPolicy.isOverWhiteContrast(contrast)
+        var prominent = AlbumTintExtractPolicy.hasProminentAccent(acc.toChromaStats(), overWhite)
 
         // 过白封面下半常无色：全图再扫突出色（线稿金/彩点）
-        if (!prominent && AlbumTintExtractPolicy.isOverWhiteContrast(contrast)) {
-            val full = accumulate(0, sampleH)
+        if (!prominent && overWhite) {
+            val full = accumulate(0, h)
             if (full.count > 0 &&
-                AlbumTintExtractPolicy.hasProminentAccent(full.accentW, full.count)
+                AlbumTintExtractPolicy.hasProminentAccent(full.toChromaStats(), overWhiteContrast = true)
             ) {
                 acc = full
                 prominent = true
             }
         }
-
-        if (small !== albumBitmap) small.recycle()
 
         val rawAccent = if (prominent && acc.accentW > 1e-3) {
             Color.rgb(
@@ -161,7 +175,17 @@ object BlurUtils {
         val accentG: Double,
         val accentB: Double,
         val accentW: Double,
-    )
+        val chromaticCount: Int,
+        val maxChromaWeight: Float,
+    ) {
+        fun toChromaStats(): AlbumTintExtractPolicy.ChromaStats =
+            AlbumTintExtractPolicy.ChromaStats(
+                opaqueCount = count,
+                chromaticCount = chromaticCount,
+                accentWeightSum = accentW,
+                maxChromaWeight = maxChromaWeight,
+            )
+    }
 
     /** Accent from lower half. For light/dark use extractLowerHalfTintColors().contrast. */
     fun extractLowerHalfDominantColor(albumBitmap: Bitmap): Int =

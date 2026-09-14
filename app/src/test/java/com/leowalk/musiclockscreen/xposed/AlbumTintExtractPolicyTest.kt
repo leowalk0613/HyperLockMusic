@@ -60,8 +60,20 @@ class AlbumTintExtractPolicyTest {
     @Test
     fun hasProminentAccent_thresholdByWeightedRatio() {
         assertFalse(AlbumTintExtractPolicy.hasProminentAccent(0.0, 100))
-        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(2.0, 100)) // 0.02 < 0.025
-        assertTrue(AlbumTintExtractPolicy.hasProminentAccent(3.0, 100))
+        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(0.5, 100)) // 0.005 < 0.008
+        assertTrue(AlbumTintExtractPolicy.hasProminentAccent(1.0, 100))
+    }
+
+    @Test
+    fun hasProminentAccent_overWhiteSparseLineArt() {
+        val sparse = AlbumTintExtractPolicy.ChromaStats(
+            opaqueCount = 2000,
+            chromaticCount = 6,
+            accentWeightSum = 1.2,
+            maxChromaWeight = 0.08f,
+        )
+        assertFalse(AlbumTintExtractPolicy.hasProminentAccent(sparse, overWhiteContrast = false))
+        assertTrue(AlbumTintExtractPolicy.hasProminentAccent(sparse, overWhiteContrast = true))
     }
 
     @Test
