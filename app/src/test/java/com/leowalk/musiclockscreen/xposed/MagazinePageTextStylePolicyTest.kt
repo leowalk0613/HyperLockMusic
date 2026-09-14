@@ -21,19 +21,25 @@ class MagazinePageTextStylePolicyTest {
     }
 
     @Test
-    fun glyphs_alwaysNearWhiteNeverDeepBlack() {
+    fun lightBgGlyph_isSoftGrayNotDeepBlack() {
         val light = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = true)
         val dark = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = false)
-        assertEquals(0xFF, MagazinePageTextStylePolicy.red(light))
+        assertEquals(216, MagazinePageTextStylePolicy.red(light))
         assertEquals(0xFF, MagazinePageTextStylePolicy.red(dark))
-        assertTrue(MagazinePageTextStylePolicy.luminance(light) > 0.9f)
-        assertTrue(MagazinePageTextStylePolicy.luminance(dark) > 0.9f)
+        // 浅灰：明显亮于中灰，又略暗于纯白
+        assertTrue(MagazinePageTextStylePolicy.luminance(light) in 0.80f..0.95f)
+        assertTrue(MagazinePageTextStylePolicy.luminance(dark) > 0.95f)
+        assertTrue(MagazinePageTextStylePolicy.luminance(light) < MagazinePageTextStylePolicy.luminance(dark))
+    }
 
+    @Test
+    fun fallbackOnLight_staysLightGrayFamily() {
         val fallback = MagazinePageTextStylePolicy.fallbackReadableRgb(
             onLight = true,
             tintRgb = MagazinePageTextStylePolicy.rgb(40, 40, 40),
         )
-        assertTrue(MagazinePageTextStylePolicy.luminance(fallback) > 0.85f)
+        assertTrue(MagazinePageTextStylePolicy.luminance(fallback) > 0.75f)
+        assertTrue(MagazinePageTextStylePolicy.luminance(fallback) < 0.98f)
     }
 
     @Test
@@ -41,13 +47,5 @@ class MagazinePageTextStylePolicyTest {
         val sh = MagazinePageTextStylePolicy.glyphShadow(onLight = true)
         assertEquals(0, MagazinePageTextStylePolicy.red(sh.colorArgb))
         assertTrue((sh.colorArgb ushr 24) and 0xFF >= 200)
-    }
-
-    @Test
-    fun miBlurAlphas_stableWhitePath() {
-        val light = MagazinePageTextStylePolicy.miBlurAlphas(true)
-        val dark = MagazinePageTextStylePolicy.miBlurAlphas(false)
-        assertEquals(light.blendAlpha, dark.blendAlpha)
-        assertEquals(light.labAlpha, dark.labAlpha)
     }
 }

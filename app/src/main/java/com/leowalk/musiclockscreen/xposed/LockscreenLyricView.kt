@@ -2053,7 +2053,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 歌词文字染色：锁屏 / 画报优先真·MiBlur；一律近白字，浅底靠阴影保可读。
+     * 歌词文字染色：锁屏 / 画报优先真·MiBlur；深底近白，白底浅灰。
      */
     private fun applyImmersiveTextColors() {
         val bgRef = contrastBackgroundColor()
@@ -2071,8 +2071,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                 return
             }
             val onLight = immersiveMiBlurOnLightBg
-            mainPaint.color = Color.WHITE
-            secondPaint.color = Color.WHITE
+            val ink = MagazinePageTextStylePolicy.glyphBaseRgb(onLight)
+            mainPaint.color = ink
+            secondPaint.color = ink
             mainPaint.alpha = 255
             secondPaint.alpha = 255
             if (onLight) {
@@ -2100,10 +2101,11 @@ class LockscreenLyricView(context: Context) : View(context) {
             return
         }
         val onLight = isNearWhiteBackground(bgRef)
-        val mainColor = blendTextColor(Color.WHITE, tint, immersiveTintWeight)
+        val base = MagazinePageTextStylePolicy.glyphBaseRgb(onLight)
+        val mainColor = blendTextColor(base, tint, immersiveTintWeight)
         mainPaint.color = mainColor
         secondPaint.color = Color.argb(
-            160,
+            if (onLight) 190 else 160,
             Color.red(mainColor),
             Color.green(mainColor),
             Color.blue(mainColor),
@@ -2128,7 +2130,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             applyImmersiveTextColors()
             return
         }
-        // 对比度看「歌词背后的壁纸」，透色仍可用专辑色；字形始终近白
+        // 对比度看「歌词背后的壁纸」；深底近白、白底浅灰
         val bgRef = contrastBackgroundColor()
         val tint = boostAlbumTint(fogTintColor ?: bgRef)
         val bgLum = colorLuminance(bgRef)
@@ -2148,13 +2150,19 @@ class LockscreenLyricView(context: Context) : View(context) {
             labAlpha = alphas.labAlpha
         } else {
             onLight = isNearWhiteBackground(bgRef)
+            val base = MagazinePageTextStylePolicy.glyphBaseRgb(onLight)
             blend = blendTextColor(
-                Color.WHITE,
+                base,
                 tint,
                 AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
             )
-            primary = Color.WHITE
-            over = Color.argb(130, 255, 255, 255)
+            primary = base
+            over = Color.argb(
+                if (onLight) 120 else 130,
+                Color.red(base),
+                Color.green(base),
+                Color.blue(base),
+            )
             blendAlpha = 180
             labAlpha = 170
         }

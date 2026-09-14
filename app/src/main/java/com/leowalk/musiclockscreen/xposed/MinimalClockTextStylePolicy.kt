@@ -1,7 +1,7 @@
 package com.leowalk.musiclockscreen.xposed
 
 /**
- * 简洁时钟文字样式：一律近白字，不取深黑墨色；浅底靠更深阴影保对比。
+ * 简洁时钟文字样式：深底近白；白底略灰，不取深黑。
  */
 internal object MinimalClockTextStylePolicy {
 
@@ -17,6 +17,11 @@ internal object MinimalClockTextStylePolicy {
 
     /** 专辑色混入权重（近白浅彩） */
     const val TINT_WEIGHT = AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK
+
+    /** 浅底主字：与歌词共用浅灰。 */
+    val LIGHT_BG_GLYPH_RGB: Int get() = MagazinePageTextStylePolicy.LIGHT_BG_GLYPH_RGB
+
+    val DARK_BG_GLYPH_RGB: Int get() = MagazinePageTextStylePolicy.DARK_BG_GLYPH_RGB
 
     /** 简洁时钟字重：优先 Bold / Semibold，比歌词主行 Medium 更醒目 */
     val CLOCK_TYPEFACE_PATHS: Array<String> = arrayOf(
@@ -38,16 +43,19 @@ internal object MinimalClockTextStylePolicy {
         )
     }
 
-    /** 始终近白字 + 浅彩混色。 */
-    fun readableTextRgb(
-        @Suppress("UNUSED_PARAMETER") onLightBackground: Boolean,
-        tintRgb: Int,
-    ): Int = blendRgb(rgb(255, 255, 255), tintRgb, TINT_WEIGHT)
+    fun glyphBaseRgb(onLightBackground: Boolean): Int =
+        if (onLightBackground) LIGHT_BG_GLYPH_RGB else DARK_BG_GLYPH_RGB
 
-    fun miBlurBlendRgb(
-        @Suppress("UNUSED_PARAMETER") onLightBackground: Boolean,
-        tintRgb: Int,
-    ): Int = blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
+    /** 深底近白 / 白底浅灰 + 浅彩混色。 */
+    fun readableTextRgb(onLightBackground: Boolean, tintRgb: Int): Int =
+        blendRgb(glyphBaseRgb(onLightBackground), tintRgb, TINT_WEIGHT)
+
+    fun miBlurBlendRgb(onLightBackground: Boolean, tintRgb: Int): Int =
+        blendRgb(
+            glyphBaseRgb(onLightBackground),
+            tintRgb,
+            AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
+        )
 
     fun shadowLayer(onLightBackground: Boolean): ShadowSpec {
         return if (onLightBackground) {

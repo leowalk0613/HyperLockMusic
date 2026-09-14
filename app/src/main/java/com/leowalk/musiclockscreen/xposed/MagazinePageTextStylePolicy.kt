@@ -2,12 +2,18 @@ package com.leowalk.musiclockscreen.xposed
 
 /**
  * 画报页歌词 + 歌曲信息共用文字样式。
- * 一律近白字（可带极淡专辑色相）；浅底用更深阴影保可读，不取深黑墨色。
+ * 深底近白；白/浅底用浅灰字（不取深黑），靠阴影保对比。
  */
 internal object MagazinePageTextStylePolicy {
 
-    /** 亮度 ≥ 此值视为浅底（用于阴影强弱，不再切深色字）。 */
+    /** 亮度 ≥ 此值视为浅底。 */
     const val LIGHT_LUM_THRESHOLD = 0.55f
+
+    /** 浅底主字：略灰于纯白，仍属浅色系。 */
+    val LIGHT_BG_GLYPH_RGB: Int = rgb(216, 216, 220)
+
+    /** 深底主字。 */
+    val DARK_BG_GLYPH_RGB: Int = rgb(255, 255, 255)
 
     data class MiBlurAlphas(val blendAlpha: Int, val labAlpha: Int)
 
@@ -16,44 +22,46 @@ internal object MagazinePageTextStylePolicy {
     fun isLightBackground(color: Int): Boolean =
         luminance(color) >= LIGHT_LUM_THRESHOLD
 
-    /** 始终白/近白 primary，忽略 onLight。 */
-    fun miBlurPrimaryRgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean): Int =
-        rgb(255, 255, 255)
+    fun glyphBaseRgb(onLight: Boolean): Int =
+        if (onLight) LIGHT_BG_GLYPH_RGB else DARK_BG_GLYPH_RGB
 
-    fun miBlurOverArgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean): Int =
-        argb(140, 255, 255, 255)
+    fun miBlurPrimaryRgb(onLight: Boolean): Int = glyphBaseRgb(onLight)
 
-    fun miBlurBlendRgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean, tintRgb: Int): Int =
-        blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
+    fun miBlurOverArgb(onLight: Boolean): Int =
+        if (onLight) {
+            argb(120, red(LIGHT_BG_GLYPH_RGB), green(LIGHT_BG_GLYPH_RGB), blue(LIGHT_BG_GLYPH_RGB))
+        } else {
+            argb(140, 255, 255, 255)
+        }
+
+    fun miBlurBlendRgb(onLight: Boolean, tintRgb: Int): Int =
+        blendRgb(glyphBaseRgb(onLight), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
 
     fun miBlurAlphas(@Suppress("UNUSED_PARAMETER") onLight: Boolean): MiBlurAlphas =
         MiBlurAlphas(blendAlpha = 180, labAlpha = 170)
 
-    fun glyphPrimaryRgb(onLight: Boolean): Int = miBlurPrimaryRgb(onLight)
+    fun glyphPrimaryRgb(onLight: Boolean): Int = glyphBaseRgb(onLight)
 
-    fun glyphSecondaryArgb(@Suppress("UNUSED_PARAMETER") onLight: Boolean): Int {
-        val p = glyphPrimaryRgb(false)
-        return argb(170, red(p), green(p), blue(p))
+    fun glyphSecondaryArgb(onLight: Boolean): Int {
+        val p = glyphPrimaryRgb(onLight)
+        val a = if (onLight) 190 else 170
+        return argb(a, red(p), green(p), blue(p))
     }
 
     fun glyphShadow(onLight: Boolean): ShadowSpec =
         if (onLight) {
-            // 浅底白字：更深黑晕抬对比
             ShadowSpec(radius = 16f, dy = 4f, colorArgb = argb(245, 0, 0, 0))
         } else {
             ShadowSpec(radius = 14f, dy = 5f, colorArgb = argb(230, 0, 0, 0))
         }
 
-    /** MiBlur 未套上：白底混近白浅彩。 */
-    fun fallbackReadableRgb(
-        @Suppress("UNUSED_PARAMETER") onLight: Boolean,
-        tintRgb: Int,
-    ): Int = blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
+    fun fallbackReadableRgb(onLight: Boolean, tintRgb: Int): Int =
+        blendRgb(glyphBaseRgb(onLight), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
 
-    fun fallbackSecondaryArgb(
-        @Suppress("UNUSED_PARAMETER") onLight: Boolean,
-        mainRgb: Int,
-    ): Int = argb(160, red(mainRgb), green(mainRgb), blue(mainRgb))
+    fun fallbackSecondaryArgb(onLight: Boolean, mainRgb: Int): Int {
+        val a = if (onLight) 190 else 160
+        return argb(a, red(mainRgb), green(mainRgb), blue(mainRgb))
+    }
 
     fun fallbackShadow(onLight: Boolean): ShadowSpec =
         if (onLight) {

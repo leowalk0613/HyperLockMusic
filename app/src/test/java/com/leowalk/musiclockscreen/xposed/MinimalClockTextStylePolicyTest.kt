@@ -24,7 +24,7 @@ class MinimalClockTextStylePolicyTest {
     }
 
     @Test
-    fun readableText_alwaysStaysBright() {
+    fun readableText_onLight_isSoftGray_onDark_isNearWhite() {
         val onLight = MinimalClockTextStylePolicy.readableTextRgb(
             onLightBackground = true,
             tintRgb = MinimalClockTextStylePolicy.rgb(40, 40, 40),
@@ -33,8 +33,12 @@ class MinimalClockTextStylePolicyTest {
             onLightBackground = false,
             tintRgb = MinimalClockTextStylePolicy.rgb(40, 40, 40),
         )
-        assertTrue(MinimalClockTextStylePolicy.luminance(onLight) > 180f)
-        assertTrue(MinimalClockTextStylePolicy.luminance(onDark) > 180f)
+        assertTrue(MinimalClockTextStylePolicy.luminance(onLight) in 180f..245f)
+        assertTrue(MinimalClockTextStylePolicy.luminance(onDark) > 230f)
+        assertTrue(
+            MinimalClockTextStylePolicy.luminance(onLight) <
+                MinimalClockTextStylePolicy.luminance(onDark)
+        )
     }
 
     @Test
