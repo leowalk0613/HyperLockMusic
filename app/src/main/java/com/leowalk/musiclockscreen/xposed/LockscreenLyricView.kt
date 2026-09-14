@@ -102,9 +102,11 @@ class LockscreenLyricView(context: Context) : View(context) {
         magazineWallpaperBitmap = bitmap?.takeIf { !it.isRecycled }
         if (isMagazinePageHost()) {
             immersiveMiBlurBlendKey = 0
-            magazineMiBlurRevealed = true
-            // 只刷新字色，勿再走可见性门闩（避免无词时 fadeOut 清屏）
-            applyImmersiveTextColors()
+            if (visibility == VISIBLE && hasDisplayableText()) {
+                requestMagazineMiBlurRefresh()
+            } else {
+                applyImmersiveTextColors()
+            }
             invalidate()
         }
     }
@@ -127,9 +129,12 @@ class LockscreenLyricView(context: Context) : View(context) {
         this.lightGlyphAccent = null
         showFogBackground = !cfgImmersiveLyric
         immersiveMiBlurBlendKey = 0
-        magazineMiBlurRevealed = true
-        applyImmersiveTextColors()
-        invalidate()
+        if (visibility == VISIBLE && hasDisplayableText()) {
+            requestMagazineMiBlurRefresh()
+        } else {
+            applyImmersiveTextColors()
+            invalidate()
+        }
         try {
             magazineChromeStyleSync?.invoke()
         } catch (_: Throwable) {
@@ -2125,14 +2130,6 @@ class LockscreenLyricView(context: Context) : View(context) {
             applyImmersiveTextColors()
             return
         }
-        // 画报 Activity：自定义 Canvas View 套 PassWindowBlur/Member blend 会把字形吃掉
-        //（底栏 TextView 仍可走 MiBlur）。歌词只画实色黑/白 + 阴影。
-        if (isMagazinePageHost()) {
-            clearImmersiveMiBlur()
-            applyImmersiveTextColors()
-            magazineMiBlurRevealed = true
-            return
-        }
         if (!HyperMiBlurHelper.isSupported(context)) {
             clearImmersiveMiBlur()
             applyImmersiveTextColors()
@@ -2165,6 +2162,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             blendColor = blend,
             primaryColor = primary,
             colorDark = onLight,
+            // 画报：Pass blur + 采同窗壁纸，与底栏同款透色
             enablePassBlurOnSelf = if (isMagazinePageHost()) {
                 MagazinePageMiBlurPolicy.enablePassWindowBlur()
             } else {
@@ -2188,6 +2186,9 @@ class LockscreenLyricView(context: Context) : View(context) {
                 showFogBackground = false
             }
             applyImmersiveTextColors()
+            if (isMagazinePageHost()) {
+                magazineMiBlurRevealed = true
+            }
             logI(
                 "lyric MiBlur applied immersive=$cfgImmersiveLyric nearWhite=$onLight " +
                     "magazine=${isMagazinePageHost()} bgLum=${"%.2f".format(bgLum)} " +
@@ -2863,9 +2864,13 @@ class LockscreenLyricView(context: Context) : View(context) {
             bringToFront()
         } catch (_: Throwable) {
         }
-        // 实色字色；勿每帧重置 MiBlur key
-        applyImmersiveTextColors()
         requestLayout()
+        // 必须先 VISIBLE 再套 MiBlur（GONE 时 sync 会直接清掉）
+        syncImmersiveMiBlur()
+        if (!immersiveMiBlurActive) {
+            applyImmersiveTextColors()
+            requestMagazineMiBlurRefresh()
+        }
         invalidate()
     }
 
@@ -3552,8 +3557,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             }
         }
         if (focus.isNotEmpty()) {
-            // 沉浸栈需 timeline 索引才能画三行；无匹配时交还进度刷新
-            if (isImmersiveStackActive()) return false
+            // 无 timeline 时也要用焦点行填栈/主行，否则画报沉浸栈只画空格「完全没歌词」
             val hasSecond = lightSecond.trim().isNotEmpty()
             setLyricLines(
                 focus,
@@ -3955,13 +3959,22 @@ class LockscreenLyricView(context: Context) : View(context) {
         hasSecondLine = hasSecond
 
         if (cfgImmersiveLyric) {
-            rebuildImmersiveLayouts()
-            val h = if (isImmersiveStackActive()) {
-                computeImmersiveStackHeightPx()
+            if (isImmersiveStackActive()) {
+                // 轻量 l/s 无 timeline 时也必须填栈，否则 drawImmersiveStack 只剩空格
+                commitStackTriplet(
+                    ImmersiveLyricStackPolicy.lightFocusTriplet(
+                        current = main.ifBlank { " " },
+                        currentSecondary = if (hasSecond) second else "",
+                        prev = stackPrevText,
+                        next = stackNextText,
+                    ),
+                    index = lastStackLineIndex.coerceAtLeast(0),
+                    prepareSlideIn = false,
+                )
             } else {
-                computeLyricWidthPx()
+                rebuildImmersiveLayouts()
+                resizeKeepingBottom(computeLyricWidthPx())
             }
-            resizeKeepingBottom(h)
         } else {
             val layout = buildMainLayout(main.ifBlank { " " })
             mainStaticLayout = layout

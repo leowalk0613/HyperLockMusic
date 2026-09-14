@@ -87,4 +87,18 @@ class ImmersiveLyricStackPolicyTest {
         assertTrue(ImmersiveLyricStackPolicy.PROMOTION_MS <= 240L)
         assertTrue(ImmersiveLyricStackPolicy.PROMOTION_MS >= 160L)
     }
+
+    @Test
+    fun lightFocusTriplet_fillsCurrentWhenNoTimeline() {
+        val t = ImmersiveLyricStackPolicy.lightFocusTriplet(
+            current = "焦点行",
+            currentSecondary = "翻译",
+        )
+        assertEquals("焦点行", t.current)
+        assertEquals("翻译", t.currentSecondary)
+        assertEquals("", t.prev)
+        assertEquals("", t.next)
+        val blank = ImmersiveLyricStackPolicy.lightFocusTriplet(current = "  ")
+        assertEquals(" ", blank.current)
+    }
 }

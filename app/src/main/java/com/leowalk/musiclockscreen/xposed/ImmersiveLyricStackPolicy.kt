@@ -30,6 +30,21 @@ internal object ImmersiveLyricStackPolicy {
         val next: String,
     )
 
+    /**
+     * 无 timeline 时用焦点行填三行栈（prev/next 可空），避免只画空格。
+     */
+    fun lightFocusTriplet(
+        current: String,
+        currentSecondary: String = "",
+        prev: String = "",
+        next: String = "",
+    ): Triplet = Triplet(
+        prev = prev,
+        current = current.ifBlank { " " },
+        currentSecondary = currentSecondary,
+        next = next,
+    )
+
     fun resolveTriplet(
         lines: List<LineText>,
         index: Int,
