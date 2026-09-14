@@ -3991,8 +3991,30 @@ class LockscreenLyricView(context: Context) : View(context) {
 
         if (cfgImmersiveLyric) {
             if (isImmersiveStackActive()) {
-                // 轻量 l/s 无 timeline 时也必须填栈；切歌后常走此路径，按文本变化上滑
+                // 有时间轴时必须走 resolveTriplet，才能带上「下一句」邻行
+                val lines = cachedLines
+                if (lines != null && lines.isNotEmpty()) {
+                    val focus = main.trim()
+                    val byFocus = if (focus.isEmpty()) {
+                        -1
+                    } else {
+                        lines.indexOfFirst {
+                            it.text.trim() == focus || it.translation.trim() == focus
+                        }
+                    }
+                    val pos = getCurrentPosition()
+                    val found = if (pos >= 0) findCurrentLineIndex(lines, pos) else -1
+                    val rawIdx = AodLyricDisplayPolicy.clampLyricLineIndex(found, lines.size)
+                    val idx = LyricReceivePolicy.preferDisplayLineIndex(byFocus, rawIdx)
+                    if (idx >= 0) {
+                        applyImmersiveStackFromLines(lines, idx)
+                        notifyMagazineHostLyric(main)
+                        return
+                    }
+                }
+                // 无时间轴：按文本上滑；下一句未知则清空，避免切歌后卡成两行
                 val nextCurrent = main.ifBlank { " " }
+                val secondary = if (hasSecond) second else ""
                 val slide = shouldDisplayLyric() &&
                     HookUtils.isScreenInteractive(context) &&
                     ImmersiveLyricStackPolicy.shouldAnimateTextAdvance(
@@ -4002,20 +4024,28 @@ class LockscreenLyricView(context: Context) : View(context) {
                 if (slide) {
                     cancelLineTransition()
                     cancelStackAnimator(commitPending = false)
-                }
-                commitStackTriplet(
-                    ImmersiveLyricStackPolicy.lightFocusTriplet(
-                        current = nextCurrent,
-                        currentSecondary = if (hasSecond) second else "",
-                        prev = if (slide) stackCurrentText else stackPrevText,
-                        next = stackNextText,
-                    ),
-                    // 文本切行无可靠行号：保持 -1，避免旧曲大索引卡住 shouldAnimateAdvance
-                    index = if (slide) -1 else lastStackLineIndex,
-                    prepareSlideIn = slide,
-                )
-                if (slide) {
+                    commitStackTriplet(
+                        ImmersiveLyricStackPolicy.lightAdvanceTriplet(
+                            previousCurrent = stackCurrentText,
+                            newCurrent = nextCurrent,
+                            newSecondary = secondary,
+                            knownNext = "",
+                        ),
+                        index = -1,
+                        prepareSlideIn = true,
+                    )
                     animateStackSlideIn()
+                } else {
+                    commitStackTriplet(
+                        ImmersiveLyricStackPolicy.lightFocusTriplet(
+                            current = nextCurrent,
+                            currentSecondary = secondary,
+                            prev = stackPrevText,
+                            next = stackNextText,
+                        ),
+                        index = lastStackLineIndex,
+                        prepareSlideIn = false,
+                    )
                 }
             } else {
                 rebuildImmersiveLayouts()

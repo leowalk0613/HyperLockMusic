@@ -64,6 +64,27 @@ internal object ImmersiveLyricStackPolicy {
         next = next,
     )
 
+    /**
+     * 轻量切行：旧当前句升为上一句；下一句未知则清空（勿沿用过期 next，否则像「没有下一句」或重影）。
+     */
+    fun lightAdvanceTriplet(
+        previousCurrent: String,
+        newCurrent: String,
+        newSecondary: String = "",
+        knownNext: String = "",
+    ): Triplet {
+        val cur = newCurrent.ifBlank { " " }
+        val next = knownNext.trim().let { n ->
+            if (n.isEmpty() || n == cur.trim()) "" else n
+        }
+        return Triplet(
+            prev = previousCurrent.trim(),
+            current = cur,
+            currentSecondary = newSecondary,
+            next = next,
+        )
+    }
+
     fun resolveTriplet(
         lines: List<LineText>,
         index: Int,

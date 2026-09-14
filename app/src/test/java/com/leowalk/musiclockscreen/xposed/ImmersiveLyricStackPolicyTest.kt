@@ -43,6 +43,33 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
+    fun lightAdvanceTriplet_promotesPrev_andDropsStaleNext() {
+        val t = ImmersiveLyricStackPolicy.lightAdvanceTriplet(
+            previousCurrent = "第一句",
+            newCurrent = "第二句",
+            newSecondary = "trans",
+            knownNext = "第二句", // 过期 next 与当前相同 → 丢弃
+        )
+        assertEquals("第一句", t.prev)
+        assertEquals("第二句", t.current)
+        assertEquals("trans", t.currentSecondary)
+        assertEquals("", t.next)
+    }
+
+    @Test
+    fun resolveTriplet_keepsNextNeighbor() {
+        val lines = listOf(
+            ImmersiveLyricStackPolicy.LineText("A"),
+            ImmersiveLyricStackPolicy.LineText("B"),
+            ImmersiveLyricStackPolicy.LineText("C"),
+        )
+        val t = ImmersiveLyricStackPolicy.resolveTriplet(lines, 1, swapEnabled = false)
+        assertEquals("A", t.prev)
+        assertEquals("B", t.current)
+        assertEquals("C", t.next)
+    }
+
+    @Test
     fun resolveTriplet_keepsExpandedSecondary() {
         val lines = listOf(
             ImmersiveLyricStackPolicy.LineText("A", "a"),
