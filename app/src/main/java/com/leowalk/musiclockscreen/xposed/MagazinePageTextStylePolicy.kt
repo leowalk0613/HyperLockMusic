@@ -32,7 +32,8 @@ internal object MagazinePageTextStylePolicy {
 
     fun miBlurOverArgb(onLight: Boolean, lightAccent: Int? = null): Int {
         val base = glyphBaseRgb(onLight, lightAccent)
-        return argb(if (onLight) 120 else 140, red(base), green(base), blue(base))
+        // 浅底黑字：稍高的 over alpha，让 colorDark MiBlur 更明显
+        return argb(if (onLight) 160 else 140, red(base), green(base), blue(base))
     }
 
     /** MiBlur blend：直接用黑/白主色，不再混专辑 tint。 */
@@ -40,8 +41,12 @@ internal object MagazinePageTextStylePolicy {
     fun miBlurBlendRgb(onLight: Boolean, tintRgb: Int, lightAccent: Int? = null): Int =
         glyphBaseRgb(onLight, lightAccent)
 
-    fun miBlurAlphas(@Suppress("UNUSED_PARAMETER") onLight: Boolean): MiBlurAlphas =
-        MiBlurAlphas(blendAlpha = 180, labAlpha = 170)
+    fun miBlurAlphas(onLight: Boolean): MiBlurAlphas =
+        if (onLight) {
+            MiBlurAlphas(blendAlpha = 210, labAlpha = 200)
+        } else {
+            MiBlurAlphas(blendAlpha = 180, labAlpha = 170)
+        }
 
     fun glyphPrimaryRgb(onLight: Boolean, lightAccent: Int? = null): Int =
         glyphBaseRgb(onLight, lightAccent)

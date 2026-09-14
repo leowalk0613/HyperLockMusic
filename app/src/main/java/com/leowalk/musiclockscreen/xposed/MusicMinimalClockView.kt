@@ -318,12 +318,16 @@ class MusicMinimalClockView @JvmOverloads constructor(
 
     private fun applyTextColors() {
         val bgRef = contrastBackgroundColor()
-        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
+        val onLight = if (miBlurActive) miBlurOnLight else MagazinePageTextStylePolicy.isLightBackground(bgRef)
         val textAlpha = MinimalClockTextStylePolicy.CLOCK_TEXT_ALPHA
-        val shadow = MinimalClockTextStylePolicy.shadowLayer(onLight)
         textPaint.color = MinimalClockTextStylePolicy.readableTextRgb(onLight, bgRef)
         textPaint.alpha = textAlpha
-        textPaint.setShadowLayer(shadow.radius, 0f, shadow.dy, shadow.colorArgb)
+        if (miBlurActive) {
+            textPaint.setShadowLayer(0f, 0f, 0f, 0)
+        } else {
+            val shadow = MinimalClockTextStylePolicy.shadowLayer(onLight)
+            textPaint.setShadowLayer(shadow.radius, 0f, shadow.dy, shadow.colorArgb)
+        }
     }
 
     private fun contrastBackgroundColor(): Int {

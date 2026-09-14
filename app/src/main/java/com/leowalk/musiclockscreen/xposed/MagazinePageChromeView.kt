@@ -636,38 +636,27 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * 套真·MiBlur。
-     * 浅底：歌曲信息 TextView 只用实色深字（MiBlur+阴影在 TextView 上常只剩光晕）；
-     * 深底：再套 member blend，且清零 shadow。
+     * 套真·MiBlur（黑字/白字都走；浅底 colorDark=true）。
      * 柔光玻璃已由 [glassLayer] 承担 PassWindowBlur 时，字/钮不再自开 pass blur，避免双层冲突。
      */
     private fun applyTrueMiBlur(): Boolean {
         if (!isAttachedToWindow) return false
         val bgRef = contrastBackground ?: Color.rgb(40, 40, 44)
         val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
+        if (!HyperMiBlurHelper.isSupported(context)) {
+            for (v in infoTextTargets()) {
+                applyFallbackColors(v, onLight)
+            }
+            return false
+        }
         val passOnSelf = MagazinePageMiBlurPolicy.enablePassWindowBlur() &&
             !softGlassActive &&
             !(MagazinePageSoftGlassPolicy.enabled() && !MagazinePageSoftGlassPolicy.chromeEmbedsGlassLayer())
 
-        // 浅底：实色黑字最稳
-        if (onLight || !HyperMiBlurHelper.isSupported(context)) {
-            for (v in infoTextTargets()) {
-                try {
-                    HyperMiBlurHelper.clearTextBlend(v)
-                } catch (_: Throwable) {
-                }
-                applyFallbackColors(v, onLight = true)
-            }
-            if (HyperMiBlurHelper.isSupported(context)) {
-                applyButtonMiBlur(onLight = true, bgRef = bgRef, passOnSelf = passOnSelf)
-            }
-            return true
-        }
-
-        val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight = false)
-        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight = false, primary)
-        val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight = false)
-        val alphas = MagazinePageTextStylePolicy.miBlurAlphas(onLight = false)
+        val primary = MagazinePageTextStylePolicy.miBlurPrimaryRgb(onLight)
+        val blend = MagazinePageTextStylePolicy.miBlurBlendRgb(onLight, primary)
+        val over = MagazinePageTextStylePolicy.miBlurOverArgb(onLight)
+        val alphas = MagazinePageTextStylePolicy.miBlurAlphas(onLight)
         val radius = (48f * density).toInt().coerceIn(32, 96)
 
         var infoOk = true
@@ -686,12 +675,12 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
             )
             if (!ok) {
                 infoOk = false
-                applyFallbackColors(v, onLight = false)
+                applyFallbackColors(v, onLight)
                 continue
             }
-            applyInfoTextAppearance(v, onLight = false, primary)
+            applyInfoTextAppearance(v, onLight, primary)
         }
-        applyButtonMiBlur(onLight = false, bgRef = bgRef, passOnSelf = passOnSelf)
+        applyButtonMiBlur(onLight = onLight, bgRef = bgRef, passOnSelf = passOnSelf)
         return infoOk
     }
 

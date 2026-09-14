@@ -27,11 +27,19 @@ internal object MinimalClockTextStylePolicy {
 
     fun clockTypefaceFallbackBold(): Boolean = true
 
-    fun miBlurAlphas(@Suppress("UNUSED_PARAMETER") onLightBackground: Boolean): MiBlurAlphaPair {
-        return MiBlurAlphaPair(
-            blendAlpha = LYRIC_MI_BLUR_BLEND_DARK + 22,
-            labAlpha = LYRIC_MI_BLUR_LAB_DARK + 24,
-        )
+    fun miBlurAlphas(onLightBackground: Boolean): MiBlurAlphaPair {
+        return if (onLightBackground) {
+            // 黑字 colorDark：略加强，避免浅底看不出 MiBlur
+            MiBlurAlphaPair(
+                blendAlpha = LYRIC_MI_BLUR_BLEND_DARK + 40,
+                labAlpha = LYRIC_MI_BLUR_LAB_DARK + 40,
+            )
+        } else {
+            MiBlurAlphaPair(
+                blendAlpha = LYRIC_MI_BLUR_BLEND_DARK + 22,
+                labAlpha = LYRIC_MI_BLUR_LAB_DARK + 24,
+            )
+        }
     }
 
     fun glyphBaseRgb(onLightBackground: Boolean, lightAccent: Int? = null): Int =

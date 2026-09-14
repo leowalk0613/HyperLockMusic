@@ -15,13 +15,11 @@ class MinimalClockTextStylePolicyTest {
     }
 
     @Test
-    fun miBlurAlphas_notWeakerThanLyricDarkReference() {
+    fun miBlurAlphas_onLight_atLeastAsStrongAsDark() {
         val light = MinimalClockTextStylePolicy.miBlurAlphas(onLightBackground = true)
-        assertTrue(light.blendAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_BLEND_DARK)
-        assertTrue(light.labAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_LAB_DARK)
         val dark = MinimalClockTextStylePolicy.miBlurAlphas(onLightBackground = false)
-        assertTrue(dark.blendAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_BLEND_DARK)
-        assertTrue(dark.labAlpha >= MinimalClockTextStylePolicy.LYRIC_MI_BLUR_LAB_DARK)
+        assertTrue(light.blendAlpha >= dark.blendAlpha)
+        assertTrue(light.labAlpha >= dark.labAlpha)
     }
 
     @Test

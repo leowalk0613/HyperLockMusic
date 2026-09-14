@@ -2085,33 +2085,32 @@ class LockscreenLyricView(context: Context) : View(context) {
     }
 
     /**
-     * 歌词文字：模糊底亮→黑字，否则白字（不从专辑取色）。
+     * 歌词文字：模糊底亮→黑字，否则白字；MiBlur 生效时清阴影以免盖住 blend。
      */
     private fun applyImmersiveTextColors() {
         val bgRef = contrastBackgroundColor()
-        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
+        val onLight = if (immersiveMiBlurActive) {
+            immersiveMiBlurOnLightBg
+        } else {
+            MagazinePageTextStylePolicy.isLightBackground(bgRef)
+        }
+        val ink = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight)
+        mainPaint.color = ink
+        secondPaint.color = MagazinePageTextStylePolicy.glyphSecondaryArgb(onLight)
+        mainPaint.alpha = 255
+        secondPaint.alpha = 255
         if (immersiveMiBlurActive) {
-            val ink = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight)
-            mainPaint.color = ink
-            secondPaint.color = MagazinePageTextStylePolicy.glyphSecondaryArgb(onLight)
-            mainPaint.alpha = 255
-            secondPaint.alpha = 255
-            val sh = MagazinePageTextStylePolicy.glyphShadow(onLight)
-            mainPaint.setShadowLayer(sh.radius, 0f, sh.dy, sh.colorArgb)
-            secondPaint.setShadowLayer(sh.radius * 0.75f, 0f, sh.dy, sh.colorArgb)
+            mainPaint.setShadowLayer(0f, 0f, 0f, 0)
+            secondPaint.setShadowLayer(0f, 0f, 0f, 0)
             return
         }
-        applyMagazineAlbumTintPaint(bgRef)
+        val sh = MagazinePageTextStylePolicy.glyphShadow(onLight)
+        mainPaint.setShadowLayer(sh.radius, 0f, sh.dy, sh.colorArgb)
+        secondPaint.setShadowLayer(sh.radius * 0.75f, 0f, sh.dy, sh.colorArgb)
     }
 
     private fun applyMagazineAlbumTintPaint(bgRef: Int) {
-        val onLight = MagazinePageTextStylePolicy.isLightBackground(bgRef)
-        val mainColor = MagazinePageTextStylePolicy.fallbackReadableRgb(onLight, bgRef)
-        mainPaint.color = mainColor
-        secondPaint.color = MagazinePageTextStylePolicy.fallbackSecondaryArgb(onLight, mainColor)
-        val sh = MagazinePageTextStylePolicy.fallbackShadow(onLight)
-        mainPaint.setShadowLayer(sh.radius, 0f, sh.dy, sh.colorArgb)
-        secondPaint.setShadowLayer(sh.radius * 0.75f, 0f, sh.dy, sh.colorArgb)
+        applyImmersiveTextColors()
     }
 
     private fun syncImmersiveMiBlur() {
