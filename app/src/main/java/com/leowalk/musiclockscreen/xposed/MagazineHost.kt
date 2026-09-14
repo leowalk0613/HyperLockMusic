@@ -278,7 +278,14 @@ object MagazineHost {
         )
     }
 
-    fun shouldSuppressLeft(context: Context?): Boolean = false
+    /** 非画报 chrome：禁用系统画报右划快捷入口。 */
+    fun shouldSuppressLeft(context: Context? = appContext): Boolean {
+        val ctx = context ?: appContext ?: return false
+        return MagazineModePolicy.shouldSuppressMagazineLeftSwipe(
+            chromeMagazine = ConfigReader.isMagazineChrome(ctx),
+            musicWallpaperShowing = WallpaperController.isShowing(),
+        )
+    }
 
     /** 是否把左滑/右划画报入口改到模块 Activity（需画报模式且有音乐）。 */
     fun shouldRedirectLeft(context: Context? = appContext): Boolean {
@@ -324,26 +331,19 @@ object MagazineHost {
         }
     }
 
-    /** 画报模式：有音乐时强制左滑指向模块页；无音乐时清掉模块页目标并清覆盖，禁止误进黑页。 */
+    /**
+     * 画报模式 + 有音乐：强制左滑指向模块页。
+     * 否则：关掉系统左滑支持并清空目标，避免普通模式仍进官方画报快捷页 / 无音乐黑页。
+     */
     fun ensureLeftSwipeCapable(ctrl: Any?) {
         val c = ctrl ?: controller ?: return
         if (!shouldRedirectLeft()) {
             try {
                 if (overrideActive) clearOverride()
-                val current = try {
-                    c.javaClass.getDeclaredField("mPreLeftScreenActivityName").apply {
-                        isAccessible = true
-                    }.get(c) as? String
-                } catch (_: Throwable) {
-                    null
-                }
-                if (current == MagazineModePolicy.MAGAZINE_MUSIC_ACTIVITY ||
-                    (current != null && current.contains("MagazineMusicActivity"))
-                ) {
-                    setField(c, "mPreLeftScreenActivityName", "")
-                }
+                supportLeftField?.setBoolean(c, false)
+                setField(c, "mPreLeftScreenActivityName", "")
             } catch (e: Throwable) {
-                logE("clear magazine left target failed", e)
+                logE("disable magazine left swipe failed", e)
             }
             return
         }
@@ -505,13 +505,13 @@ object MagazineHostHook {
                     MagazineHost.attachController(chain.thisObject)
                     MagazineHost.ensureLeftSwipeCapable(chain.thisObject)
                     val ctx = MagazineHost.resolveContext(chain.thisObject)
-                    if (MagazineHost.shouldRedirectLeft(ctx)) {
-                        MagazineHost.markMagazinePageLaunched()
-                        MagazineHost.buildMusicLeftIntent()
-                    } else if (MagazineHost.isMagazineChromeActive(ctx)) {
-                        null
-                    } else {
-                        chain.proceed()
+                    when {
+                        MagazineHost.shouldRedirectLeft(ctx) -> {
+                            MagazineHost.markMagazinePageLaunched()
+                            MagazineHost.buildMusicLeftIntent()
+                        }
+                        // 非画报 chrome / 画报无音乐：不放行系统 emag
+                        else -> null
                     }
                 }
                 module.log(android.util.Log.INFO, TAG, "hooked getPreLeftScreenIntent")
@@ -540,9 +540,8 @@ object MagazineHostHook {
                             }
                             null
                         }
-                        // 无音乐：吞掉启动，禁止 proceed 拉起残留模块页
-                        MagazineHost.isMagazineChromeActive(ctx) -> null
-                        else -> chain.proceed()
+                        // 非画报 / 无音乐：吞掉，禁止系统画报快捷页与残留模块页
+                        else -> null
                     }
                 }
                 module.log(android.util.Log.INFO, TAG, "hooked startMagazineLeftActivity")
@@ -606,8 +605,9 @@ object MagazineHostHook {
                     module.hook(method).intercept { chain ->
                         when {
                             MagazineHost.shouldRedirectLeft() -> true
-                            // 画报模式无音乐：禁止左滑启动，避免黑页
-                            MagazineHost.isMagazineChromeActive() -> false
+                            // 非画报 chrome：禁系统画报；画报无音乐：禁启动避免黑页
+                            MagazineHost.shouldSuppressLeft() ||
+                                MagazineHost.isMagazineChromeActive() -> false
                             else -> chain.proceed()
                         }
                     }

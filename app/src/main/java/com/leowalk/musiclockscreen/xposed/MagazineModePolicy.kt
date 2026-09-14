@@ -55,11 +55,15 @@ internal object MagazineModePolicy {
         showLyric: Boolean,
     ): Boolean = chromeMagazine && lyricEnabled && showLyric
 
-    /** 激活期抑制左滑进真·画报：已改为不抑制，保留 API 供兼容。 */
+    /**
+     * 非画报 chrome：抑制系统画报左滑/右划快捷页（官方 emag）。
+     * 画报模式开启时不抑制；有音乐时由 [shouldRedirectMagazineLeftSwipe] 改到模块页，
+     * 无音乐时由宿主吞掉启动。
+     */
     fun shouldSuppressMagazineLeftSwipe(
         chromeMagazine: Boolean,
         musicWallpaperShowing: Boolean,
-    ): Boolean = false
+    ): Boolean = !chromeMagazine
 
     /**
      * 画报模式 + 有音乐时，才把左滑/右划进画报改到模块 Activity。

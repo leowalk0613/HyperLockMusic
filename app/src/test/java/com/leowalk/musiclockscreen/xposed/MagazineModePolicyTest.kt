@@ -61,10 +61,13 @@ class MagazineModePolicyTest {
     }
 
     @Test
-    fun suppressLeftSwipe_alwaysOff() {
+    fun suppressLeftSwipe_whenNotMagazineChrome() {
+        // 画报模式：不抑制（改由 redirect / 无音乐吞掉）
         assertFalse(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(true, true))
         assertFalse(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(true, false))
-        assertFalse(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(false, true))
+        // 普通/大专辑/沉浸：抑制系统画报右划快捷页
+        assertTrue(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(false, true))
+        assertTrue(MagazineModePolicy.shouldSuppressMagazineLeftSwipe(false, false))
     }
 
     @Test
