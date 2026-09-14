@@ -153,41 +153,6 @@ class MagazinePageChromePolicyTest {
         assertEquals("现场版", shrink.second)
         assertTrue(MagazinePageChromePolicy.shouldApplyInlineShrink("shrink", shrink.second))
         assertFalse(MagazinePageChromePolicy.shouldApplyInlineShrink("line", "现场版"))
-
-        val keep = MagazinePageChromePolicy.resolveTitleDisplay(
-            "Song (LIVE)",
-            "line",
-            keepWords = TitleBracketKeepWordsPolicy.enabledWords(""),
-        )
-        assertEquals("Song (LIVE)", keep.first)
-        assertEquals("", keep.second)
-        assertFalse(keep.third)
-
-        val mixed = MagazinePageChromePolicy.resolveTitleDisplay(
-            "Song (LIVE)（现场版）",
-            "line",
-            keepWords = TitleBracketKeepWordsPolicy.enabledWords(""),
-        )
-        assertEquals("Song", mixed.first)
-        assertEquals("LIVE 现场版", mixed.second)
-        assertTrue(mixed.third)
-
-        val custom = MagazinePageChromePolicy.resolveTitleDisplay(
-            "A (Demo)",
-            "line",
-            keepWords = listOf("Demo"),
-        )
-        assertEquals("A (Demo)", custom.first)
-        assertEquals("", custom.second)
-        assertFalse(custom.third)
-
-        val hideKeep = MagazinePageChromePolicy.resolveTitleDisplay(
-            "Song (LIVE)",
-            "hide",
-            keepWords = TitleBracketKeepWordsPolicy.enabledWords(""),
-        )
-        assertEquals("Song (LIVE)", hideKeep.first)
-        assertFalse(hideKeep.third)
     }
 
     @Test

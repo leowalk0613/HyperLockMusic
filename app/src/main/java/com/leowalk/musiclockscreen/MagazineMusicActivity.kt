@@ -519,7 +519,6 @@ class MagazineMusicActivity : AppCompatActivity() {
             resolveTrackTitle(meta),
             meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
             ModuleConfig.magazineTitleBracketMode,
-            ModuleConfig.getTitleBracketKeepWords(),
         )
         chromeView?.setSourceAppPackage(ctrl.packageName)
         chromeView?.setAlbumArt(

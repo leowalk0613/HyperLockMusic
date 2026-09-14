@@ -1,15 +1,12 @@
 package com.leowalk.musiclockscreen
 
-import android.content.Intent
 import android.widget.LinearLayout
 import com.leowalk.musiclockscreen.xposed.MagazineOtherSettingsPolicy
-import com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy
 
 /** 其他设置：壁纸模糊、媒体控件、简洁时钟、息屏缩放、锁屏常亮等。 */
 class OtherSettingsActivity : BaseScrollingActivity() {
 
     private var clockOptionsBlock: LinearLayout? = null
-    private var keepWordsSummaryTv: android.widget.TextView? = null
 
     override fun titleText() = "其他设置"
 
@@ -129,48 +126,24 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                 ModuleConfig.editTitleBracketMode = modes[index]
                 ModuleConfig.push(this)
             })
-
-            val keepSummary = TitleBracketKeepWordsPolicy.entryPageSummary(
-                ModuleConfig.getTitleBracketKeepEntries(),
-            )
-            val keepEntry = M3.cardEntryRow(
-                this,
-                "免处理词汇",
-                keepSummary,
-                titlePrimary = false,
-            ) {
-                startActivity(Intent(this, TitleBracketKeepWordsActivity::class.java))
-            }
-            // cardEntryRow 内第二个 TextView 为说明，用于返回后刷新摘要
-            val textCol = keepEntry.getChildAt(0) as? LinearLayout
-            keepWordsSummaryTv = textCol?.getChildAt(1) as? android.widget.TextView
-            titleCard.addView(keepEntry)
             list.addView(M3.card(this, titleCard))
         }
 
         list.addView(M3.card(this, M3.tipContent(this,
             if (mag) {
-                "画报模式：模糊 / 常亮 / 括号显示模式为画报独立档案；免处理词汇与普通锁屏互通。\n\n" +
+                "画报模式：模糊 / 常亮 / 括号显示模式为画报独立档案。\n\n" +
                     "修改后可重新进入画报页查看效果。"
             } else {
                 "模糊：壁纸用金字塔降采样 + box blur 烘焙（滑杆直接控制力度），锁屏再叠 MiBlur 遮罩；解锁清遮罩不影响桌面。改完请重新开关音乐锁屏。\n\n" +
                     "禁用息屏壁纸缩放对大专辑、沉浸封面与仅歌词模式均生效。\n\n" +
                     "AOD 完整媒体控件需重启系统界面后生效。\n\n" +
                     "歌名括号：默认原样显示；缩小置于标题右侧；隐藏去除括号；分行时主标题单行，有括号才显示副标题。\n\n" +
-                    "免处理词汇在独立页管理，与画报共用。\n\n" +
                     "修改后需重启系统界面或重新开关音乐锁屏生效。"
             })))
 
         if (MagazineOtherSettingsPolicy.showMinimalClock(mag)) {
             refreshClockOptions()
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        keepWordsSummaryTv?.text = TitleBracketKeepWordsPolicy.entryPageSummary(
-            ModuleConfig.getTitleBracketKeepEntries(),
-        )
     }
 
     private fun refreshClockOptions() {

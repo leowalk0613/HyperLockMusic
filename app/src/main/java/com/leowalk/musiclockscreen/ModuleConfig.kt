@@ -68,8 +68,6 @@ object ModuleConfig {
     private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
-    /** 括号不分离自定义词（逗号分隔）；与画报共用，无 magazine_ 键。 */
-    private const val KEY_TITLE_BRACKET_KEEP_WORDS = "title_bracket_keep_words"
     private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
     private const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
     private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
@@ -145,13 +143,6 @@ object ModuleConfig {
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        // 首次写入完整免处理词表，避免 SystemUI 读到空串时行为含糊
-        if (!getPrefs().contains(KEY_TITLE_BRACKET_KEEP_WORDS)) {
-            titleBracketKeepWords =
-                com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.serializeEntries(
-                    com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.resolveEntries(""),
-                )
-        }
     }
 
     private fun getPrefs(): SharedPreferences {
@@ -614,60 +605,6 @@ object ModuleConfig {
             ?: DEFAULT_TITLE_BRACKET_MODE
         set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_MODE, value).apply()
 
-    /**
-     * 括号「免处理」词库（`词=0/1`）。普通锁屏与画报共用。
-     * 空/未写：内置词默认全开。
-     */
-    var titleBracketKeepWords: String
-        get() = getPrefs().getString(KEY_TITLE_BRACKET_KEEP_WORDS, "") ?: ""
-        set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_KEEP_WORDS, value).apply()
-
-    /** 已开启的免处理词（含内置与自定义），供拆分匹配。 */
-    fun getTitleBracketKeepWords(): List<String> =
-        com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.enabledWords(
-            titleBracketKeepWords,
-        )
-
-    fun getTitleBracketKeepEntries():
-        List<com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.Entry> =
-        com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.resolveEntries(
-            titleBracketKeepWords,
-        )
-
-    fun saveTitleBracketKeepEntries(
-        entries: Collection<com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.Entry>,
-    ) {
-        titleBracketKeepWords =
-            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.serializeEntries(entries)
-    }
-
-    fun setTitleBracketKeepWordEnabled(word: String, enabled: Boolean) {
-        titleBracketKeepWords =
-            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.setEnabled(
-                titleBracketKeepWords,
-                word,
-                enabled,
-            )
-    }
-
-    fun addTitleBracketKeepWord(word: String): Boolean {
-        val (ok, next) =
-            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.tryAddCustom(
-                titleBracketKeepWords,
-                word,
-            )
-        if (ok) titleBracketKeepWords = next
-        return ok
-    }
-
-    fun removeTitleBracketKeepWord(word: String) {
-        titleBracketKeepWords =
-            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.removeCustom(
-                titleBracketKeepWords,
-                word,
-            )
-    }
-
     /** 开启后仅白名单内应用可开启/保持音乐锁屏 */
     var musicWhitelistEnabled: Boolean
         get() = getPrefs().getBoolean(KEY_MUSIC_WHITELIST_ENABLED, DEFAULT_MUSIC_WHITELIST_ENABLED)
@@ -739,7 +676,6 @@ object ModuleConfig {
                 put("disable_wallpaper_scale", if (disableWallpaperScale) 1 else 0)
                 put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
-                put("title_bracket_keep_words", titleBracketKeepWords)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)
                 put("music_whitelist", musicWhitelist)
             }

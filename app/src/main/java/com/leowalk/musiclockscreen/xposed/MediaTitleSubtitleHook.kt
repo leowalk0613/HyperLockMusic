@@ -64,7 +64,6 @@ object MediaTitleSubtitleHook {
             module.hook(setInfoText).intercept { chain ->
                 val result = chain.proceed()
                 try {
-                    if (shouldSkipMediaTitleRewrite(chain.thisObject)) return@intercept result
                     val h = holderField?.get(chain.thisObject)
                     (artistTextField.get(h) as? TextView)?.let { invalidateArtistCache(it) }
                     applyInlineSubtitle(chain.thisObject, titleTextField, artistTextField)
@@ -78,7 +77,6 @@ object MediaTitleSubtitleHook {
             module.hook(updateForegroundColors).intercept { chain ->
                 val result = chain.proceed()
                 try {
-                    if (shouldSkipMediaTitleRewrite(chain.thisObject)) return@intercept result
                     applyInlineSubtitle(chain.thisObject, titleTextField, artistTextField)
                 } catch (e: Throwable) {
                     logE("after updateForegroundColors error", e)
@@ -92,17 +90,6 @@ object MediaTitleSubtitleHook {
         }
     }
 
-    private fun shouldSkipMediaTitleRewrite(controller: Any): Boolean {
-        return try {
-            val holder = holderField?.get(controller) ?: return false
-            val titleField = holder.javaClass.getDeclaredField("titleText").apply { isAccessible = true }
-            val titleView = titleField.get(holder) as? TextView ?: return false
-            ConfigReader.isMagazineChrome(titleView.context)
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
     private fun applyInlineSubtitle(controller: Any, titleTextField: Field, artistTextField: Field) {
         val holder = holderField?.get(controller) ?: return
         val titleText = titleTextField.get(holder) as? TextView ?: return
@@ -113,8 +100,7 @@ object MediaTitleSubtitleHook {
         }
 
         val mode = ConfigReader.titleBracketMode(titleText.context)
-        val keepWords = ConfigReader.titleBracketKeepWords(titleText.context)
-        val (main, sub) = TitleBracketHelper.splitBrackets(rawTitle, keepWords)
+        val (main, sub) = TitleBracketHelper.splitBrackets(rawTitle)
         val artistText = artistTextField.get(holder) as? TextView
 
         if (mode == "line") {
@@ -128,18 +114,14 @@ object MediaTitleSubtitleHook {
 
         titleText.text = when (mode) {
             "shrink" -> {
-                if (sub.isEmpty()) {
-                    // 仅有免处理词或无括号：整段原样，不做缩小
-                    rawTitle
-                } else {
-                    buildSpannableTitle(main, sub, titleText.currentTextColor)
-                }
+                if (sub.isEmpty()) rawTitle
+                else buildSpannableTitle(main, sub, titleText.currentTextColor)
             }
             "hide" -> {
                 when {
                     sub.isEmpty() -> rawTitle
                     main.isEmpty() -> rawTitle
-                    else -> main // 已含免处理词括号
+                    else -> main
                 }
             }
             else -> rawTitle

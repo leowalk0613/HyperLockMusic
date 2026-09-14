@@ -40,7 +40,6 @@ object ConfigReader {
     private var cachedMinimalClockSize: Float = 30f
     private var cachedMinimalClockTopY: Float = 10f
     private var cachedTitleBracketMode: String = "default"
-    private var cachedTitleBracketKeepWords: String = ""
     private var cachedAodFullMedia: Boolean = true
     private var cachedDisableWallpaperScale: Boolean = true
     private var cachedWhitelistEnabled: Boolean = false
@@ -263,12 +262,6 @@ object ConfigReader {
         return cachedTitleBracketMode
     }
 
-    /** 括号免处理已开启词（与画报共用同一 ContentProvider 字段）。 */
-    fun titleBracketKeepWords(context: Context): List<String> {
-        refreshConfigIfNeeded(context)
-        return TitleBracketKeepWordsPolicy.enabledWords(cachedTitleBracketKeepWords)
-    }
-
     /** AOD 时完整显示媒体控件并实时更新进度条 */
     fun aodFullMedia(context: Context): Boolean {
         refreshConfigIfNeeded(context)
@@ -372,7 +365,6 @@ object ConfigReader {
                 val minimalClockSizeIdx = cursor.getColumnIndex("minimal_clock_size")
                 val minimalClockTopYIdx = cursor.getColumnIndex("minimal_clock_top_y")
                 val titleBracketModeIdx = cursor.getColumnIndex("title_bracket_mode")
-                val titleBracketKeepWordsIdx = cursor.getColumnIndex("title_bracket_keep_words")
                 val aodFullMediaIdx = cursor.getColumnIndex("aod_full_media")
                 val disableWallpaperScaleIdx = cursor.getColumnIndex("disable_wallpaper_scale")
                 val whitelistEnabledIdx = cursor.getColumnIndex("music_whitelist_enabled")
@@ -461,9 +453,6 @@ object ConfigReader {
                 }
                 if (titleBracketModeIdx >= 0) {
                     cachedTitleBracketMode = cursor.getString(titleBracketModeIdx) ?: "default"
-                }
-                if (titleBracketKeepWordsIdx >= 0) {
-                    cachedTitleBracketKeepWords = cursor.getString(titleBracketKeepWordsIdx) ?: ""
                 }
                 if (aodFullMediaIdx >= 0) {
                     cachedAodFullMedia = cursor.getInt(aodFullMediaIdx) == 1

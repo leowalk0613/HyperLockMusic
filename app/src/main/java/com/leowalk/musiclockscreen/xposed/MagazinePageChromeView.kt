@@ -343,31 +343,32 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         title: String?,
         artist: String?,
         titleBracketMode: String,
-        keepWords: Collection<String> = emptyList(),
     ) {
         bracketMode = titleBracketMode
         val (main, sub, showLine) = MagazinePageChromePolicy.resolveTitleDisplay(
             title,
             titleBracketMode,
-            keepWords,
         )
         artistView.text = MagazinePageChromePolicy.displayArtist(artist)
 
-        if (MagazinePageChromePolicy.shouldApplyInlineShrink(titleBracketMode, sub)) {
-            titleView.text = buildShrinkSpannable(main, sub)
-            subtitleView.text = ""
-            subtitleView.visibility = GONE
-        } else {
-            titleView.text = main
-            if (showLine && sub.isNotEmpty()) {
+        when {
+            MagazinePageChromePolicy.shouldApplyInlineShrink(titleBracketMode, sub) -> {
+                titleView.text = buildShrinkSpannable(main, sub)
+                subtitleView.text = ""
+                subtitleView.visibility = GONE
+            }
+            showLine && sub.isNotEmpty() -> {
+                titleView.text = main
                 subtitleView.text = sub
                 subtitleView.visibility = VISIBLE
-            } else {
+            }
+            else -> {
+                titleView.text = main
                 subtitleView.text = ""
                 subtitleView.visibility = GONE
             }
         }
-        val key = "$main\u0000${artistView.text}\u0000$titleBracketMode\u0000${keepWords.joinToString(",")}"
+        val key = "$main\u0000${artistView.text}\u0000$titleBracketMode"
         val titleChanged = key != lastTitleKey
         lastTitleKey = key
         relayoutAlbumArt()

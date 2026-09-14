@@ -48,7 +48,6 @@ class ConfigProvider : ContentProvider() {
         const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
         const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
         const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode"
-        const val KEY_TITLE_BRACKET_KEEP_WORDS = "title_bracket_keep_words"
         const val KEY_MEDIA_WALLPAPER_ACTIVE = "media_wallpaper_active"
         const val KEY_MEDIA_LISTENER_READY = "media_listener_ready"
         const val KEY_MEDIA_PLAYBACK_ACTIVE = "media_playback_active"
@@ -116,7 +115,6 @@ class ConfigProvider : ContentProvider() {
                 KEY_DISABLE_WALLPAPER_SCALE,
                 KEY_KEEP_LOCKSCREEN_ON,
                 KEY_TITLE_BRACKET_MODE,
-                KEY_TITLE_BRACKET_KEEP_WORDS,
                 KEY_MEDIA_WALLPAPER_ACTIVE,
                 KEY_MEDIA_LISTENER_READY,
                 KEY_MEDIA_PLAYBACK_ACTIVE,
@@ -164,7 +162,6 @@ class ConfigProvider : ContentProvider() {
                 if (prefs.getBoolean(KEY_KEEP_LOCKSCREEN_ON, false)) 1 else 0,
                 prefs.getString(KEY_TITLE_BRACKET_MODE, ModuleConfig.TITLE_BRACKET_DEFAULT)
                                     ?: ModuleConfig.TITLE_BRACKET_DEFAULT,
-                prefs.getString(KEY_TITLE_BRACKET_KEEP_WORDS, "") ?: "",
                 if (prefs.getBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_MEDIA_LISTENER_READY, false)) 1 else 0,
                 if (prefs.getBoolean(KEY_MEDIA_PLAYBACK_ACTIVE, false)) 1 else 0,
@@ -294,12 +291,6 @@ class ConfigProvider : ContentProvider() {
                 }
                 if (values.containsKey(KEY_TITLE_BRACKET_MODE)) {
                     editor.putString(KEY_TITLE_BRACKET_MODE, values.getAsString(KEY_TITLE_BRACKET_MODE))
-                }
-                if (values.containsKey(KEY_TITLE_BRACKET_KEEP_WORDS)) {
-                    editor.putString(
-                        KEY_TITLE_BRACKET_KEEP_WORDS,
-                        values.getAsString(KEY_TITLE_BRACKET_KEEP_WORDS) ?: "",
-                    )
                 }
                 if (values.containsKey(KEY_MEDIA_WALLPAPER_ACTIVE)) {
                     editor.putBoolean(KEY_MEDIA_WALLPAPER_ACTIVE, values.getAsInteger(KEY_MEDIA_WALLPAPER_ACTIVE) == 1)
