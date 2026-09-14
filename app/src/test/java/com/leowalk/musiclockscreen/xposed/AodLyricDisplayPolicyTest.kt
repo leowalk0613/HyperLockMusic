@@ -420,4 +420,24 @@ class AodLyricDisplayPolicyTest {
             )
         )
     }
+
+    @Test
+    fun lightLyric_unconfirmedTranslation_treatedAsPossibleNext() {
+        // 无译确认：s 为下一句；有译确认：s 为译文
+        val noTrans = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+            l = "当前句",
+            s = "下一句",
+            songHasTranslation = false,
+        )
+        assertEquals("当前句", noTrans.main)
+        assertEquals("下一句", noTrans.second)
+        assertFalse(noTrans.isTranslation)
+
+        val hasTrans = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+            l = "当前句",
+            s = "translation",
+            songHasTranslation = true,
+        )
+        assertTrue(hasTrans.isTranslation)
+    }
 }

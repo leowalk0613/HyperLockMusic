@@ -31,10 +31,10 @@ class MagazinePageSoftGlassPolicyTest {
     }
 
     @Test
-    fun softGlass_bottomInsetTightToControls() {
-        assertEquals(
-            MagazinePageSoftGlassPolicy.INSET_HORIZONTAL_DP,
-            MagazinePageSoftGlassPolicy.INSET_TOP_DP,
+    fun softGlass_verticalInsetTighterThanHorizontal() {
+        assertTrue(
+            MagazinePageSoftGlassPolicy.INSET_TOP_DP <
+                MagazinePageSoftGlassPolicy.INSET_HORIZONTAL_DP,
         )
         assertEquals(
             MagazinePageSoftGlassPolicy.INSET_TOP_DP,

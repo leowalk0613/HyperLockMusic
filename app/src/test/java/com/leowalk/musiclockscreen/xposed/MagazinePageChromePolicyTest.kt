@@ -78,8 +78,8 @@ class MagazinePageChromePolicyTest {
             MagazinePageChromePolicy.PLAY_BTN_SIZE_DP >
                 MagazinePageChromePolicy.CONTROL_BTN_SIZE_DP,
         )
-        assertTrue(MagazinePageChromePolicy.CONTROL_BTN_SIZE_DP in 28..36)
-        assertTrue(MagazinePageChromePolicy.PLAY_BTN_SIZE_DP in 36..48)
+        assertTrue(MagazinePageChromePolicy.CONTROL_BTN_SIZE_DP in 22..30)
+        assertTrue(MagazinePageChromePolicy.PLAY_BTN_SIZE_DP in 28..36)
         assertTrue(MagazinePageChromePolicy.CONTROL_GAP_MIN_DP in 8..20)
         assertTrue(MagazinePageChromePolicy.INFO_TO_CONTROLS_GAP_DP in 14..24)
         assertEquals(
@@ -90,9 +90,10 @@ class MagazinePageChromePolicyTest {
             MagazinePageChromePolicy.CONTENT_PAD_TOP_DP,
             MagazinePageChromePolicy.CONTENT_PAD_BOTTOM_DP,
         )
-        assertEquals(
-            MagazinePageChromePolicy.CONTENT_PAD_TOP_DP,
-            MagazinePageChromePolicy.CHROME_HORIZONTAL_PAD_DP,
+        // 上下内边距宽于左右，柔光底上下更饱满
+        assertTrue(
+            MagazinePageChromePolicy.CONTENT_PAD_TOP_DP >
+                MagazinePageChromePolicy.CHROME_HORIZONTAL_PAD_DP,
         )
         val rowMin =
             MagazinePageChromePolicy.CONTROL_BTN_SIZE_DP * 4 +

@@ -13,10 +13,10 @@ internal object MagazinePageChromePolicy {
     const val CHROME_BOTTOM_OFFSET_FRACTION = 1f / 8f
 
     /** 歌词 / 切歌 / 退出 边长（dp）。 */
-    const val CONTROL_BTN_SIZE_DP = 32
+    const val CONTROL_BTN_SIZE_DP = 26
 
     /** 播放/暂停略大一档（dp）。 */
-    const val PLAY_BTN_SIZE_DP = 40
+    const val PLAY_BTN_SIZE_DP = 32
 
     /** 兼容旧名。 */
     const val EDGE_BTN_SIZE_DP = CONTROL_BTN_SIZE_DP
@@ -35,12 +35,12 @@ internal object MagazinePageChromePolicy {
     const val PLAY_BTN_HEIGHT_DP = PLAY_BTN_SIZE_DP
 
     /**
-     * 内容区内边距（dp）：上下左右同一套。
+     * 内容区内边距（dp）：左右；上下略宽，柔光底更透气。
      */
     const val CONTENT_PAD_DP = 12
     const val CHROME_HORIZONTAL_PAD_DP = CONTENT_PAD_DP
-    const val CONTENT_PAD_TOP_DP = CONTENT_PAD_DP
-    const val CONTENT_PAD_BOTTOM_DP = CONTENT_PAD_DP
+    const val CONTENT_PAD_TOP_DP = 18
+    const val CONTENT_PAD_BOTTOM_DP = 18
 
     /** 歌曲信息行 → 按钮行间距（dp）。 */
     const val INFO_TO_CONTROLS_GAP_DP = 18
@@ -139,7 +139,7 @@ internal object MagazinePageChromePolicy {
      */
     fun estimatedChromeContentHeightPx(density: Float, scaledDensity: Float): Int {
         val d = density.coerceAtLeast(0.01f)
-        val pad = (CONTENT_PAD_DP * 2 * d).toInt()
+        val pad = ((CONTENT_PAD_TOP_DP + CONTENT_PAD_BOTTOM_DP) * d).toInt()
         val gap = (INFO_TO_CONTROLS_GAP_DP * d).toInt()
         val info = infoAlbumArtSizePx(density, scaledDensity)
         val btns = (PLAY_BTN_SIZE_DP * d).toInt()

@@ -133,6 +133,30 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
+    fun lightAdvanceTriplet_keepsKnownNextNeighbor() {
+        val t = ImmersiveLyricStackPolicy.lightAdvanceTriplet(
+            previousCurrent = "第一句",
+            newCurrent = "第二句",
+            knownNext = "第三句",
+        )
+        assertEquals("第一句", t.prev)
+        assertEquals("第二句", t.current)
+        assertEquals("第三句", t.next)
+    }
+
+    @Test
+    fun lightFocusTriplet_canKeepNextNeighbor() {
+        val t = ImmersiveLyricStackPolicy.lightFocusTriplet(
+            current = "当前",
+            prev = "上一句",
+            next = "下一句",
+        )
+        assertEquals("上一句", t.prev)
+        assertEquals("当前", t.current)
+        assertEquals("下一句", t.next)
+    }
+
+    @Test
     fun lightFocusTriplet_fillsCurrentWhenNoTimeline() {
         val t = ImmersiveLyricStackPolicy.lightFocusTriplet(
             current = "焦点行",

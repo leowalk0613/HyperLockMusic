@@ -18,10 +18,10 @@ internal object MagazinePageSoftGlassPolicy {
     /** 圆角（dp）。 */
     const val CORNER_RADIUS_DP = 28f
 
-    /** 玻璃层相对内容的内缩（dp）：四边一致。 */
+    /** 玻璃层相对内容的内缩（dp）：左右；上下略收，配合内容区上下加宽后背景更饱满。 */
     const val INSET_HORIZONTAL_DP = 8
-    const val INSET_TOP_DP = 8
-    const val INSET_BOTTOM_DP = 8
+    const val INSET_TOP_DP = 4
+    const val INSET_BOTTOM_DP = 4
 
     /** 混色不透明度 0–100（HyperChanger 默认 10）。 */
     const val OPACITY_PERCENT = 10

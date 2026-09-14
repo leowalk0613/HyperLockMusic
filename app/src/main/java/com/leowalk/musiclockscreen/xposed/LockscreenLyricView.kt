@@ -3501,7 +3501,11 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (AodLyricDisplayPolicy.hasValidLyricLines(neu)) {
                 if (ingestProviderPayload(neu, j, lastLyricVersion, lastLyricFdVersion)) {
                     applyLyricFromJson()
-                    // 仅当 l/s 真变了才用焦点盖进度；否则交给 refreshCurrentLineFromCache 切行
+                    // 有时间轴：必须交还 refresh 补齐三行 next + 连续上滑；勿 return true 挡住
+                    if (cachedLines?.isNotEmpty() == true) {
+                        return false
+                    }
+                    // 无时间轴：焦点行立刻上屏（含沉浸栈）
                     if (changed && newL.trim().isNotEmpty()) {
                         return applyLightFocusLineNow(newL, newS)
                     }
@@ -3583,13 +3587,24 @@ class LockscreenLyricView(context: Context) : View(context) {
             if (lines != null && lines.isNotEmpty()) {
                 return false
             }
-            // 无 timeline：用焦点行填栈/主行，避免画报沉浸栈只画空格
-            val hasSecond = lightSecond.trim().isNotEmpty()
+            // 无 timeline：用焦点行填栈/主行；s 可能是译文或下一句
+            val songHasTrans = try {
+                AodLyricDisplayPolicy.songHasTranslationFromCtx(
+                    JSONObject(lastLyricJson.trim().ifEmpty { "{}" }),
+                )
+            } catch (_: Throwable) {
+                null
+            }
+            val resolved = AodLyricDisplayPolicy.resolveLightLyricDisplay(
+                l = focus,
+                s = lightSecond,
+                songHasTranslation = songHasTrans,
+            )
             setLyricLines(
-                focus,
-                lightSecond.trim(),
-                hasSecond,
-                isTranslation = hasSecond,
+                resolved.main,
+                resolved.second,
+                resolved.hasSecond,
+                isTranslation = resolved.isTranslation,
             )
             finalizeLyricDisplayAfterContentUpdate()
             return true
@@ -4012,9 +4027,21 @@ class LockscreenLyricView(context: Context) : View(context) {
                         return
                     }
                 }
-                // 无时间轴：按文本上滑；下一句未知则清空，避免切歌后卡成两行
+                // 无时间轴：按文本上滑；未确认有译时 s 当作下一句邻行（LyricFocus 惯例）
                 val nextCurrent = main.ifBlank { " " }
-                val secondary = if (hasSecond) second else ""
+                val songHasTrans = try {
+                    AodLyricDisplayPolicy.songHasTranslationFromCtx(
+                        JSONObject(lastLyricJson.trim().ifEmpty { "{}" }),
+                    )
+                } catch (_: Throwable) {
+                    null
+                }
+                val secondTrim = if (hasSecond) second.trim() else ""
+                val useAsTranslation = hasSecond && secondIsTranslation && songHasTrans == true
+                val useAsNext = hasSecond && secondTrim.isNotEmpty() && !useAsTranslation &&
+                    (!secondIsTranslation || songHasTrans != true)
+                val secondary = if (useAsTranslation) secondTrim else ""
+                val knownNext = if (useAsNext) secondTrim else ""
                 val slide = shouldDisplayLyric() &&
                     HookUtils.isScreenInteractive(context) &&
                     ImmersiveLyricStackPolicy.shouldAnimateTextAdvance(
@@ -4029,7 +4056,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                             previousCurrent = stackCurrentText,
                             newCurrent = nextCurrent,
                             newSecondary = secondary,
-                            knownNext = "",
+                            knownNext = knownNext,
                         ),
                         index = -1,
                         prepareSlideIn = true,
@@ -4041,7 +4068,7 @@ class LockscreenLyricView(context: Context) : View(context) {
                             current = nextCurrent,
                             currentSecondary = secondary,
                             prev = stackPrevText,
-                            next = stackNextText,
+                            next = knownNext.ifBlank { stackNextText },
                         ),
                         index = lastStackLineIndex,
                         prepareSlideIn = false,
