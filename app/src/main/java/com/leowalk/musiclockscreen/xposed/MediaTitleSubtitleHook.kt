@@ -113,7 +113,8 @@ object MediaTitleSubtitleHook {
         }
 
         val mode = ConfigReader.titleBracketMode(titleText.context)
-        val (main, sub) = TitleBracketHelper.splitBrackets(rawTitle)
+        val keepWords = ConfigReader.titleBracketKeepWords(titleText.context)
+        val (main, sub) = TitleBracketHelper.splitBrackets(rawTitle, keepWords)
         val artistText = artistTextField.get(holder) as? TextView
 
         if (mode == "line") {

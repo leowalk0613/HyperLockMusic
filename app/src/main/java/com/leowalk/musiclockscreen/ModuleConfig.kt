@@ -68,6 +68,8 @@ object ModuleConfig {
     private const val KEY_MINIMAL_CLOCK_SIZE = "minimal_clock_size"
     private const val KEY_MINIMAL_CLOCK_TOP_Y = "minimal_clock_top_y"
     private const val KEY_TITLE_BRACKET_MODE = "title_bracket_mode" // default / shrink / hide
+    /** 括号不分离自定义词（逗号分隔）；与画报共用，无 magazine_ 键。 */
+    private const val KEY_TITLE_BRACKET_KEEP_WORDS = "title_bracket_keep_words"
     private const val KEY_AOD_FULL_MEDIA = "aod_full_media"
     private const val KEY_DISABLE_WALLPAPER_SCALE = "disable_wallpaper_scale"
     private const val KEY_KEEP_LOCKSCREEN_ON = "keep_lockscreen_on"
@@ -605,6 +607,24 @@ object ModuleConfig {
             ?: DEFAULT_TITLE_BRACKET_MODE
         set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_MODE, value).apply()
 
+    /**
+     * 括号「不分离」自定义词（逗号分隔）。普通锁屏与画报共用同一份。
+     * 内置 LIVE / inst / Instrumental 始终生效，不写入本字段。
+     */
+    var titleBracketKeepWords: String
+        get() = getPrefs().getString(KEY_TITLE_BRACKET_KEEP_WORDS, "") ?: ""
+        set(value) = getPrefs().edit().putString(KEY_TITLE_BRACKET_KEEP_WORDS, value).apply()
+
+    fun getTitleBracketKeepWords(): List<String> =
+        com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.parseCustomWords(
+            titleBracketKeepWords,
+        )
+
+    fun saveTitleBracketKeepWords(words: Collection<String>) {
+        titleBracketKeepWords =
+            com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.serializeCustomWords(words)
+    }
+
     /** 开启后仅白名单内应用可开启/保持音乐锁屏 */
     var musicWhitelistEnabled: Boolean
         get() = getPrefs().getBoolean(KEY_MUSIC_WHITELIST_ENABLED, DEFAULT_MUSIC_WHITELIST_ENABLED)
@@ -676,6 +696,7 @@ object ModuleConfig {
                 put("disable_wallpaper_scale", if (disableWallpaperScale) 1 else 0)
                 put("keep_lockscreen_on", if (keepLockScreenOn) 1 else 0)
                 put("title_bracket_mode", titleBracketMode)
+                put("title_bracket_keep_words", titleBracketKeepWords)
                 put("music_whitelist_enabled", if (musicWhitelistEnabled) 1 else 0)
                 put("music_whitelist", musicWhitelist)
             }

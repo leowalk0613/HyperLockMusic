@@ -247,9 +247,10 @@ internal object MagazinePageChromePolicy {
     fun resolveTitleDisplay(
         rawTitle: String?,
         bracketMode: String,
+        keepWords: Collection<String> = emptyList(),
     ): Triple<String, String, Boolean> {
         val raw = rawTitle?.trim()?.takeIf { it.isNotEmpty() } ?: "未知歌曲"
-        val (main, sub) = TitleBracketHelper.splitBrackets(raw)
+        val (main, sub) = TitleBracketHelper.splitBrackets(raw, keepWords)
         return when (bracketMode) {
             "hide" -> {
                 val t = main.ifEmpty { raw }
