@@ -9,6 +9,21 @@ import android.media.session.PlaybackState
 class MagazinePageChromePolicyTest {
 
     @Test
+    fun trackSwitch_crossfadeOnlyWhenReplacingVisibleArt() {
+        assertEquals(280L, MagazinePageChromePolicy.TRACK_ART_CROSSFADE_MS)
+        assertTrue(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, true))
+        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(false, true))
+        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(true, false))
+        assertFalse(MagazinePageChromePolicy.shouldCrossfadeAlbumArt(false, false))
+    }
+
+    @Test
+    fun trackSwitch_keepMiBlurWhenAlreadyActive() {
+        assertFalse(MagazinePageChromePolicy.shouldClearMiBlurOnTrackTextChange(true))
+        assertTrue(MagazinePageChromePolicy.shouldClearMiBlurOnTrackTextChange(false))
+    }
+
+    @Test
     fun chromeBand_floatsAboveBottomEighth() {
         assertEquals(1f / 8f, MagazinePageChromePolicy.CHROME_BOTTOM_OFFSET_FRACTION, 0.001f)
         assertEquals(125, MagazinePageChromePolicy.chromeBottomOffsetPx(1000))

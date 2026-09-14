@@ -72,6 +72,21 @@ internal object MagazinePageChromePolicy {
     /** 来源图标圆角（dp）。 */
     const val SOURCE_APP_ICON_CORNER_DP = 5f
 
+    /** 切歌时小封面交叉淡入时长（ms）。 */
+    const val TRACK_ART_CROSSFADE_MS = 280L
+
+    /**
+     * 已有可见封面 → 新封面：交叉淡入；首张出现 / 清空时不做交叉。
+     */
+    fun shouldCrossfadeAlbumArt(hadVisibleArt: Boolean, hasNewArt: Boolean): Boolean =
+        hadVisibleArt && hasNewArt
+
+    /**
+     * 切歌换字：MiBlur 已生效则原地改字、不清模糊层（避免整栏闪白）。
+     */
+    fun shouldClearMiBlurOnTrackTextChange(infoMiBlurActive: Boolean): Boolean =
+        !infoMiBlurActive
+
     /**
      * 行槽相对字号的倍率：MiSans 实际字形常高于 sp，槽位略高避免裁切。
      */

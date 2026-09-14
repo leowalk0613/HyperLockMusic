@@ -4,8 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Outline
-import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.TransitionDrawable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.RelativeSizeSpan
@@ -372,32 +375,62 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
         val titleChanged = key != lastTitleKey
         lastTitleKey = key
         relayoutAlbumArt()
-        // 切歌：先实色保证歌名本体可见；同曲已稳定则不再刷，避免 2s 轮询闪烁
-        if (titleChanged || !infoMiBlurActive) {
+        // 切歌原地换字：已有 MiBlur 不清层，避免整栏闪一下
+        if (titleChanged) {
+            if (MagazinePageChromePolicy.shouldClearMiBlurOnTrackTextChange(infoMiBlurActive)) {
+                paintSolidReadable(clearBlur = true)
+            }
+            scheduleMiBlurEnhance()
+        } else if (!infoMiBlurActive) {
             paintSolidReadable(clearBlur = true)
             scheduleMiBlurEnhance()
         }
     }
 
-    /** 歌名左侧小封面：圆角 + elevation 阴影；无图时隐藏，文字列仍占满中间。 */
+    /** 歌名左侧小封面：圆角 + elevation；切歌交叉淡入，不先藏再显。 */
     fun setAlbumArt(bitmap: Bitmap?) {
         val art = bitmap?.takeIf { !it.isRecycled }
+        val hadVisibleArt = albumArtWrap.visibility == VISIBLE && albumArtView.drawable != null
         if (art == null) {
             lastAlbumArtKey = ""
+            albumArtView.animate().cancel()
             albumArtView.setImageDrawable(null)
+            albumArtView.alpha = 1f
             albumArtWrap.visibility = GONE
             relayoutAlbumArt()
             return
         }
         val key = "${art.width}x${art.height}@${System.identityHashCode(art)}"
-        if (key != lastAlbumArtKey || albumArtWrap.visibility != VISIBLE) {
-            lastAlbumArtKey = key
-            albumArtView.setImageBitmap(art)
-            albumArtView.invalidateOutline()
-            albumArtWrap.invalidateOutline()
+        if (key == lastAlbumArtKey && albumArtWrap.visibility == VISIBLE) {
+            return
         }
+        lastAlbumArtKey = key
+        albumArtView.animate().cancel()
+        if (MagazinePageChromePolicy.shouldCrossfadeAlbumArt(hadVisibleArt, true)) {
+            val from = snapshotAlbumDrawable()
+            val to = BitmapDrawable(resources, art).mutate()
+            val transition = TransitionDrawable(arrayOf(from, to)).apply {
+                isCrossFadeEnabled = true
+            }
+            albumArtView.setImageDrawable(transition)
+            albumArtView.alpha = 1f
+            transition.startTransition(MagazinePageChromePolicy.TRACK_ART_CROSSFADE_MS.toInt())
+        } else {
+            albumArtView.setImageBitmap(art)
+            albumArtView.alpha = 1f
+        }
+        albumArtView.invalidateOutline()
+        albumArtWrap.invalidateOutline()
         albumArtWrap.visibility = VISIBLE
         relayoutAlbumArt()
+    }
+
+    /** TransitionDrawable 需要可变副本，避免与当前 ImageView drawable 互相干扰。 */
+    private fun snapshotAlbumDrawable(): Drawable {
+        val current = albumArtView.drawable
+        val copy = current?.constantState?.newDrawable()?.mutate()
+            ?: current?.mutate()
+        return copy ?: ColorDrawable(Color.TRANSPARENT)
     }
 
     /**
