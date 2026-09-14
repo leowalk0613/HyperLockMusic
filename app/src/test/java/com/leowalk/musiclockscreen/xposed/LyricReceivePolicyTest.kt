@@ -92,8 +92,9 @@ class LyricReceivePolicyTest {
     }
 
     @Test
-    fun dropTimeline_whenLightLineNotOnCachedAxis() {
-        assertTrue(
+    fun dropTimeline_onlyWhileWaitingForNewTrack() {
+        // IDLE：焦点短暂对不上仍保留时间轴，否则切歌后只剩轻量行、上滑失效
+        assertFalse(
             LyricReceivePolicy.shouldDropCachedTimeline(
                 lightMain = "新歌当前行",
                 cachedLineCount = 12,

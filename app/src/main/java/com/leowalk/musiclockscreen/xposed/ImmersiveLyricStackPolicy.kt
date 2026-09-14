@@ -30,6 +30,18 @@ internal object ImmersiveLyricStackPolicy {
     fun shouldAnimateAdvance(prevIndex: Int, nextIndex: Int): Boolean =
         prevIndex >= 0 && nextIndex > prevIndex
 
+    /**
+     * 无可靠行号（轻量 l/s / 切歌后时间轴暂丢）时：当前句文本变了也上滑。
+     * 空→首句不动画；空白占位不算内容。
+     */
+    fun shouldAnimateTextAdvance(previousCurrent: String, nextCurrent: String): Boolean {
+        val prev = previousCurrent.trim()
+        val next = nextCurrent.trim()
+        if (next.isEmpty()) return false
+        if (prev.isEmpty()) return false
+        return prev != next
+    }
+
     data class Triplet(
         val prev: String,
         val current: String,

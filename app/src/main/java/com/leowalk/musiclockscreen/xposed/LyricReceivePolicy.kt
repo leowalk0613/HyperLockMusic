@@ -72,8 +72,9 @@ internal object LyricReceivePolicy {
     }
 
     /**
-     * 轻量焦点行对不上缓存时间轴：时间轴属于上一首，应丢掉改用轻量行。
-     * 焦点能对上则保留（已是本曲全量）。
+     * 轻量焦点行对不上缓存时间轴。
+     * - WAITING：多半是上一首残留，丢掉。
+     * - IDLE：保留时间轴用进度切行（切歌后 LyricFocus 焦点常短暂对不上，丢掉会只走轻量行、上滑永久失效）。
      */
     fun shouldDropCachedTimeline(
         lightMain: String,
@@ -84,7 +85,7 @@ internal object LyricReceivePolicy {
         if (cachedLineCount <= 0) return false
         if (lightMatchesCachedLine) return false
         if (waitingForNewTrack) return true
-        return lightMain.trim().isNotEmpty()
+        return false
     }
 
     /** Session 歌名变化（双方非空且不匹配）视为切歌，不依赖 trackKey。 */

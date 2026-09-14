@@ -35,6 +35,14 @@ class ImmersiveLyricStackPolicyTest {
     }
 
     @Test
+    fun shouldAnimateTextAdvance_skipsFirstSeed_animatesLineChange() {
+        assertFalse(ImmersiveLyricStackPolicy.shouldAnimateTextAdvance("", "第一句"))
+        assertFalse(ImmersiveLyricStackPolicy.shouldAnimateTextAdvance(" ", "第一句"))
+        assertFalse(ImmersiveLyricStackPolicy.shouldAnimateTextAdvance("同一句", "同一句"))
+        assertTrue(ImmersiveLyricStackPolicy.shouldAnimateTextAdvance("第一句", "第二句"))
+    }
+
+    @Test
     fun resolveTriplet_keepsExpandedSecondary() {
         val lines = listOf(
             ImmersiveLyricStackPolicy.LineText("A", "a"),
