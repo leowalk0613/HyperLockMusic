@@ -21,31 +21,18 @@ class AlbumTintExtractPolicyTest {
     }
 
     @Test
-    fun normalizeAccent_rejectsNearWhiteAndBlack() {
+    fun normalizeAccent_washesTowardNearWhite() {
         val white = AlbumTintExtractPolicy.rgb(255, 255, 255)
         val black = AlbumTintExtractPolicy.rgb(0, 0, 0)
-        val fromWhite = AlbumTintExtractPolicy.normalizeAccentTint(white)
-        val fromBlack = AlbumTintExtractPolicy.normalizeAccentTint(black)
-        assertFalse(AlbumTintExtractPolicy.isNearWhiteOrBlack(fromWhite))
-        assertFalse(AlbumTintExtractPolicy.isNearWhiteOrBlack(fromBlack))
+        val crimson = AlbumTintExtractPolicy.rgb(180, 40, 60)
 
-        val hsvW = AlbumTintExtractPolicy.rgbToHsv(
-            AlbumTintExtractPolicy.red(fromWhite),
-            AlbumTintExtractPolicy.green(fromWhite),
-            AlbumTintExtractPolicy.blue(fromWhite),
-        )
-        assertTrue(hsvW[2] in 0.35f..0.8f)
-
-        val hsvB = AlbumTintExtractPolicy.rgbToHsv(
-            AlbumTintExtractPolicy.red(fromBlack),
-            AlbumTintExtractPolicy.green(fromBlack),
-            AlbumTintExtractPolicy.blue(fromBlack),
-        )
-        assertTrue(hsvB[2] in 0.35f..0.8f)
+        assertTrue(AlbumTintExtractPolicy.isWashedNearWhite(AlbumTintExtractPolicy.normalizeAccentTint(white)))
+        assertTrue(AlbumTintExtractPolicy.isWashedNearWhite(AlbumTintExtractPolicy.normalizeAccentTint(black)))
+        assertTrue(AlbumTintExtractPolicy.isWashedNearWhite(AlbumTintExtractPolicy.normalizeAccentTint(crimson)))
     }
 
     @Test
-    fun normalizeAccent_keepsHueBoostsSat() {
+    fun normalizeAccent_keepsHueSoftensSat() {
         val crimson = AlbumTintExtractPolicy.rgb(180, 40, 60)
         val out = AlbumTintExtractPolicy.normalizeAccentTint(crimson)
         val hsvIn = AlbumTintExtractPolicy.rgbToHsv(180, 40, 60)
@@ -54,8 +41,19 @@ class AlbumTintExtractPolicyTest {
             AlbumTintExtractPolicy.green(out),
             AlbumTintExtractPolicy.blue(out),
         )
-        assertEquals(hsvIn[0], hsvOut[0], 2f)
-        assertTrue(hsvOut[1] >= hsvIn[1] - 0.01f)
-        assertTrue(hsvOut[2] in 0.40f..0.74f)
+        assertEquals(hsvIn[0], hsvOut[0], 15f)
+        assertTrue(hsvOut[1] < hsvIn[1])
+        assertTrue(hsvOut[1] <= 0.18f)
+        assertTrue(hsvOut[2] >= 0.88f)
+    }
+
+    @Test
+    fun washAccentTowardWhite_staysNearWhiteGray() {
+        val vivid = AlbumTintExtractPolicy.rgb(30, 160, 220)
+        val washed = AlbumTintExtractPolicy.washAccentTowardWhite(
+            AlbumTintExtractPolicy.normalizeAccentTint(vivid)
+        )
+        assertTrue(AlbumTintExtractPolicy.isWashedNearWhite(washed))
+        assertFalse(AlbumTintExtractPolicy.isNearWhiteOrBlack(AlbumTintExtractPolicy.rgb(40, 40, 44)))
     }
 }

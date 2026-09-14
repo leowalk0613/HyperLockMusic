@@ -404,11 +404,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
     }
 
     private fun boostAlbumTint(color: Int): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        hsv[1] = (hsv[1] * 1.35f).coerceIn(0f, 1f)
-        hsv[2] = (hsv[2] * 1.12f).coerceIn(0.35f, 1f)
-        return Color.HSVToColor(hsv)
+        return AlbumTintExtractPolicy.washAccentTowardWhite(color)
     }
 
     private fun resolveMiSans(): Typeface {

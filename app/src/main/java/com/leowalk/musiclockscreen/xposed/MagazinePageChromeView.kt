@@ -845,11 +845,7 @@ class MagazinePageChromeView(context: Context) : FrameLayout(context) {
     }
 
     private fun boostTint(color: Int): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        hsv[1] = (hsv[1] * 1.15f).coerceIn(0f, 1f)
-        hsv[2] = hsv[2].coerceIn(0.35f, 0.92f)
-        return Color.HSVToColor(hsv)
+        return AlbumTintExtractPolicy.washAccentTowardWhite(color)
     }
 
     private fun blendTextColor(base: Int, tint: Int, weight: Float): Int {

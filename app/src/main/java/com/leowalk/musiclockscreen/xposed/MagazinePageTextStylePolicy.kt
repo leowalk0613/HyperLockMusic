@@ -24,9 +24,9 @@ internal object MagazinePageTextStylePolicy {
 
     fun miBlurBlendRgb(onLight: Boolean, tintRgb: Int): Int =
         if (onLight) {
-            blendRgb(rgb(14, 14, 16), tintRgb, 0.18f)
+            blendRgb(rgb(14, 14, 16), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT)
         } else {
-            blendRgb(rgb(255, 255, 255), tintRgb, 0.36f)
+            blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK)
         }
 
     fun miBlurAlphas(onLight: Boolean): MiBlurAlphas =
@@ -56,9 +56,9 @@ internal object MagazinePageTextStylePolicy {
     /** MiBlur 未套上时的可读混色。 */
     fun fallbackReadableRgb(onLight: Boolean, tintRgb: Int): Int =
         if (onLight) {
-            blendRgb(rgb(10, 10, 12), tintRgb, 0.12f)
+            blendRgb(rgb(10, 10, 12), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT)
         } else {
-            blendRgb(rgb(255, 255, 255), tintRgb, 0.28f)
+            blendRgb(rgb(255, 255, 255), tintRgb, AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK)
         }
 
     fun fallbackSecondaryArgb(onLight: Boolean, mainRgb: Int): Int {

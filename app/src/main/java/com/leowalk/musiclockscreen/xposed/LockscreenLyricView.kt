@@ -193,7 +193,7 @@ class LockscreenLyricView(context: Context) : View(context) {
     /** 翻译最多行数 */
     private val immersiveMaxSecondLines = 2
     /** 沉浸歌词文字混入专辑主色的比例 */
-    private val immersiveTintWeight = 0.28f
+    private val immersiveTintWeight = AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_DARK
     /** 锁屏歌词切行：离场 / 入场时长见 [LyricMotionPolicy] */
     private val lineFadeOutMs = LyricMotionPolicy.LINE_EXIT_MS
     private val lineFadeInMs = LyricMotionPolicy.LINE_ENTER_MS
@@ -2105,7 +2105,11 @@ class LockscreenLyricView(context: Context) : View(context) {
         }
         val onLight = isNearWhiteBackground(bgRef)
         val mainColor = if (onLight) {
-            blendTextColor(Color.rgb(32, 32, 34), tint, 0.28f)
+            blendTextColor(
+                Color.rgb(32, 32, 34),
+                tint,
+                AlbumTintExtractPolicy.GLYPH_TINT_WEIGHT_ON_LIGHT,
+            )
         } else {
             blendTextColor(Color.WHITE, tint, immersiveTintWeight)
         }
@@ -2159,13 +2163,21 @@ class LockscreenLyricView(context: Context) : View(context) {
             // 锁屏：仅近白转深色
             onLight = isNearWhiteBackground(bgRef)
             if (onLight) {
-                blend = blendTextColor(Color.rgb(24, 24, 26), tint, 0.40f)
+                blend = blendTextColor(
+                    Color.rgb(24, 24, 26),
+                    tint,
+                    AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_LIGHT,
+                )
                 primary = Color.rgb(22, 22, 24)
                 over = Color.argb(160, 0, 0, 0)
                 blendAlpha = 200
                 labAlpha = 230
             } else {
-                blend = blendTextColor(Color.WHITE, tint, 0.42f)
+                blend = blendTextColor(
+                    Color.WHITE,
+                    tint,
+                    AlbumTintExtractPolicy.MIBLUR_BLEND_WEIGHT_ON_DARK,
+                )
                 primary = Color.WHITE
                 over = Color.argb(130, 255, 255, 255)
                 blendAlpha = 180
@@ -2332,13 +2344,9 @@ class LockscreenLyricView(context: Context) : View(context) {
         secondPaint.isFakeBoldText = false
     }
 
-    /** 提高专辑色饱和度，混进白字后更易察觉 */
+    /** 字形混色前洗成近白浅彩（保留极淡色相）。 */
     private fun boostAlbumTint(color: Int): Int {
-        val hsv = FloatArray(3)
-        Color.colorToHSV(color, hsv)
-        hsv[1] = (hsv[1] * 1.35f).coerceIn(0f, 1f)
-        hsv[2] = (hsv[2] * 1.12f).coerceIn(0.35f, 1f)
-        return Color.HSVToColor(hsv)
+        return AlbumTintExtractPolicy.washAccentTowardWhite(color)
     }
 
     private fun resolveMiSansTypeface(bold: Boolean): Typeface {

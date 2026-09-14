@@ -5,14 +5,26 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 专辑/壁纸取色策略：对比度用背景亮度代表色，染色用有彩度的 accent。
- * 避免「白封面取白、黑封面取黑」再拿去混字色。
+ * 专辑/壁纸取色策略：对比度用背景亮度代表色，染色用「近白浅彩」accent。
+ * 保留一点色相提示，整体趋近白/浅灰，避免浓艳主题色抢戏。
  *
  * 不依赖 [android.graphics.Color] 的 HSV API，便于 JVM 单测。
  */
 internal object AlbumTintExtractPolicy {
 
     data class TintPair(val contrast: Int, val accent: Int)
+
+    /** 深底歌词/时钟混入 accent 的权重（越小越白）。 */
+    const val GLYPH_TINT_WEIGHT_ON_DARK = 0.10f
+
+    /** 浅底深色字混入 accent 的权重。 */
+    const val GLYPH_TINT_WEIGHT_ON_LIGHT = 0.08f
+
+    /** MiBlur blend 在深底上的 accent 权重。 */
+    const val MIBLUR_BLEND_WEIGHT_ON_DARK = 0.14f
+
+    /** MiBlur blend 在浅底上的 accent 权重。 */
+    const val MIBLUR_BLEND_WEIGHT_ON_LIGHT = 0.10f
 
     /** 近灰/近白/近黑：彩度权重为 0，不参与 accent 加权。 */
     fun chromaWeight(r: Int, g: Int, b: Int): Float {
@@ -29,26 +41,37 @@ internal object AlbumTintExtractPolicy {
     }
 
     /**
-     * 把 accent 拉到可读染色区间：抬饱和、钳制明度，禁止近白/近黑当「主题色」。
+     * 把 accent 洗成近白浅彩：保住色相，压饱和、抬明度。
+     * 禁止浓艳中明度「主题色」直接混字。
      */
     fun normalizeAccentTint(color: Int): Int {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
         val sat = hsv[1]
-        val value = hsv[2]
         when {
-            sat < 0.12f -> {
-                // 纯灰：中性中明度，混进字色几乎无感，避免变白/变黑字
-                hsv[1] = 0.06f
-                hsv[2] = 0.55f
-            }
-            value < 0.14f || value > 0.90f || sat < 0.22f -> {
-                hsv[1] = sat.coerceIn(0.38f, 1f)
-                hsv[2] = value.coerceIn(0.42f, 0.72f)
+            sat < 0.10f -> {
+                // 无彩：近白灰
+                hsv[1] = 0.02f
+                hsv[2] = 0.94f
             }
             else -> {
-                hsv[1] = (sat * 1.22f).coerceIn(0.40f, 1f)
-                hsv[2] = value.coerceIn(0.40f, 0.74f)
+                hsv[1] = (sat * 0.28f).coerceIn(0.04f, 0.16f)
+                hsv[2] = 0.93f
             }
+        }
+        return hsvToColor(hsv)
+    }
+
+    /**
+     * 字形混色前再洗一遍：进一步趋近白，只留极淡色相。
+     * 替代旧版「抬饱和」的 boostAlbumTint。
+     */
+    fun washAccentTowardWhite(color: Int): Int {
+        val hsv = rgbToHsv(red(color), green(color), blue(color))
+        hsv[1] = (hsv[1] * 0.55f).coerceIn(0f, 0.12f)
+        hsv[2] = max(hsv[2], 0.90f).coerceIn(0.90f, 0.98f)
+        if (hsv[1] < 0.03f) {
+            hsv[1] = 0.015f
+            hsv[2] = 0.95f
         }
         return hsvToColor(hsv)
     }
@@ -56,6 +79,12 @@ internal object AlbumTintExtractPolicy {
     fun isNearWhiteOrBlack(color: Int): Boolean {
         val hsv = rgbToHsv(red(color), green(color), blue(color))
         return hsv[2] < 0.12f || hsv[2] > 0.92f
+    }
+
+    /** 规范化后的 accent 是否落在近白浅彩区间。 */
+    fun isWashedNearWhite(color: Int): Boolean {
+        val hsv = rgbToHsv(red(color), green(color), blue(color))
+        return hsv[1] <= 0.18f && hsv[2] >= 0.88f
     }
 
     /** HSV：h∈[0,360)，s/v∈[0,1]。 */
