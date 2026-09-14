@@ -9,8 +9,11 @@ internal object MagazinePageTextStylePolicy {
     /** 亮度 ≥ 此值视为浅底。 */
     const val LIGHT_LUM_THRESHOLD = 0.55f
 
-    /** 浅底主字：略灰于纯白，仍属浅色系。 */
-    val LIGHT_BG_GLYPH_RGB: Int = rgb(216, 216, 220)
+    /**
+     * 浅底主字：中灰偏浅，白底可读，但不走深黑墨色。
+     * （过近白如 #D8D8DC 会几乎看不见）
+     */
+    val LIGHT_BG_GLYPH_RGB: Int = rgb(118, 118, 122)
 
     /** 深底主字。 */
     val DARK_BG_GLYPH_RGB: Int = rgb(255, 255, 255)

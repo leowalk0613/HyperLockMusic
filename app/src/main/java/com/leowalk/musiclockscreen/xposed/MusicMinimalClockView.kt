@@ -288,7 +288,7 @@ class MusicMinimalClockView @JvmOverloads constructor(
             view = this,
             blendColor = blend,
             primaryColor = primary,
-            colorDark = false,
+            colorDark = onLight,
             enablePassBlurOnSelf = true,
             passBlurRadius = (40f * resources.displayMetrics.density).toInt().coerceIn(24, 80),
             blendAlpha = blurAlphas.blendAlpha,

@@ -21,25 +21,26 @@ class MagazinePageTextStylePolicyTest {
     }
 
     @Test
-    fun lightBgGlyph_isSoftGrayNotDeepBlack() {
+    fun lightBgGlyph_isReadableMidGrayNotNearWhiteOrDeepBlack() {
         val light = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = true)
         val dark = MagazinePageTextStylePolicy.glyphPrimaryRgb(onLight = false)
-        assertEquals(216, MagazinePageTextStylePolicy.red(light))
+        assertEquals(118, MagazinePageTextStylePolicy.red(light))
         assertEquals(0xFF, MagazinePageTextStylePolicy.red(dark))
-        // 浅灰：明显亮于中灰，又略暗于纯白
-        assertTrue(MagazinePageTextStylePolicy.luminance(light) in 0.80f..0.95f)
+        val lum = MagazinePageTextStylePolicy.luminance(light)
+        // 中灰：白底可读，且远亮于深黑墨色
+        assertTrue(lum in 0.40f..0.55f)
         assertTrue(MagazinePageTextStylePolicy.luminance(dark) > 0.95f)
-        assertTrue(MagazinePageTextStylePolicy.luminance(light) < MagazinePageTextStylePolicy.luminance(dark))
+        assertTrue(lum > MagazinePageTextStylePolicy.luminance(MagazinePageTextStylePolicy.rgb(28, 28, 30)))
     }
 
     @Test
-    fun fallbackOnLight_staysLightGrayFamily() {
+    fun fallbackOnLight_staysMidGrayFamily() {
         val fallback = MagazinePageTextStylePolicy.fallbackReadableRgb(
             onLight = true,
-            tintRgb = MagazinePageTextStylePolicy.rgb(40, 40, 40),
+            tintRgb = MagazinePageTextStylePolicy.rgb(200, 180, 160),
         )
-        assertTrue(MagazinePageTextStylePolicy.luminance(fallback) > 0.75f)
-        assertTrue(MagazinePageTextStylePolicy.luminance(fallback) < 0.98f)
+        val lum = MagazinePageTextStylePolicy.luminance(fallback)
+        assertTrue(lum in 0.35f..0.60f)
     }
 
     @Test

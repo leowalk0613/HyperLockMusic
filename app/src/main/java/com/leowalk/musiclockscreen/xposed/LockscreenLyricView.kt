@@ -2181,7 +2181,7 @@ class LockscreenLyricView(context: Context) : View(context) {
             view = this,
             blendColor = blend,
             primaryColor = primary,
-            colorDark = false,
+            colorDark = onLight,
             enablePassBlurOnSelf = if (isMagazinePageHost()) {
                 MagazinePageMiBlurPolicy.enablePassWindowBlur()
             } else {
