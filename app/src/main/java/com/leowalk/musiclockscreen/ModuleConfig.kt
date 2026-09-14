@@ -145,6 +145,13 @@ object ModuleConfig {
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        // 首次写入完整免处理词表，避免 SystemUI 读到空串时行为含糊
+        if (!getPrefs().contains(KEY_TITLE_BRACKET_KEEP_WORDS)) {
+            titleBracketKeepWords =
+                com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.serializeEntries(
+                    com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy.resolveEntries(""),
+                )
+        }
     }
 
     private fun getPrefs(): SharedPreferences {

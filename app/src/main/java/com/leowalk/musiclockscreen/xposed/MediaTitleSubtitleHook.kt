@@ -128,11 +128,19 @@ object MediaTitleSubtitleHook {
 
         titleText.text = when (mode) {
             "shrink" -> {
-                if (sub.isEmpty()) rawTitle
-                else buildSpannableTitle(main, sub, titleText.currentTextColor)
+                if (sub.isEmpty()) {
+                    // 仅有免处理词或无括号：整段原样，不做缩小
+                    rawTitle
+                } else {
+                    buildSpannableTitle(main, sub, titleText.currentTextColor)
+                }
             }
             "hide" -> {
-                if (sub.isEmpty() || main.isEmpty()) rawTitle else main
+                when {
+                    sub.isEmpty() -> rawTitle
+                    main.isEmpty() -> rawTitle
+                    else -> main // 已含免处理词括号
+                }
             }
             else -> rawTitle
         }

@@ -253,7 +253,8 @@ internal object MagazinePageChromePolicy {
         val (main, sub) = TitleBracketHelper.splitBrackets(raw, keepWords)
         return when (bracketMode) {
             "hide" -> {
-                val t = main.ifEmpty { raw }
+                // 免处理词已留在 main；无其它括号时用 raw 以免丢形态
+                val t = if (sub.isEmpty()) raw else main.ifEmpty { raw }
                 Triple(t, "", false)
             }
             "line" -> {
@@ -261,8 +262,7 @@ internal object MagazinePageChromePolicy {
                 else Triple(main.ifEmpty { raw }, sub, true)
             }
             "shrink" -> {
-                // 主/副拆开，由 View 拼 Spannable；不单独占副标题行
-                if (sub.isEmpty()) Triple(main.ifEmpty { raw }, "", false)
+                if (sub.isEmpty()) Triple(raw, "", false)
                 else Triple(main.ifEmpty { raw }, sub, false)
             }
             else -> Triple(raw, "", false)

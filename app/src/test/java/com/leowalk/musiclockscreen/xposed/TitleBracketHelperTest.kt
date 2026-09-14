@@ -15,6 +15,23 @@ class TitleBracketHelperTest {
     }
 
     @Test
+    fun keepLive_fullwidthAndSquareBrackets() {
+        val (a, asub) = TitleBracketHelper.splitBrackets("曲（LIVE）", defaultsOn)
+        assertEquals("曲（LIVE）", a)
+        assertEquals("", asub)
+        val (b, bsub) = TitleBracketHelper.splitBrackets("曲【LIVE】名", defaultsOn)
+        assertEquals("曲【LIVE】名", b)
+        assertEquals("", bsub)
+    }
+
+    @Test
+    fun keepInst_withTrailingDot() {
+        val (main, sub) = TitleBracketHelper.splitBrackets("Track (inst.)", defaultsOn)
+        assertEquals("Track (inst.)", main)
+        assertEquals("", sub)
+    }
+
+    @Test
     fun disabledLive_goesToSubtitle() {
         val stored = TitleBracketKeepWordsPolicy.setEnabled("", "LIVE", false)
         val (main, sub) = TitleBracketHelper.splitBrackets(
@@ -72,6 +89,12 @@ class TitleBracketHelperTest {
         assertEquals("曲名 (LIVE)", line.first)
         assertEquals("现场版", line.second)
         assertTrue(line.third)
+
+        // 仅免处理词：三种模式都不得拆掉括号
+        val onlyKeep = "歌名（LIVE）"
+        assertEquals(onlyKeep, MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "hide", defaultsOn).first)
+        assertEquals(onlyKeep, MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "shrink", defaultsOn).first)
+        assertEquals(onlyKeep, MagazinePageChromePolicy.resolveTitleDisplay(onlyKeep, "line", defaultsOn).first)
     }
 
     @Test

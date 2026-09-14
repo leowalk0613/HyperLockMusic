@@ -29,7 +29,10 @@ object TitleBracketKeepWordsPolicy {
         return "已开 $on/${entries.size} · 普通与画报共用"
     }
 
-    fun normalizeKey(word: String): String = word.trim().lowercase()
+    fun normalizeKey(word: String): String =
+        word.trim()
+            .lowercase()
+            .trimEnd('.', '。', '·', '‧', ' ')
 
     fun isDefaultWord(word: String): Boolean {
         val key = normalizeKey(word)
@@ -41,9 +44,13 @@ object TitleBracketKeepWordsPolicy {
     fun enabledWords(stored: String?): List<String> =
         resolveEntries(stored).filter { it.enabled }.map { it.word }
 
+    /**
+     * 括号内全文（忽略大小写、尾标点）命中已开启词 → 免处理。
+     * 例如 LIVE / Live / live / inst. / Instrumental。
+     */
     fun shouldKeepBracketContent(inner: String, enabledWords: Collection<String>): Boolean {
         val key = normalizeKey(inner)
-        if (key.isEmpty()) return false
+        if (key.isEmpty() || enabledWords.isEmpty()) return false
         return enabledWords.any { normalizeKey(it) == key }
     }
 

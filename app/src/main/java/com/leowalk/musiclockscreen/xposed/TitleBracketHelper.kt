@@ -2,12 +2,12 @@ package com.leowalk.musiclockscreen.xposed
 
 /**
  * 歌名括号拆分。
- * [keepWords] 为已开启的「免处理」词：匹配的括号段原样留在主标题，
- * 不受隐藏 / 缩小 / 分行影响。
+ * 已开启的免处理词：括号段原样留在主标题，不进入副标题，因而也不被隐藏 / 缩小 / 分行改写。
  */
 object TitleBracketHelper {
 
-    private val BRACKET_RE = Regex("[（(]([^（）()]*)[）)]")
+    /** 半角/全角圆括号、方括号、书名号式方括号。 */
+    private val BRACKET_RE = Regex("[（(【\\[]([^）)\\】\\]]*)[）)\\】\\]]")
 
     fun splitBrackets(
         title: String?,
@@ -23,10 +23,14 @@ object TitleBracketHelper {
             if (inner.isNotEmpty() &&
                 TitleBracketKeepWordsPolicy.shouldKeepBracketContent(inner, keepWords)
             ) {
-                main.append(match.value)
+                // 原样保留括号及内部文本，不进 sub
+                main.append(title, match.range.first, match.range.last + 1)
             } else if (inner.isNotEmpty()) {
                 if (sub.isNotEmpty()) sub.append(' ')
                 sub.append(inner)
+            } else {
+                // 空括号也留在主标题，避免吞掉
+                main.append(title, match.range.first, match.range.last + 1)
             }
             last = match.range.last + 1
         }
