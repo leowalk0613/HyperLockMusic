@@ -8,6 +8,19 @@ import org.junit.Test
 class TitleBracketKeepWordsPolicyTest {
 
     @Test
+    fun foldHeader_showsCountWhenCollapsed() {
+        val entries = TitleBracketKeepWordsPolicy.resolveEntries("LIVE=1,inst=0,Instrumental=1")
+        assertEquals(
+            "免处理词汇 ▼（已开 2/3）",
+            TitleBracketKeepWordsPolicy.foldHeaderLabel(entries, expanded = false),
+        )
+        assertEquals(
+            "免处理词汇 ▲",
+            TitleBracketKeepWordsPolicy.foldHeaderLabel(entries, expanded = true),
+        )
+    }
+
+    @Test
     fun sharedAcrossModes_noMagazineSplit() {
         assertTrue(TitleBracketKeepWordsPolicy.isSharedAcrossModes())
     }

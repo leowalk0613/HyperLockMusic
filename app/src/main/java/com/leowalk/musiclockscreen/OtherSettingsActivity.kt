@@ -1,6 +1,7 @@
 package com.leowalk.musiclockscreen
 
 import android.util.TypedValue
+import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -15,7 +16,10 @@ import com.leowalk.musiclockscreen.xposed.TitleBracketKeepWordsPolicy
 class OtherSettingsActivity : BaseScrollingActivity() {
 
     private var clockOptionsBlock: LinearLayout? = null
+    private var keepWordsHeader: TextView? = null
+    private var keepWordsPanel: LinearLayout? = null
     private var keepWordsList: LinearLayout? = null
+    private var keepWordsExpanded: Boolean = false
 
     override fun titleText() = "其他设置"
 
@@ -137,7 +141,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
             })
 
             titleCard.addView(TextView(this).apply {
-                text = "免处理词汇（普通锁屏与画报共用）"
+                keepWordsHeader = this
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_ROW_TITLE_SP)
                 setTextColor(
                     M3.attrColor(
@@ -150,9 +154,17 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 14f) }
+                val ripple = android.util.TypedValue()
+                theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+                if (ripple.resourceId != 0) setBackgroundResource(ripple.resourceId)
+                setPadding(0, M3.dp(this@OtherSettingsActivity, 8f), 0, M3.dp(this@OtherSettingsActivity, 8f))
+                setOnClickListener {
+                    keepWordsExpanded = !keepWordsExpanded
+                    applyKeepWordsFoldState()
+                }
             })
             titleCard.addView(TextView(this).apply {
-                text = "开关开启时：括号内整词匹配不受隐藏 / 缩小 / 分行影响，仍原样显示在主标题括号里。"
+                text = "点上方展开。开启的词不受隐藏 / 缩小 / 分行影响，括号原样留在主标题；自定义词可删除。"
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, M3.CARD_DESC_SP)
                 setTextColor(
                     M3.attrColor(
@@ -161,21 +173,25 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                         0xFFCAC4D0.toInt(),
                     ),
                 )
+            })
+
+            keepWordsPanel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 4f) }
-            })
-
+                )
+            }
             keepWordsList = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 8f) }
+                ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 4f) }
             }
-            titleCard.addView(keepWordsList)
-            titleCard.addView(MaterialButton(this).apply {
+            keepWordsPanel!!.addView(keepWordsList)
+            keepWordsPanel!!.addView(MaterialButton(this).apply {
                 text = "添加自定义词"
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -183,7 +199,9 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                 ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 8f) }
                 setOnClickListener { showAddKeepWordDialog() }
             })
+            titleCard.addView(keepWordsPanel)
             refreshKeepWordsList()
+            applyKeepWordsFoldState()
             list.addView(M3.card(this, titleCard))
         }
 
@@ -210,40 +228,78 @@ class OtherSettingsActivity : BaseScrollingActivity() {
         M3.setControlsEnabled(clockOptionsBlock, ModuleConfig.minimalClock)
     }
 
+    private fun applyKeepWordsFoldState() {
+        keepWordsPanel?.visibility = if (keepWordsExpanded) View.VISIBLE else View.GONE
+        keepWordsHeader?.text = TitleBracketKeepWordsPolicy.foldHeaderLabel(
+            ModuleConfig.getTitleBracketKeepEntries(),
+            keepWordsExpanded,
+        )
+    }
+
     private fun refreshKeepWordsList() {
         val host = keepWordsList ?: return
         host.removeAllViews()
         ModuleConfig.getTitleBracketKeepEntries().forEach { entry ->
             host.addView(keepWordRow(entry))
         }
+        applyKeepWordsFoldState()
     }
 
     private fun keepWordRow(entry: TitleBracketKeepWordsPolicy.Entry): LinearLayout {
-        val label = if (entry.builtin) "${entry.word}（内置）" else entry.word
-        val row = M3.switchRow(
-            this,
-            label,
-            if (entry.builtin) null else "关闭后按普通括号处理；可删除",
-            entry.enabled,
-        ) { checked ->
-            ModuleConfig.setTitleBracketKeepWordEnabled(entry.word, checked)
-            ModuleConfig.push(this)
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = M3.dp(this@OtherSettingsActivity, 4f) }
         }
+        val label = if (entry.builtin) "${entry.word}（内置）" else entry.word
+        col.addView(
+            M3.switchRow(
+                this,
+                label,
+                if (entry.builtin) "关闭后按普通括号处理" else "关闭后按普通括号处理",
+                entry.enabled,
+            ) { checked ->
+                ModuleConfig.setTitleBracketKeepWordEnabled(entry.word, checked)
+                ModuleConfig.push(this)
+                applyKeepWordsFoldState()
+            },
+        )
         if (!entry.builtin) {
-            row.addView(
-                MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                    text = "删除"
-                    minimumHeight = 0
-                    minHeight = 0
-                    setOnClickListener {
-                        ModuleConfig.removeTitleBracketKeepWord(entry.word)
-                        ModuleConfig.push(this@OtherSettingsActivity)
-                        refreshKeepWordsList()
+            col.addView(
+                MaterialButton(
+                    this,
+                    null,
+                    com.google.android.material.R.attr.materialButtonOutlinedStyle,
+                ).apply {
+                    text = "删除「${entry.word}」"
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        topMargin = M3.dp(this@OtherSettingsActivity, 0f)
+                        bottomMargin = M3.dp(this@OtherSettingsActivity, 8f)
                     }
+                    setOnClickListener { confirmDeleteKeepWord(entry.word) }
                 },
             )
         }
-        return row
+        return col
+    }
+
+    private fun confirmDeleteKeepWord(word: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("删除自定义词")
+            .setMessage("确定删除「$word」？两边设置页会同步移除。")
+            .setPositiveButton("删除") { _, _ ->
+                ModuleConfig.removeTitleBracketKeepWord(word)
+                ModuleConfig.push(this)
+                refreshKeepWordsList()
+                Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun showAddKeepWordDialog() {
@@ -296,6 +352,7 @@ class OtherSettingsActivity : BaseScrollingActivity() {
                         err.text = "该词已在列表中"
                     else -> {
                         ModuleConfig.push(this)
+                        keepWordsExpanded = true
                         refreshKeepWordsList()
                         dialog.dismiss()
                         Toast.makeText(this, "已添加，两边设置页同步", Toast.LENGTH_SHORT).show()
